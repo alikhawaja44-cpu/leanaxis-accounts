@@ -7,6 +7,7 @@ import {
 
 // --- HELPER FUNCTIONS ---
 const formatCurrency = (amount) => {
+  if (amount === undefined || amount === null || isNaN(Number(amount))) return 'Rs0';
   return new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 }).format(amount);
 };
 
@@ -240,7 +241,7 @@ function App() {
   const filteredExpenses = useMemo(() => filterByDate(expenses), [expenses, selectedMonth, selectedYear]);
   const filteredSalaries = useMemo(() => filterByDate(salaries), [salaries, selectedMonth, selectedYear]);
   const filteredBankRecords = useMemo(() => filterByDate(bankRecords), [bankRecords, selectedMonth, selectedYear]);
-  const filteredClients = useMemo(() => clients, [clients]); 
+  const filteredClients = useMemo(() => filterByDate(clients), [clients, selectedMonth, selectedYear]); // Updated to use date filter
   const filteredVendors = useMemo(() => vendors, [vendors]);
 
   const totals = useMemo(() => {
@@ -352,7 +353,7 @@ function App() {
           </div>
           
           <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-            {view !== 'manage-users' && view !== 'clients' && view !== 'vendors' && (
+            {view !== 'manage-users' && view !== 'vendors' && (
                 <div className="flex items-center gap-2 bg-white border border-slate-300 rounded-lg px-3 py-2 shadow-sm w-full md:w-auto">
                     <Calendar size={18} className="text-slate-400" />
                     <select className="bg-transparent outline-none text-sm text-slate-700 w-full" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}>
@@ -372,7 +373,7 @@ function App() {
                 <div className="flex gap-2 w-full md:w-auto">
                   {view !== 'manage-users' && (
                       <button onClick={() => {
-                        if (view === 'clients') exportToCSV(clients, 'clients.csv');
+                        if (view === 'clients') exportToCSV(filteredClients, 'clients.csv'); // Export filtered clients
                         else if (view === 'vendors') exportToCSV(vendors, 'vendors.csv');
                         else if (view === 'petty-cash') exportToCSV(filteredPettyCash, 'petty_cash.csv');
                         else if (view === 'expenses') exportToCSV(filteredExpenses, 'expenses.csv');
@@ -438,7 +439,7 @@ function App() {
               <table className="w-full text-left min-w-[800px]">
                 <thead className="bg-slate-50 text-slate-600 font-semibold text-sm border-b border-slate-200">
                   <tr>
-                    {view === 'clients' && <><th className="p-4">Client Name</th><th className="p-4">Retainer (Monthly)</th><th className="p-4">Project Name</th><th className="p-4 text-right">Project Total</th><th className="p-4 text-right">Advance Received</th><th className="p-4 text-right">Balance</th></>}
+                    {view === 'clients' && <><th className="p-4">Date</th><th className="p-4">Client Name</th><th className="p-4">Retainer (Monthly)</th><th className="p-4">Project Name</th><th className="p-4 text-right">Project Total</th><th className="p-4 text-right">Advance Received</th><th className="p-4 text-right">Balance</th><th className="p-4">Status</th></>}
                     {view === 'petty-cash' && <><th className="p-4">Date</th><th className="p-4">Description</th><th className="p-4">Head</th><th className="p-4 text-right">Cash Out</th><th className="p-4 text-right">Cash In</th></>}
                     {view === 'expenses' && <><th className="p-4">Date</th><th className="p-4">Category</th><th className="p-4">Description</th><th className="p-4">Employee</th><th className="p-4 text-right">Amount</th></>}
                     {view === 'salaries' && <><th className="p-4">Employee</th><th className="p-4">Type</th><th className="p-4">Base Salary</th><th className="p-4 text-right">Overtime/Bonus</th><th className="p-4 text-right">Total Payable</th><th className="p-4">Status</th></>}
@@ -451,12 +452,14 @@ function App() {
                   
                   {view === 'clients' && filteredClients.map(item => (
                     <tr key={item.id} className="hover:bg-slate-50">
+                      <td className="p-4 text-sm text-slate-500">{item.date}</td>
                       <td className="p-4 font-medium text-sm">{item.name}</td>
                       <td className="p-4 text-sm text-green-600 font-bold">{formatCurrency(item.retainerAmount)}</td>
                       <td className="p-4 text-sm">{item.projectName || '-'}</td>
                       <td className="p-4 text-right text-sm">{formatCurrency(item.projectTotal)}</td>
                       <td className="p-4 text-right text-sm text-green-600">{formatCurrency(item.advanceReceived)}</td>
                       <td className="p-4 text-right text-sm font-bold text-red-600">{formatCurrency(Number(item.projectTotal) - Number(item.advanceReceived))}</td>
+                      <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold whitespace-nowrap ${item.status === 'Completed' ? 'bg-green-100 text-green-700' : item.status === 'Ongoing' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>{item.status || 'Ongoing'}</span></td>
                       <td className="p-4"><ActionButtons item={item} type="client" /></td>
                     </tr>
                   ))}
@@ -524,39 +527,6 @@ function App() {
           </div>
         )}
 
-        {/* USER MANAGEMENT VIEW */}
-        {view === 'manage-users' && (
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left min-w-[600px]">
-                        <thead className="bg-slate-50 text-slate-600 font-semibold text-sm border-b border-slate-200">
-                            <tr>
-                                <th className="p-4">Username</th>
-                                <th className="p-4">Email</th>
-                                <th className="p-4">Role</th>
-                                <th className="p-4">Password</th>
-                                <th className="p-4 text-center">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                            {users.map((u, idx) => (
-                                <tr key={idx} className="hover:bg-slate-50">
-                                    <td className="p-4 font-medium">{u.username}</td>
-                                    <td className="p-4 text-sm">{u.email}</td>
-                                    <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${u.role === 'Admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{u.role}</span></td>
-                                    <td className="p-4 font-mono text-slate-400 text-sm">••••••</td>
-                                    <td className="p-4 text-center flex justify-center">
-                                        <button onClick={() => handleEditUser(u)} className="text-slate-400 hover:text-blue-500 mr-2 p-1"><Edit size={18}/></button>
-                                        <button onClick={() => handleDeleteUser(u.username)} className={`text-slate-400 p-1 ${u.username === 'admin' ? 'cursor-not-allowed opacity-50' : 'hover:text-red-500'}`} disabled={u.username === 'admin'}><Trash2 size={18}/></button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        )}
-
         {/* MODAL FORM */}
         {showForm && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in zoom-in duration-200">
@@ -570,12 +540,16 @@ function App() {
                 
                 {view === 'clients' && (
                   <>
+                    <input required type="date" className="w-full border p-3 rounded-lg" value={formData.date || ''} onChange={e => setFormData({...formData, date: e.target.value})} />
                     <input required placeholder="Client Name" className="w-full border p-3 rounded-lg" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} />
                     <input type="number" placeholder="Monthly Retainer (PKR)" className="w-full border p-3 rounded-lg" value={formData.retainerAmount || ''} onChange={e => setFormData({...formData, retainerAmount: e.target.value})} />
                     <div className="pt-2 border-t mt-2"><p className="text-xs font-bold text-slate-500 uppercase mb-2">Project Details (Optional)</p></div>
                     <input placeholder="Project Name" className="w-full border p-3 rounded-lg" value={formData.projectName || ''} onChange={e => setFormData({...formData, projectName: e.target.value})} />
                     <input type="number" placeholder="Total Project Amount" className="w-full border p-3 rounded-lg" value={formData.projectTotal || ''} onChange={e => setFormData({...formData, projectTotal: e.target.value})} />
                     <input type="number" placeholder="Advance Received" className="w-full border p-3 rounded-lg" value={formData.advanceReceived || ''} onChange={e => setFormData({...formData, advanceReceived: e.target.value})} />
+                    <select className="w-full border p-3 rounded-lg bg-white" value={formData.status || 'Ongoing'} onChange={e => setFormData({...formData, status: e.target.value})}>
+                      <option value="Ongoing">Ongoing</option><option value="Completed">Completed</option><option value="On Hold">On Hold</option>
+                    </select>
                   </>
                 )}
 
