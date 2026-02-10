@@ -4,6 +4,22 @@ import {
   LayoutDashboard, Wallet, Receipt, Users, Building2, Briefcase, Truck,
   Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock
 } from 'lucide-react';
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js";
+import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore.js";
+
+// --- FIREBASE CONFIGURATION ---
+const firebaseConfig = {
+    apiKey: "AIzaSyAOFOgjdbdoUYBTldXOEEG636q1EM8EBfc",
+    authDomain: "leanaxis-accounts.firebaseapp.com",
+    projectId: "leanaxis-accounts",
+    storageBucket: "leanaxis-accounts.firebasestorage.app",
+    messagingSenderId: "855221056961",
+    appId: "1:855221056961:web:b4129012fa0f56f58a6b40"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 // --- HELPER FUNCTIONS ---
 const formatCurrency = (amount) => {
@@ -25,12 +41,36 @@ const exportToCSV = (data, filename) => {
   document.body.removeChild(link);
 };
 
-// --- MOCK DATA ---
+// --- MOCK DATA FOR FALLBACK ---
 const INITIAL_USERS = [
     { username: 'admin', password: 'admin123', email: 'admin@leanaxis.com', role: 'Admin' }
 ];
 
-// --- HOOK FOR LOCAL STORAGE ---
+// --- HOOK FOR FIREBASE SYNC ---
+function useFirebaseSync(collectionName, defaultValue = []) {
+    const [data, setData] = useState(defaultValue);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const q = query(collection(db, collectionName), orderBy("createdAt", "desc")); // Order by newest first
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setData(items);
+            setLoading(false);
+        }, (error) => {
+            console.error("Firebase sync error:", error);
+            // Fallback to local storage if firebase fails (optional)
+            const localData = localStorage.getItem(collectionName);
+            if (localData) setData(JSON.parse(localData));
+            setLoading(false);
+        });
+        return () => unsubscribe();
+    }, [collectionName]);
+
+    return [data, loading];
+}
+
+// --- LOCAL STORAGE HOOK (Legacy/User Auth) ---
 function useStickyState(defaultValue, key) {
   const [value, setValue] = useState(() => {
     const stickyValue = window.localStorage.getItem(key);
@@ -41,6 +81,7 @@ function useStickyState(defaultValue, key) {
   }, [key, value]);
   return [value, setValue];
 }
+
 
 // --- LOGIN COMPONENT ---
 const LoginView = ({ onLogin, loading, error }) => {
@@ -59,7 +100,7 @@ const LoginView = ({ onLogin, loading, error }) => {
            <div className="bg-blue-600 p-3 rounded-lg text-white font-bold text-2xl">LA</div>
         </div>
         <h2 className="text-2xl font-bold text-center text-slate-800 mb-2">LeanAxis Accounts</h2>
-        <p className="text-center text-slate-500 mb-8">Agency Management System</p>
+        <p className="text-center text-slate-500 mb-8">Cloud Agency System ☁️</p>
         
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -100,7 +141,10 @@ function App() {
   // Auth State
   const [isAuthenticated, setIsAuthenticated] = useStickyState(false, 'leanaxis_auth');
   const [currentUser, setCurrentUser] = useStickyState(null, 'leanaxis_current_user');
-  const [users, setUsers] = useStickyState(INITIAL_USERS, 'leanaxis_users'); 
+  
+  // Users still stored locally/synced separately for security (simplified)
+  // In a real app, users would be in Firebase Auth
+  const [localUsers, setLocalUsers] = useStickyState(INITIAL_USERS, 'leanaxis_users'); 
   const [authError, setAuthError] = useState(null);
 
   // Mobile Menu State
@@ -116,18 +160,19 @@ function App() {
   const [formData, setFormData] = useState({});
   const [isEditingUser, setIsEditingUser] = useState(false); 
   const [isEditingRecord, setIsEditingRecord] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // --- DATA STATES ---
-  const [pettyCash, setPettyCash] = useStickyState([], 'leanaxis_petty');
-  const [expenses, setExpenses] = useStickyState([], 'leanaxis_expenses');
-  const [salaries, setSalaries] = useStickyState([], 'leanaxis_salaries');
-  const [bankRecords, setBankRecords] = useStickyState([], 'leanaxis_bank');
-  const [clients, setClients] = useStickyState([], 'leanaxis_clients');
-  const [vendors, setVendors] = useStickyState([], 'leanaxis_vendors');
+  // --- FIREBASE DATA HOOKS ---
+  const [pettyCash] = useFirebaseSync('petty_cash');
+  const [expenses] = useFirebaseSync('expenses');
+  const [salaries] = useFirebaseSync('salaries');
+  const [bankRecords] = useFirebaseSync('bank_records');
+  const [clients] = useFirebaseSync('clients');
+  const [vendors] = useFirebaseSync('vendors');
 
   // --- HANDLERS ---
   const handleLogin = (loginInput, password) => {
-      const user = users.find(u => (u.username === loginInput || u.email === loginInput) && u.password === password);
+      const user = localUsers.find(u => (u.username === loginInput || u.email === loginInput) && u.password === password);
       if (user) { 
           setIsAuthenticated(true);
           setCurrentUser(user); 
@@ -143,16 +188,26 @@ function App() {
       setView('dashboard'); 
   };
 
+  const deleteRecord = async (collectionName, id) => {
+      try {
+          await deleteDoc(doc(db, collectionName, id));
+          // alert("Record deleted from cloud!"); // Silent deletion is smoother
+      } catch (e) {
+          console.error("Error deleting: ", e);
+          alert("Failed to delete record.");
+      }
+  };
+
   const handleDelete = (id, type) => {
     if (currentUser.role !== 'Admin') return alert('Access Denied: Only Admins can delete records.');
     if(!confirm('Delete this record? This cannot be undone.')) return;
     
-    if (type === 'petty') setPettyCash(pettyCash.filter(i => i.id !== id));
-    if (type === 'expense') setExpenses(expenses.filter(i => i.id !== id));
-    if (type === 'salary') setSalaries(salaries.filter(i => i.id !== id));
-    if (type === 'bank') setBankRecords(bankRecords.filter(i => i.id !== id));
-    if (type === 'client') setClients(clients.filter(i => i.id !== id));
-    if (type === 'vendor') setVendors(vendors.filter(i => i.id !== id));
+    if (type === 'petty') deleteRecord('petty_cash', id);
+    if (type === 'expense') deleteRecord('expenses', id);
+    if (type === 'salary') deleteRecord('salaries', id);
+    if (type === 'bank') deleteRecord('bank_records', id);
+    if (type === 'client') deleteRecord('clients', id);
+    if (type === 'vendor') deleteRecord('vendors', id);
   };
 
   const handleEdit = (item) => {
@@ -162,20 +217,41 @@ function App() {
       setShowForm(true);
   };
 
+  const saveToFirebase = async (collectionName, data, id = null) => {
+      setIsSubmitting(true);
+      try {
+          if (id) {
+             await updateDoc(doc(db, collectionName, id), { ...data, lastEditedBy: currentUser.username, lastEditedAt: new Date().toISOString() });
+             alert("Record updated in cloud!");
+          } else {
+             await addDoc(collection(db, collectionName), { ...data, addedBy: currentUser.username, createdAt: new Date().toISOString() });
+             alert("Record saved to cloud!");
+          }
+          setShowForm(false);
+          setFormData({});
+          setIsEditingRecord(false);
+      } catch (e) {
+          console.error("Error saving: ", e);
+          alert("Failed to save to cloud. Check internet connection.");
+      } finally {
+          setIsSubmitting(false);
+      }
+  };
+
   const handleAddSubmit = (e) => {
     e.preventDefault();
     
-    // User Management Handling
+    // User Management Handling (Still Local for this demo)
     if (view === 'manage-users') {
         if (isEditingUser) {
-            setUsers(users.map(u => u.username === formData.originalUsername ? { ...formData, originalUsername: undefined } : u));
+            setLocalUsers(localUsers.map(u => u.username === formData.originalUsername ? { ...formData, originalUsername: undefined } : u));
             alert("User updated successfully!");
         } else {
-            if (users.some(u => u.username === formData.username)) {
+            if (localUsers.some(u => u.username === formData.username)) {
                 alert("Username already exists!");
                 return;
             }
-            setUsers([...users, formData]);
+            setLocalUsers([...localUsers, formData]);
             alert("User added successfully!");
         }
         setShowForm(false);
@@ -184,32 +260,23 @@ function App() {
         return;
     }
 
-    // General Record Handling
-    if (isEditingRecord) {
-        // UPDATE EXISTING
-        const updatedItem = { ...formData, lastEditedBy: currentUser.username, lastEditedAt: new Date().toISOString() };
-        if (view === 'petty-cash') setPettyCash(pettyCash.map(i => i.id === updatedItem.id ? updatedItem : i));
-        if (view === 'expenses') setExpenses(expenses.map(i => i.id === updatedItem.id ? updatedItem : i));
-        if (view === 'salaries') setSalaries(salaries.map(i => i.id === updatedItem.id ? updatedItem : i));
-        if (view === 'bank') setBankRecords(bankRecords.map(i => i.id === updatedItem.id ? updatedItem : i));
-        if (view === 'clients') setClients(clients.map(i => i.id === updatedItem.id ? updatedItem : i));
-        if (view === 'vendors') setVendors(vendors.map(i => i.id === updatedItem.id ? updatedItem : i));
-        alert("Record updated successfully!");
-    } else {
-        // CREATE NEW
-        const id = Date.now();
-        const newItem = { ...formData, id, addedBy: currentUser.username, createdAt: new Date().toISOString() }; 
-        if (view === 'petty-cash') setPettyCash([newItem, ...pettyCash]);
-        if (view === 'expenses') setExpenses([newItem, ...expenses]);
-        if (view === 'salaries') setSalaries([newItem, ...salaries]);
-        if (view === 'bank') setBankRecords([newItem, ...bankRecords]);
-        if (view === 'clients') setClients([newItem, ...clients]);
-        if (view === 'vendors') setVendors([newItem, ...vendors]);
-    }
+    // Firebase Record Handling
+    const collectionMap = {
+        'petty-cash': 'petty_cash',
+        'expenses': 'expenses',
+        'salaries': 'salaries',
+        'bank': 'bank_records',
+        'clients': 'clients',
+        'vendors': 'vendors'
+    };
     
-    setShowForm(false);
-    setFormData({});
-    setIsEditingRecord(false);
+    const targetCollection = collectionMap[view];
+    if (targetCollection) {
+        const docId = isEditingRecord ? formData.id : null;
+        // Remove ID from formData before sending to update (firestore doesn't store ID inside doc data usually, but we keep it clean)
+        const { id, ...dataToSave } = formData; 
+        saveToFirebase(targetCollection, dataToSave, docId);
+    }
   };
 
   const handleEditUser = (user) => {
@@ -221,7 +288,7 @@ function App() {
   const handleDeleteUser = (username) => {
       if (username === 'admin') { alert("Cannot delete main admin!"); return; }
       if (!confirm("Delete user?")) return;
-      setUsers(users.filter(u => u.username !== username));
+      setLocalUsers(localUsers.filter(u => u.username !== username));
   };
 
   // --- FILTERING & CALCULATIONS ---
@@ -241,7 +308,7 @@ function App() {
   const filteredExpenses = useMemo(() => filterByDate(expenses), [expenses, selectedMonth, selectedYear]);
   const filteredSalaries = useMemo(() => filterByDate(salaries), [salaries, selectedMonth, selectedYear]);
   const filteredBankRecords = useMemo(() => filterByDate(bankRecords), [bankRecords, selectedMonth, selectedYear]);
-  const filteredClients = useMemo(() => filterByDate(clients), [clients, selectedMonth, selectedYear]); // Updated to use date filter
+  const filteredClients = useMemo(() => filterByDate(clients), [clients, selectedMonth, selectedYear]); 
   const filteredVendors = useMemo(() => vendors, [vendors]);
 
   const totals = useMemo(() => {
@@ -650,7 +717,9 @@ function App() {
 
                 <div className="flex gap-3 justify-end mt-8">
                   <button type="button" onClick={() => setShowForm(false)} className="px-6 py-3 text-slate-500 hover:bg-slate-100 rounded-lg font-medium">Cancel</button>
-                  <button type="submit" className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold shadow-lg shadow-blue-200">Save</button>
+                  <button type="submit" disabled={isSubmitting} className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold shadow-lg shadow-blue-200">
+                    {isSubmitting ? 'Saving...' : 'Save'}
+                  </button>
                 </div>
               </form>
             </div>
