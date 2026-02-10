@@ -114,6 +114,7 @@ function App() {
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({});
   const [isEditingUser, setIsEditingUser] = useState(false); 
+  const [isEditingRecord, setIsEditingRecord] = useState(false);
 
   // --- DATA STATES ---
   const [pettyCash, setPettyCash] = useStickyState([], 'leanaxis_petty');
@@ -142,7 +143,9 @@ function App() {
   };
 
   const handleDelete = (id, type) => {
+    if (currentUser.role !== 'Admin') return alert('Access Denied: Only Admins can delete records.');
     if(!confirm('Delete this record? This cannot be undone.')) return;
+    
     if (type === 'petty') setPettyCash(pettyCash.filter(i => i.id !== id));
     if (type === 'expense') setExpenses(expenses.filter(i => i.id !== id));
     if (type === 'salary') setSalaries(salaries.filter(i => i.id !== id));
@@ -151,9 +154,17 @@ function App() {
     if (type === 'vendor') setVendors(vendors.filter(i => i.id !== id));
   };
 
+  const handleEdit = (item) => {
+      if (currentUser.role !== 'Admin') return alert('Access Denied: Only Admins can edit records.');
+      setFormData({ ...item });
+      setIsEditingRecord(true);
+      setShowForm(true);
+  };
+
   const handleAddSubmit = (e) => {
     e.preventDefault();
     
+    // User Management Handling
     if (view === 'manage-users') {
         if (isEditingUser) {
             setUsers(users.map(u => u.username === formData.originalUsername ? { ...formData, originalUsername: undefined } : u));
@@ -172,18 +183,32 @@ function App() {
         return;
     }
 
-    const id = Date.now();
-    const newItem = { ...formData, id, addedBy: currentUser.username, createdAt: new Date().toISOString() }; 
-    
-    if (view === 'petty-cash') setPettyCash([newItem, ...pettyCash]);
-    if (view === 'expenses') setExpenses([newItem, ...expenses]);
-    if (view === 'salaries') setSalaries([newItem, ...salaries]);
-    if (view === 'bank') setBankRecords([newItem, ...bankRecords]);
-    if (view === 'clients') setClients([newItem, ...clients]);
-    if (view === 'vendors') setVendors([newItem, ...vendors]);
+    // General Record Handling
+    if (isEditingRecord) {
+        // UPDATE EXISTING
+        const updatedItem = { ...formData, lastEditedBy: currentUser.username, lastEditedAt: new Date().toISOString() };
+        if (view === 'petty-cash') setPettyCash(pettyCash.map(i => i.id === updatedItem.id ? updatedItem : i));
+        if (view === 'expenses') setExpenses(expenses.map(i => i.id === updatedItem.id ? updatedItem : i));
+        if (view === 'salaries') setSalaries(salaries.map(i => i.id === updatedItem.id ? updatedItem : i));
+        if (view === 'bank') setBankRecords(bankRecords.map(i => i.id === updatedItem.id ? updatedItem : i));
+        if (view === 'clients') setClients(clients.map(i => i.id === updatedItem.id ? updatedItem : i));
+        if (view === 'vendors') setVendors(vendors.map(i => i.id === updatedItem.id ? updatedItem : i));
+        alert("Record updated successfully!");
+    } else {
+        // CREATE NEW
+        const id = Date.now();
+        const newItem = { ...formData, id, addedBy: currentUser.username, createdAt: new Date().toISOString() }; 
+        if (view === 'petty-cash') setPettyCash([newItem, ...pettyCash]);
+        if (view === 'expenses') setExpenses([newItem, ...expenses]);
+        if (view === 'salaries') setSalaries([newItem, ...salaries]);
+        if (view === 'bank') setBankRecords([newItem, ...bankRecords]);
+        if (view === 'clients') setClients([newItem, ...clients]);
+        if (view === 'vendors') setVendors([newItem, ...vendors]);
+    }
     
     setShowForm(false);
     setFormData({});
+    setIsEditingRecord(false);
   };
 
   const handleEditUser = (user) => {
@@ -215,7 +240,7 @@ function App() {
   const filteredExpenses = useMemo(() => filterByDate(expenses), [expenses, selectedMonth, selectedYear]);
   const filteredSalaries = useMemo(() => filterByDate(salaries), [salaries, selectedMonth, selectedYear]);
   const filteredBankRecords = useMemo(() => filterByDate(bankRecords), [bankRecords, selectedMonth, selectedYear]);
-  const filteredClients = useMemo(() => clients, [clients]); // Clients usually persistent, maybe filter by created date if needed
+  const filteredClients = useMemo(() => clients, [clients]); 
   const filteredVendors = useMemo(() => vendors, [vendors]);
 
   const totals = useMemo(() => {
@@ -242,6 +267,21 @@ function App() {
       <Icon size={20} />
       <span className="font-medium">{label}</span>
     </button>
+  );
+
+  const ActionButtons = ({ item, type }) => (
+      <div className="flex gap-1 justify-center">
+          {currentUser.role === 'Admin' && (
+             <>
+                <button onClick={() => handleEdit(item)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors" title="Edit Record">
+                    <Edit size={16} />
+                </button>
+                <button onClick={() => handleDelete(item.id, type)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors" title="Delete Record">
+                    <Trash2 size={16} />
+                </button>
+             </>
+          )}
+      </div>
   );
 
   if (!isAuthenticated) return <LoginView onLogin={handleLogin} error={authError} />;
@@ -342,7 +382,7 @@ function App() {
                         <Download size={18} /> Export
                       </button>
                   )}
-                  <button onClick={() => { setShowForm(true); setIsEditingUser(false); setFormData({}); }} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm text-sm">
+                  <button onClick={() => { setShowForm(true); setIsEditingUser(false); setIsEditingRecord(false); setFormData({}); }} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm text-sm">
                     <Plus size={18} /> {view === 'manage-users' ? 'Add User' : 'Add New'}
                   </button>
                 </div>
@@ -417,7 +457,7 @@ function App() {
                       <td className="p-4 text-right text-sm">{formatCurrency(item.projectTotal)}</td>
                       <td className="p-4 text-right text-sm text-green-600">{formatCurrency(item.advanceReceived)}</td>
                       <td className="p-4 text-right text-sm font-bold text-red-600">{formatCurrency(Number(item.projectTotal) - Number(item.advanceReceived))}</td>
-                      <td className="p-4 text-center"><button onClick={() => handleDelete(item.id, 'client')} className="text-slate-400 hover:text-red-500"><Trash2 size={18}/></button></td>
+                      <td className="p-4"><ActionButtons item={item} type="client" /></td>
                     </tr>
                   ))}
 
@@ -428,7 +468,7 @@ function App() {
                       <td className="p-4"><span className="px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs whitespace-nowrap">{item.head === 'Custom' ? item.customHead : item.head}</span></td>
                       <td className="p-4 text-right text-red-600 text-sm font-bold">{item.cashOut ? formatCurrency(item.cashOut) : '-'}</td>
                       <td className="p-4 text-right text-green-600 text-sm font-bold">{item.cashIn ? formatCurrency(item.cashIn) : '-'}</td>
-                      <td className="p-4 text-center"><button onClick={() => handleDelete(item.id, 'petty')} className="text-slate-400 hover:text-red-500"><Trash2 size={18}/></button></td>
+                      <td className="p-4"><ActionButtons item={item} type="petty" /></td>
                     </tr>
                   ))}
                   
@@ -439,7 +479,7 @@ function App() {
                       <td className="p-4 text-sm text-slate-600">{item.description}</td>
                       <td className="p-4 text-sm text-slate-500">{item.employeeName || '-'}</td>
                       <td className="p-4 text-right font-bold text-sm">{formatCurrency(item.amount)}</td>
-                      <td className="p-4 text-center"><button onClick={() => handleDelete(item.id, 'expense')} className="text-slate-400 hover:text-red-500"><Trash2 size={18}/></button></td>
+                      <td className="p-4"><ActionButtons item={item} type="expense" /></td>
                     </tr>
                   ))}
 
@@ -451,7 +491,7 @@ function App() {
                       <td className="p-4 text-right text-sm text-green-600">+{formatCurrency(item.overtimeOrBonus)}</td>
                       <td className="p-4 text-right font-bold text-sm">{formatCurrency(item.totalPayable)}</td>
                       <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold whitespace-nowrap ${item.status === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>{item.status}</span></td>
-                      <td className="p-4 text-center"><button onClick={() => handleDelete(item.id, 'salary')} className="text-slate-400 hover:text-red-500"><Trash2 size={18}/></button></td>
+                      <td className="p-4"><ActionButtons item={item} type="salary" /></td>
                     </tr>
                   ))}
 
@@ -462,7 +502,7 @@ function App() {
                       <td className="p-4 text-right text-sm font-bold">{formatCurrency(item.amountPayable)}</td>
                       <td className="p-4 text-right text-sm text-green-600">{formatCurrency(item.amountPaid)}</td>
                       <td className="p-4 text-right text-sm font-bold text-red-600">{formatCurrency(Number(item.amountPayable) - Number(item.amountPaid))}</td>
-                      <td className="p-4 text-center"><button onClick={() => handleDelete(item.id, 'vendor')} className="text-slate-400 hover:text-red-500"><Trash2 size={18}/></button></td>
+                      <td className="p-4"><ActionButtons item={item} type="vendor" /></td>
                     </tr>
                   ))}
 
@@ -475,7 +515,7 @@ function App() {
                       <td className="p-4 text-right font-bold text-sm">{formatCurrency(item.amount)}</td>
                       <td className="p-4 text-xs text-slate-500">{item.clearingDate}</td>
                       <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold whitespace-nowrap ${item.status === 'Cleared' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{item.status}</span></td>
-                      <td className="p-4 text-center"><button onClick={() => handleDelete(item.id, 'bank')} className="text-slate-400 hover:text-red-500"><Trash2 size={18}/></button></td>
+                      <td className="p-4"><ActionButtons item={item} type="bank" /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -522,7 +562,7 @@ function App() {
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in zoom-in duration-200">
             <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-6">
-                 <h3 className="text-xl font-bold">{view === 'manage-users' ? (isEditingUser ? 'Edit User' : 'Add New User') : 'Add Record'}</h3>
+                 <h3 className="text-xl font-bold">{view === 'manage-users' ? (isEditingUser ? 'Edit User' : 'Add New User') : (isEditingRecord ? 'Edit Record' : 'Add New Record')}</h3>
                  <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
               </div>
               
@@ -530,19 +570,19 @@ function App() {
                 
                 {view === 'clients' && (
                   <>
-                    <input required placeholder="Client Name" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, name: e.target.value})} />
-                    <input type="number" placeholder="Monthly Retainer (PKR)" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, retainerAmount: e.target.value})} />
+                    <input required placeholder="Client Name" className="w-full border p-3 rounded-lg" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} />
+                    <input type="number" placeholder="Monthly Retainer (PKR)" className="w-full border p-3 rounded-lg" value={formData.retainerAmount || ''} onChange={e => setFormData({...formData, retainerAmount: e.target.value})} />
                     <div className="pt-2 border-t mt-2"><p className="text-xs font-bold text-slate-500 uppercase mb-2">Project Details (Optional)</p></div>
-                    <input placeholder="Project Name" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, projectName: e.target.value})} />
-                    <input type="number" placeholder="Total Project Amount" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, projectTotal: e.target.value})} />
-                    <input type="number" placeholder="Advance Received" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, advanceReceived: e.target.value})} />
+                    <input placeholder="Project Name" className="w-full border p-3 rounded-lg" value={formData.projectName || ''} onChange={e => setFormData({...formData, projectName: e.target.value})} />
+                    <input type="number" placeholder="Total Project Amount" className="w-full border p-3 rounded-lg" value={formData.projectTotal || ''} onChange={e => setFormData({...formData, projectTotal: e.target.value})} />
+                    <input type="number" placeholder="Advance Received" className="w-full border p-3 rounded-lg" value={formData.advanceReceived || ''} onChange={e => setFormData({...formData, advanceReceived: e.target.value})} />
                   </>
                 )}
 
                 {view === 'vendors' && (
                   <>
-                    <input required placeholder="Vendor Name" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, name: e.target.value})} />
-                    <select className="w-full border p-3 rounded-lg bg-white" onChange={e => setFormData({...formData, serviceType: e.target.value})}>
+                    <input required placeholder="Vendor Name" className="w-full border p-3 rounded-lg" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} />
+                    <select className="w-full border p-3 rounded-lg bg-white" value={formData.serviceType || 'General'} onChange={e => setFormData({...formData, serviceType: e.target.value})}>
                         <option value="General">Select Type...</option>
                         <option value="Lighting">Lighting</option>
                         <option value="Printing">Printing</option>
@@ -550,22 +590,22 @@ function App() {
                         <option value="Logistics">Logistics</option>
                         <option value="Other">Other</option>
                     </select>
-                    <input type="number" placeholder="Total Amount Payable" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, amountPayable: e.target.value})} />
-                    <input type="number" placeholder="Amount Paid" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, amountPaid: e.target.value})} />
+                    <input type="number" placeholder="Total Amount Payable" className="w-full border p-3 rounded-lg" value={formData.amountPayable || ''} onChange={e => setFormData({...formData, amountPayable: e.target.value})} />
+                    <input type="number" placeholder="Amount Paid" className="w-full border p-3 rounded-lg" value={formData.amountPaid || ''} onChange={e => setFormData({...formData, amountPaid: e.target.value})} />
                   </>
                 )}
 
                 {view === 'salaries' && (
                   <>
-                    <input required placeholder="Employee Name" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, employeeName: e.target.value})} />
-                    <select className="w-full border p-3 rounded-lg bg-white" onChange={e => setFormData({...formData, type: e.target.value})}>
+                    <input required placeholder="Employee Name" className="w-full border p-3 rounded-lg" value={formData.employeeName || ''} onChange={e => setFormData({...formData, employeeName: e.target.value})} />
+                    <select className="w-full border p-3 rounded-lg bg-white" value={formData.type || 'Monthly Salary'} onChange={e => setFormData({...formData, type: e.target.value})}>
                         <option value="Monthly Salary">Monthly Salary</option>
                         <option value="Project-Based">Project-Based</option>
                     </select>
-                    <input type="number" placeholder="Base Salary / Project Fee" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, baseSalary: e.target.value})} />
-                    <input type="number" placeholder="Overtime / Bonus" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, overtimeOrBonus: e.target.value})} />
-                    <input type="number" placeholder="Total Payable" className="w-full border p-3 rounded-lg font-bold bg-slate-50" onChange={e => setFormData({...formData, totalPayable: e.target.value})} />
-                    <select className="w-full border p-3 rounded-lg bg-white" onChange={e => setFormData({...formData, status: e.target.value})}>
+                    <input type="number" placeholder="Base Salary / Project Fee" className="w-full border p-3 rounded-lg" value={formData.baseSalary || ''} onChange={e => setFormData({...formData, baseSalary: e.target.value})} />
+                    <input type="number" placeholder="Overtime / Bonus" className="w-full border p-3 rounded-lg" value={formData.overtimeOrBonus || ''} onChange={e => setFormData({...formData, overtimeOrBonus: e.target.value})} />
+                    <input type="number" placeholder="Total Payable" className="w-full border p-3 rounded-lg font-bold bg-slate-50" value={formData.totalPayable || ''} onChange={e => setFormData({...formData, totalPayable: e.target.value})} />
+                    <select className="w-full border p-3 rounded-lg bg-white" value={formData.status || 'Unpaid'} onChange={e => setFormData({...formData, status: e.target.value})}>
                       <option value="Unpaid">Unpaid</option><option value="Paid">Paid</option>
                     </select>
                   </>
@@ -573,8 +613,8 @@ function App() {
 
                 {view === 'expenses' && (
                   <>
-                    <input required type="date" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, date: e.target.value})} />
-                    <select className="w-full border p-3 rounded-lg bg-white" onChange={e => setFormData({...formData, category: e.target.value})}>
+                    <input required type="date" className="w-full border p-3 rounded-lg" value={formData.date || ''} onChange={e => setFormData({...formData, date: e.target.value})} />
+                    <select className="w-full border p-3 rounded-lg bg-white" value={formData.category || 'General'} onChange={e => setFormData({...formData, category: e.target.value})}>
                         <option value="General">Select Category...</option>
                         <option value="Office Rent">Office Rent</option>
                         <option value="Utilities">Utilities</option>
@@ -583,41 +623,41 @@ function App() {
                         <option value="Travel">Travel</option>
                         <option value="Other">Other</option>
                     </select>
-                    <input required placeholder="Description" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, description: e.target.value})} />
-                    <input placeholder="Employee Name (Optional)" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, employeeName: e.target.value})} />
-                    <input required type="number" placeholder="Amount" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, amount: e.target.value})} />
+                    <input required placeholder="Description" className="w-full border p-3 rounded-lg" value={formData.description || ''} onChange={e => setFormData({...formData, description: e.target.value})} />
+                    <input placeholder="Employee Name (Optional)" className="w-full border p-3 rounded-lg" value={formData.employeeName || ''} onChange={e => setFormData({...formData, employeeName: e.target.value})} />
+                    <input required type="number" placeholder="Amount" className="w-full border p-3 rounded-lg" value={formData.amount || ''} onChange={e => setFormData({...formData, amount: e.target.value})} />
                   </>
                 )}
 
                 {view === 'petty-cash' && (
                   <>
-                    <input required type="date" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, date: e.target.value})} />
-                    <input required placeholder="Description" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, description: e.target.value})} />
-                    <select className="w-full border p-3 rounded-lg bg-white" onChange={e => setFormData({...formData, head: e.target.value})}>
+                    <input required type="date" className="w-full border p-3 rounded-lg" value={formData.date || ''} onChange={e => setFormData({...formData, date: e.target.value})} />
+                    <input required placeholder="Description" className="w-full border p-3 rounded-lg" value={formData.description || ''} onChange={e => setFormData({...formData, description: e.target.value})} />
+                    <select className="w-full border p-3 rounded-lg bg-white" value={formData.head || 'Office Expenses'} onChange={e => setFormData({...formData, head: e.target.value})}>
                       <option>Office Expenses</option><option>Meals & Entertainment</option><option>Traveling</option><option>Cheque Received</option><option>Custom</option>
                     </select>
                     {formData.head === 'Custom' && (
-                        <input required placeholder="Enter custom head" className="w-full border p-3 rounded-lg mt-2" onChange={e => setFormData({...formData, customHead: e.target.value})} />
+                        <input required placeholder="Enter custom head" className="w-full border p-3 rounded-lg mt-2" value={formData.customHead || ''} onChange={e => setFormData({...formData, customHead: e.target.value})} />
                     )}
                     <div className="grid grid-cols-2 gap-4">
-                      <input type="number" placeholder="Cash Out" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, cashOut: e.target.value})} />
-                      <input type="number" placeholder="Cash In" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, cashIn: e.target.value})} />
+                      <input type="number" placeholder="Cash Out" className="w-full border p-3 rounded-lg" value={formData.cashOut || ''} onChange={e => setFormData({...formData, cashOut: e.target.value})} />
+                      <input type="number" placeholder="Cash In" className="w-full border p-3 rounded-lg" value={formData.cashIn || ''} onChange={e => setFormData({...formData, cashIn: e.target.value})} />
                     </div>
                   </>
                 )}
 
                 {view === 'bank' && (
                   <>
-                    <input required type="date" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, date: e.target.value})} />
-                    <input required placeholder="Bank Name" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, bank: e.target.value})} />
-                    <input required placeholder="Cheque #" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, cheque: e.target.value})} />
-                    <input required placeholder="Description" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, description: e.target.value})} />
-                    <input required type="number" placeholder="Amount" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, amount: e.target.value})} />
+                    <input required type="date" className="w-full border p-3 rounded-lg" value={formData.date || ''} onChange={e => setFormData({...formData, date: e.target.value})} />
+                    <input required placeholder="Bank Name" className="w-full border p-3 rounded-lg" value={formData.bank || ''} onChange={e => setFormData({...formData, bank: e.target.value})} />
+                    <input required placeholder="Cheque #" className="w-full border p-3 rounded-lg" value={formData.cheque || ''} onChange={e => setFormData({...formData, cheque: e.target.value})} />
+                    <input required placeholder="Description" className="w-full border p-3 rounded-lg" value={formData.description || ''} onChange={e => setFormData({...formData, description: e.target.value})} />
+                    <input required type="number" placeholder="Amount" className="w-full border p-3 rounded-lg" value={formData.amount || ''} onChange={e => setFormData({...formData, amount: e.target.value})} />
                     <div className="space-y-1">
                         <label className="text-xs font-bold text-slate-500 uppercase">Expected Clearing Date</label>
-                        <input type="date" className="w-full border p-3 rounded-lg" onChange={e => setFormData({...formData, clearingDate: e.target.value})} />
+                        <input type="date" className="w-full border p-3 rounded-lg" value={formData.clearingDate || ''} onChange={e => setFormData({...formData, clearingDate: e.target.value})} />
                     </div>
-                    <select className="w-full border p-3 rounded-lg bg-white" onChange={e => setFormData({...formData, status: e.target.value})}>
+                    <select className="w-full border p-3 rounded-lg bg-white" value={formData.status || 'Pending'} onChange={e => setFormData({...formData, status: e.target.value})}>
                       <option value="Pending">Pending</option><option value="Cleared">Cleared</option>
                     </select>
                   </>
