@@ -5,7 +5,7 @@ import {
   Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock
 } from 'lucide-react';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js";
-import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, query, orderBy, setDoc } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore.js";
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
@@ -41,11 +41,6 @@ const exportToCSV = (data, filename) => {
   document.body.removeChild(link);
 };
 
-// --- MOCK DATA FOR FALLBACK ---
-const INITIAL_USERS = [
-    { username: 'admin', password: 'admin123', email: 'admin@leanaxis.com', role: 'Admin' }
-];
-
 // --- HOOK FOR FIREBASE SYNC ---
 function useFirebaseSync(collectionName, defaultValue = []) {
     const [data, setData] = useState(defaultValue);
@@ -59,9 +54,8 @@ function useFirebaseSync(collectionName, defaultValue = []) {
             setLoading(false);
         }, (error) => {
             console.error("Firebase sync error:", error);
-            // Fallback to local storage if firebase fails (optional)
-            const localData = localStorage.getItem(collectionName);
-            if (localData) setData(JSON.parse(localData));
+            // On error (e.g. offline), just stop loading.
+            // Advanced: Read from localStorage cache here.
             setLoading(false);
         });
         return () => unsubscribe();
@@ -70,7 +64,7 @@ function useFirebaseSync(collectionName, defaultValue = []) {
     return [data, loading];
 }
 
-// --- LOCAL STORAGE HOOK (Legacy/User Auth) ---
+// --- LOCAL STORAGE HOOK (Kept for Auth state only) ---
 function useStickyState(defaultValue, key) {
   const [value, setValue] = useState(() => {
     const stickyValue = window.localStorage.getItem(key);
@@ -142,11 +136,6 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useStickyState(false, 'leanaxis_auth');
   const [currentUser, setCurrentUser] = useStickyState(null, 'leanaxis_current_user');
   
-  // Users still stored locally/synced separately for security (simplified)
-  // In a real app, users would be in Firebase Auth
-  const [localUsers, setLocalUsers] = useStickyState(INITIAL_USERS, 'leanaxis_users'); 
-  const [authError, setAuthError] = useState(null);
-
   // Mobile Menu State
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [view, setView] = useState('dashboard');
@@ -161,6 +150,7 @@ function App() {
   const [isEditingUser, setIsEditingUser] = useState(false); 
   const [isEditingRecord, setIsEditingRecord] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [authError, setAuthError] = useState(null);
 
   // --- FIREBASE DATA HOOKS ---
   const [pettyCash] = useFirebaseSync('petty_cash');
@@ -169,16 +159,47 @@ function App() {
   const [bankRecords] = useFirebaseSync('bank_records');
   const [clients] = useFirebaseSync('clients');
   const [vendors] = useFirebaseSync('vendors');
+  const [users, usersLoading] = useFirebaseSync('users'); // Users now synced!
+
+  // --- SEED ADMIN IF EMPTY ---
+  useEffect(() => {
+      if (!usersLoading && users.length === 0) {
+          // If users collection is empty, create the default admin immediately
+          const seedAdmin = async () => {
+              try {
+                  await addDoc(collection(db, 'users'), {
+                      username: 'admin',
+                      password: 'admin123',
+                      email: 'admin@leanaxis.com',
+                      role: 'Admin',
+                      createdAt: new Date().toISOString()
+                  });
+                  console.log("Seeded default admin user.");
+              } catch (e) {
+                  console.error("Failed to seed admin:", e);
+              }
+          };
+          seedAdmin();
+      }
+  }, [users, usersLoading]);
 
   // --- HANDLERS ---
   const handleLogin = (loginInput, password) => {
-      const user = localUsers.find(u => (u.username === loginInput || u.email === loginInput) && u.password === password);
+      // Fallback: if syncing fails or list empty, allow default admin temporarily
+      if (users.length === 0 && loginInput === 'admin' && password === 'admin123') {
+          setIsAuthenticated(true);
+          setCurrentUser({ username: 'admin', role: 'Admin' });
+          setAuthError(null);
+          return;
+      }
+
+      const user = users.find(u => (u.username === loginInput || u.email === loginInput) && u.password === password);
       if (user) { 
           setIsAuthenticated(true);
           setCurrentUser(user); 
           setAuthError(null);
       } else {
-          setAuthError('Invalid username/email or password');
+          setAuthError('Invalid credentials (or syncing, please wait...)');
       }
   };
 
@@ -191,7 +212,6 @@ function App() {
   const deleteRecord = async (collectionName, id) => {
       try {
           await deleteDoc(doc(db, collectionName, id));
-          // alert("Record deleted from cloud!"); // Silent deletion is smoother
       } catch (e) {
           console.error("Error deleting: ", e);
           alert("Failed to delete record.");
@@ -202,12 +222,11 @@ function App() {
     if (currentUser.role !== 'Admin') return alert('Access Denied: Only Admins can delete records.');
     if(!confirm('Delete this record? This cannot be undone.')) return;
     
-    if (type === 'petty') deleteRecord('petty_cash', id);
-    if (type === 'expense') deleteRecord('expenses', id);
-    if (type === 'salary') deleteRecord('salaries', id);
-    if (type === 'bank') deleteRecord('bank_records', id);
-    if (type === 'client') deleteRecord('clients', id);
-    if (type === 'vendor') deleteRecord('vendors', id);
+    const map = {
+        'petty': 'petty_cash', 'expense': 'expenses', 'salary': 'salaries',
+        'bank': 'bank_records', 'client': 'clients', 'vendor': 'vendors', 'user': 'users'
+    };
+    if (map[type]) deleteRecord(map[type], id);
   };
 
   const handleEdit = (item) => {
@@ -230,6 +249,7 @@ function App() {
           setShowForm(false);
           setFormData({});
           setIsEditingRecord(false);
+          setIsEditingUser(false);
       } catch (e) {
           console.error("Error saving: ", e);
           alert("Failed to save to cloud. Check internet connection.");
@@ -241,39 +261,26 @@ function App() {
   const handleAddSubmit = (e) => {
     e.preventDefault();
     
-    // User Management Handling (Still Local for this demo)
-    if (view === 'manage-users') {
-        if (isEditingUser) {
-            setLocalUsers(localUsers.map(u => u.username === formData.originalUsername ? { ...formData, originalUsername: undefined } : u));
-            alert("User updated successfully!");
-        } else {
-            if (localUsers.some(u => u.username === formData.username)) {
+    // Determine collection
+    let targetCollection = null;
+    if (view === 'manage-users') targetCollection = 'users';
+    else if (view === 'petty-cash') targetCollection = 'petty_cash';
+    else if (view === 'expenses') targetCollection = 'expenses';
+    else if (view === 'salaries') targetCollection = 'salaries';
+    else if (view === 'bank') targetCollection = 'bank_records';
+    else if (view === 'clients') targetCollection = 'clients';
+    else if (view === 'vendors') targetCollection = 'vendors';
+
+    if (targetCollection) {
+        // Special check for duplicate usernames
+        if (targetCollection === 'users' && !isEditingUser) {
+            if (users.some(u => u.username === formData.username)) {
                 alert("Username already exists!");
                 return;
             }
-            setLocalUsers([...localUsers, formData]);
-            alert("User added successfully!");
         }
-        setShowForm(false);
-        setFormData({});
-        setIsEditingUser(false);
-        return;
-    }
 
-    // Firebase Record Handling
-    const collectionMap = {
-        'petty-cash': 'petty_cash',
-        'expenses': 'expenses',
-        'salaries': 'salaries',
-        'bank': 'bank_records',
-        'clients': 'clients',
-        'vendors': 'vendors'
-    };
-    
-    const targetCollection = collectionMap[view];
-    if (targetCollection) {
-        const docId = isEditingRecord ? formData.id : null;
-        // Remove ID from formData before sending to update (firestore doesn't store ID inside doc data usually, but we keep it clean)
+        const docId = (isEditingRecord || isEditingUser) ? formData.id : null;
         const { id, ...dataToSave } = formData; 
         saveToFirebase(targetCollection, dataToSave, docId);
     }
@@ -285,10 +292,10 @@ function App() {
       setShowForm(true);
   };
 
-  const handleDeleteUser = (username) => {
-      if (username === 'admin') { alert("Cannot delete main admin!"); return; }
+  const handleDeleteUser = (user) => {
+      if (user.username === 'admin') { alert("Cannot delete main admin!"); return; }
       if (!confirm("Delete user?")) return;
-      setLocalUsers(localUsers.filter(u => u.username !== username));
+      deleteRecord('users', user.id);
   };
 
   // --- FILTERING & CALCULATIONS ---
@@ -341,10 +348,10 @@ function App() {
       <div className="flex gap-1 justify-center">
           {currentUser.role === 'Admin' && (
              <>
-                <button onClick={() => handleEdit(item)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors" title="Edit Record">
+                <button onClick={() => type === 'user' ? handleEditUser(item) : handleEdit(item)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors" title="Edit">
                     <Edit size={16} />
                 </button>
-                <button onClick={() => handleDelete(item.id, type)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors" title="Delete Record">
+                <button onClick={() => type === 'user' ? handleDeleteUser(item) : handleDelete(item.id, type)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors" title="Delete">
                     <Trash2 size={16} />
                 </button>
              </>
@@ -592,6 +599,36 @@ function App() {
               </table>
             </div>
           </div>
+        )}
+
+        {/* USER MANAGEMENT VIEW */}
+        {view === 'manage-users' && (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left min-w-[600px]">
+                        <thead className="bg-slate-50 text-slate-600 font-semibold text-sm border-b border-slate-200">
+                            <tr>
+                                <th className="p-4">Username</th>
+                                <th className="p-4">Email</th>
+                                <th className="p-4">Role</th>
+                                <th className="p-4">Password</th>
+                                <th className="p-4 text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {users.map((u, idx) => (
+                                <tr key={idx} className="hover:bg-slate-50">
+                                    <td className="p-4 font-medium">{u.username}</td>
+                                    <td className="p-4 text-sm">{u.email}</td>
+                                    <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${u.role === 'Admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{u.role}</span></td>
+                                    <td className="p-4 font-mono text-slate-400 text-sm">••••••</td>
+                                    <td className="p-4"><ActionButtons item={u} type="user" /></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         )}
 
         {/* MODAL FORM */}
