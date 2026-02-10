@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
   LayoutDashboard, Wallet, Receipt, Users, Building2, 
-  Plus, Download, Search, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Settings
+  Plus, Download, Search, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Settings, Edit
 } from 'lucide-react';
 
 // --- HELPER FUNCTIONS ---
@@ -66,12 +66,12 @@ function useStickyState(defaultValue, key) {
 
 // --- LOGIN COMPONENT ---
 const LoginView = ({ onLogin, loading, error }) => {
-  const [username, setUsername] = useState('');
+  const [loginInput, setLoginInput] = useState(''); // Changed to loginInput (can be email or username)
   const [password, setPassword] = useState('');
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onLogin(username, password);
+    onLogin(loginInput, password);
   };
 
   return (
@@ -85,13 +85,13 @@ const LoginView = ({ onLogin, loading, error }) => {
         
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-bold text-slate-600 mb-1">Username</label>
+            <label className="block text-sm font-bold text-slate-600 mb-1">Username or Email</label>
             <input 
               type="text" 
               required 
               className="w-full border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all" 
-              value={username} 
-              onChange={(e) => setUsername(e.target.value)} 
+              value={loginInput} 
+              onChange={(e) => setLoginInput(e.target.value)} 
             />
           </div>
           <div>
@@ -122,17 +122,18 @@ function App() {
   // Auth State
   const [isAuthenticated, setIsAuthenticated] = useStickyState(false, 'leanaxis_auth');
   const [currentUser, setCurrentUser] = useStickyState(null, 'leanaxis_current_user');
-  const [users, setUsers] = useStickyState(INITIAL_USERS, 'leanaxis_users'); // Manage users here
+  const [users, setUsers] = useStickyState(INITIAL_USERS, 'leanaxis_users'); 
   const [authError, setAuthError] = useState(null);
 
-  const handleLogin = (username, password) => {
-      const user = users.find(u => u.username === username && u.password === password);
+  const handleLogin = (loginInput, password) => {
+      // Find user by username OR email
+      const user = users.find(u => (u.username === loginInput || u.email === loginInput) && u.password === password);
       if (user) { 
           setIsAuthenticated(true);
-          setCurrentUser(user); // Store full user object
+          setCurrentUser(user); 
           setAuthError(null);
       } else {
-          setAuthError('Invalid username or password');
+          setAuthError('Invalid username/email or password');
       }
   };
 
@@ -157,12 +158,13 @@ function App() {
   // Forms State
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({});
+  const [isEditingUser, setIsEditingUser] = useState(false); 
 
   // Filter Helper
   const filterByDate = (items) => {
     if (selectedMonth === 'All' && selectedYear === 'All') return items;
     return items.filter(item => {
-      const dateStr = item.date || item.dueDate; // Support both date fields
+      const dateStr = item.date || item.dueDate; 
       if (!dateStr) return false;
       const date = new Date(dateStr);
       const monthMatch = selectedMonth === 'All' || date.toLocaleString('default', { month: 'long' }) === selectedMonth;
@@ -176,7 +178,7 @@ function App() {
   const filteredSalaries = useMemo(() => filterByDate(salaries), [salaries, selectedMonth, selectedYear]);
   const filteredBankRecords = useMemo(() => filterByDate(bankRecords), [bankRecords, selectedMonth, selectedYear]);
 
-  // Dashboard Calculations (Based on Filtered Data)
+  // Dashboard Calculations
   const totals = useMemo(() => {
     const totalPettyCashOut = filteredPettyCash.reduce((acc, curr) => acc + (Number(curr.cashOut) || 0), 0);
     const totalExpenses = filteredExpenses.reduce((acc, curr) => acc + (curr.status === 'Paid' ? Number(curr.amount) : 0), 0);
@@ -185,9 +187,9 @@ function App() {
     
     return {
       expense: totalPettyCashOut + totalExpenses + totalSalaries + totalBankWithdrawals,
-      pettyBalance: pettyCash.reduce((acc, curr) => acc + (Number(curr.cashIn) || 0) - (Number(curr.cashOut) || 0), 0) // Balance is always total
+      pettyBalance: pettyCash.reduce((acc, curr) => acc + (Number(curr.cashIn) || 0) - (Number(curr.cashOut) || 0), 0)
     };
-  }, [filteredPettyCash, filteredExpenses, filteredSalaries, filteredBankRecords, pettyCash]); // Balance uses full pettyCash
+  }, [filteredPettyCash, filteredExpenses, filteredSalaries, filteredBankRecords, pettyCash]); 
 
   // --- HANDLERS ---
   const handleDelete = (id, type) => {
@@ -200,19 +202,30 @@ function App() {
 
   const handleAddSubmit = (e) => {
     e.preventDefault();
-    const id = Date.now();
     
     if (view === 'manage-users') {
-        // User Management Logic
-        const newUser = { ...formData };
-        setUsers([...users, newUser]);
+        if (isEditingUser) {
+            // Update existing user
+            setUsers(users.map(u => u.username === formData.originalUsername ? { ...formData, originalUsername: undefined } : u));
+            alert("User updated successfully!");
+        } else {
+            // Add new user
+            if (users.some(u => u.username === formData.username)) {
+                alert("Username already exists!");
+                return;
+            }
+            setUsers([...users, formData]);
+            alert("User added successfully!");
+        }
         setShowForm(false);
         setFormData({});
+        setIsEditingUser(false);
         return;
     }
 
     // Normal Record Logic
-    const newItem = { ...formData, id, addedBy: currentUser.username }; // Attach current user
+    const id = Date.now();
+    const newItem = { ...formData, id, addedBy: currentUser.username }; 
     
     if (view === 'petty-cash') setPettyCash([newItem, ...pettyCash]);
     if (view === 'expenses') setExpenses([newItem, ...expenses]);
@@ -223,6 +236,12 @@ function App() {
     setFormData({});
   };
   
+  const handleEditUser = (user) => {
+      setFormData({ ...user, originalUsername: user.username }); // Keep track of original for ID
+      setIsEditingUser(true);
+      setShowForm(true);
+  };
+
   const handleDeleteUser = (username) => {
       if (username === 'admin') { alert("Cannot delete main admin!"); return; }
       if (!confirm("Delete user?")) return;
@@ -331,7 +350,7 @@ function App() {
                         <Download size={18} /> Export
                       </button>
                   )}
-                  <button onClick={() => setShowForm(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
+                  <button onClick={() => { setShowForm(true); setIsEditingUser(false); setFormData({}); }} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
                     <Plus size={18} /> {view === 'manage-users' ? 'Add User' : 'Add New'}
                   </button>
                 </>
@@ -393,6 +412,7 @@ function App() {
                                     <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${u.role === 'Admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{u.role}</span></td>
                                     <td className="p-4 font-mono text-slate-400">••••••</td>
                                     <td className="p-4 text-center">
+                                        <button onClick={() => handleEditUser(u)} className="text-slate-400 hover:text-blue-500 mr-2"><Edit size={16}/></button>
                                         <button onClick={() => handleDeleteUser(u.username)} className={`text-slate-400 ${u.username === 'admin' ? 'cursor-not-allowed opacity-50' : 'hover:text-red-500'}`} disabled={u.username === 'admin'}><Trash2 size={16}/></button>
                                     </td>
                                 </tr>
@@ -480,15 +500,15 @@ function App() {
         {showForm && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-              <h3 className="text-xl font-bold mb-4">{view === 'manage-users' ? 'Add New User' : 'Add Record'}</h3>
+              <h3 className="text-xl font-bold mb-4">{view === 'manage-users' ? (isEditingUser ? 'Edit User' : 'Add New User') : 'Add Record'}</h3>
               <form onSubmit={handleAddSubmit} className="space-y-4">
                 
                 {view === 'manage-users' && (
                     <>
-                        <input required placeholder="Username" className="w-full border p-2 rounded" onChange={e => setFormData({...formData, username: e.target.value})} />
-                        <input required type="email" placeholder="Email" className="w-full border p-2 rounded" onChange={e => setFormData({...formData, email: e.target.value})} />
-                        <input required type="password" placeholder="Password" className="w-full border p-2 rounded" onChange={e => setFormData({...formData, password: e.target.value})} />
-                        <select className="w-full border p-2 rounded" onChange={e => setFormData({...formData, role: e.target.value})}>
+                        <input required placeholder="Username" className="w-full border p-2 rounded" value={formData.username || ''} onChange={e => setFormData({...formData, username: e.target.value})} />
+                        <input required type="email" placeholder="Email" className="w-full border p-2 rounded" value={formData.email || ''} onChange={e => setFormData({...formData, email: e.target.value})} />
+                        <input required={!isEditingUser} type="password" placeholder="Password" className="w-full border p-2 rounded" value={formData.password || ''} onChange={e => setFormData({...formData, password: e.target.value})} />
+                        <select className="w-full border p-2 rounded" value={formData.role || 'Staff'} onChange={e => setFormData({...formData, role: e.target.value})}>
                             <option value="Staff">Staff</option>
                             <option value="Admin">Admin</option>
                         </select>
