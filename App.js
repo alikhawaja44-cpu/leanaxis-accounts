@@ -2,10 +2,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
   LayoutDashboard, Wallet, Receipt, Users, Building2, Briefcase, Truck,
-  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock
+  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon
 } from 'lucide-react';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js";
 import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, query, orderBy, setDoc } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore.js";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-storage.js";
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
@@ -20,6 +21,7 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
 // --- HELPER FUNCTIONS ---
 const formatCurrency = (amount) => {
@@ -47,15 +49,13 @@ function useFirebaseSync(collectionName, defaultValue = []) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const q = query(collection(db, collectionName), orderBy("createdAt", "desc")); // Order by newest first
+        const q = query(collection(db, collectionName), orderBy("createdAt", "desc"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setData(items);
             setLoading(false);
         }, (error) => {
             console.error("Firebase sync error:", error);
-            // On error (e.g. offline), just stop loading.
-            // Advanced: Read from localStorage cache here.
             setLoading(false);
         });
         return () => unsubscribe();
@@ -147,6 +147,7 @@ function App() {
   // Forms State
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({});
+  const [fileToUpload, setFileToUpload] = useState(null); // File state
   const [isEditingUser, setIsEditingUser] = useState(false); 
   const [isEditingRecord, setIsEditingRecord] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -159,12 +160,11 @@ function App() {
   const [bankRecords] = useFirebaseSync('bank_records');
   const [clients] = useFirebaseSync('clients');
   const [vendors] = useFirebaseSync('vendors');
-  const [users, usersLoading] = useFirebaseSync('users'); // Users now synced!
+  const [users, usersLoading] = useFirebaseSync('users');
 
   // --- SEED ADMIN IF EMPTY ---
   useEffect(() => {
       if (!usersLoading && users.length === 0) {
-          // If users collection is empty, create the default admin immediately
           const seedAdmin = async () => {
               try {
                   await addDoc(collection(db, 'users'), {
@@ -174,7 +174,6 @@ function App() {
                       role: 'Admin',
                       createdAt: new Date().toISOString()
                   });
-                  console.log("Seeded default admin user.");
               } catch (e) {
                   console.error("Failed to seed admin:", e);
               }
@@ -185,7 +184,6 @@ function App() {
 
   // --- HANDLERS ---
   const handleLogin = (loginInput, password) => {
-      // Fallback: if syncing fails or list empty, allow default admin temporarily
       if (users.length === 0 && loginInput === 'admin' && password === 'admin123') {
           setIsAuthenticated(true);
           setCurrentUser({ username: 'admin', role: 'Admin' });
@@ -236,23 +234,46 @@ function App() {
       setShowForm(true);
   };
 
+  const uploadFile = async (file) => {
+      if (!file) return null;
+      try {
+          const storageRef = ref(storage, `proofs/${Date.now()}_${file.name}`);
+          const snapshot = await uploadBytes(storageRef, file);
+          const url = await getDownloadURL(snapshot.ref);
+          return url;
+      } catch (e) {
+          console.error("Upload failed:", e);
+          alert("Failed to upload proof image.");
+          return null;
+      }
+  };
+
   const saveToFirebase = async (collectionName, data, id = null) => {
       setIsSubmitting(true);
       try {
+          let proofUrl = data.proofUrl || null;
+          if (fileToUpload) {
+              const url = await uploadFile(fileToUpload);
+              if (url) proofUrl = url;
+          }
+
+          const finalData = { ...data, proofUrl };
+
           if (id) {
-             await updateDoc(doc(db, collectionName, id), { ...data, lastEditedBy: currentUser.username, lastEditedAt: new Date().toISOString() });
-             alert("Record updated in cloud!");
+             await updateDoc(doc(db, collectionName, id), { ...finalData, lastEditedBy: currentUser.username, lastEditedAt: new Date().toISOString() });
+             alert("Record updated!");
           } else {
-             await addDoc(collection(db, collectionName), { ...data, addedBy: currentUser.username, createdAt: new Date().toISOString() });
-             alert("Record saved to cloud!");
+             await addDoc(collection(db, collectionName), { ...finalData, addedBy: currentUser.username, createdAt: new Date().toISOString() });
+             alert("Record saved!");
           }
           setShowForm(false);
           setFormData({});
+          setFileToUpload(null);
           setIsEditingRecord(false);
           setIsEditingUser(false);
       } catch (e) {
           console.error("Error saving: ", e);
-          alert("Failed to save to cloud. Check internet connection.");
+          alert("Failed to save. Check internet connection.");
       } finally {
           setIsSubmitting(false);
       }
@@ -261,7 +282,6 @@ function App() {
   const handleAddSubmit = (e) => {
     e.preventDefault();
     
-    // Determine collection
     let targetCollection = null;
     if (view === 'manage-users') targetCollection = 'users';
     else if (view === 'petty-cash') targetCollection = 'petty_cash';
@@ -272,7 +292,6 @@ function App() {
     else if (view === 'vendors') targetCollection = 'vendors';
 
     if (targetCollection) {
-        // Special check for duplicate usernames
         if (targetCollection === 'users' && !isEditingUser) {
             if (users.some(u => u.username === formData.username)) {
                 alert("Username already exists!");
@@ -345,7 +364,12 @@ function App() {
   );
 
   const ActionButtons = ({ item, type }) => (
-      <div className="flex gap-1 justify-center">
+      <div className="flex gap-1 justify-center items-center">
+          {item.proofUrl && (
+              <a href={item.proofUrl} target="_blank" rel="noopener noreferrer" className="p-2 text-blue-500 hover:bg-blue-50 rounded-full mr-1" title="View Proof">
+                  <LinkIcon size={16} />
+              </a>
+          )}
           {currentUser.role === 'Admin' && (
              <>
                 <button onClick={() => type === 'user' ? handleEditUser(item) : handleEdit(item)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors" title="Edit">
@@ -356,6 +380,22 @@ function App() {
                 </button>
              </>
           )}
+      </div>
+  );
+
+  // Reusable File Input Component
+  const ProofInput = () => (
+      <div className="border-t pt-4 mt-2">
+          <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Attach Proof (Receipt/Bill)</label>
+          <div className="flex items-center gap-2">
+              <label className="cursor-pointer flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-lg transition">
+                  <Upload size={18} />
+                  <span className="text-sm font-medium">{fileToUpload ? fileToUpload.name : "Choose File"}</span>
+                  <input type="file" className="hidden" accept="image/*,.pdf" onChange={e => setFileToUpload(e.target.files[0])} />
+              </label>
+              {fileToUpload && <button type="button" onClick={() => setFileToUpload(null)} className="text-red-500 hover:bg-red-50 p-1 rounded"><X size={16}/></button>}
+          </div>
+          {formData.proofUrl && !fileToUpload && <p className="text-xs text-green-600 mt-1 flex items-center gap-1"><CheckCircle size={12}/> Existing proof attached</p>}
       </div>
   );
 
@@ -457,7 +497,7 @@ function App() {
                         <Download size={18} /> Export
                       </button>
                   )}
-                  <button onClick={() => { setShowForm(true); setIsEditingUser(false); setIsEditingRecord(false); setFormData({}); }} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm text-sm">
+                  <button onClick={() => { setShowForm(true); setIsEditingUser(false); setIsEditingRecord(false); setFormData({}); setFileToUpload(null); }} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm text-sm">
                     <Plus size={18} /> {view === 'manage-users' ? 'Add User' : 'Add New'}
                   </button>
                 </div>
@@ -637,7 +677,7 @@ function App() {
             <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-6">
                  <h3 className="text-xl font-bold">{view === 'manage-users' ? (isEditingUser ? 'Edit User' : 'Add New User') : (isEditingRecord ? 'Edit Record' : 'Add New Record')}</h3>
-                 <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
+                 <button onClick={() => { setShowForm(false); setFileToUpload(null); }} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
               </div>
               
               <form onSubmit={handleAddSubmit} className="space-y-4">
@@ -654,6 +694,7 @@ function App() {
                     <select className="w-full border p-3 rounded-lg bg-white" value={formData.status || 'Ongoing'} onChange={e => setFormData({...formData, status: e.target.value})}>
                       <option value="Ongoing">Ongoing</option><option value="Completed">Completed</option><option value="On Hold">On Hold</option>
                     </select>
+                    <ProofInput />
                   </>
                 )}
 
@@ -670,6 +711,7 @@ function App() {
                     </select>
                     <input type="number" placeholder="Total Amount Payable" className="w-full border p-3 rounded-lg" value={formData.amountPayable || ''} onChange={e => setFormData({...formData, amountPayable: e.target.value})} />
                     <input type="number" placeholder="Amount Paid" className="w-full border p-3 rounded-lg" value={formData.amountPaid || ''} onChange={e => setFormData({...formData, amountPaid: e.target.value})} />
+                    <ProofInput />
                   </>
                 )}
 
@@ -686,6 +728,7 @@ function App() {
                     <select className="w-full border p-3 rounded-lg bg-white" value={formData.status || 'Unpaid'} onChange={e => setFormData({...formData, status: e.target.value})}>
                       <option value="Unpaid">Unpaid</option><option value="Paid">Paid</option>
                     </select>
+                    <ProofInput />
                   </>
                 )}
 
@@ -704,6 +747,7 @@ function App() {
                     <input required placeholder="Description" className="w-full border p-3 rounded-lg" value={formData.description || ''} onChange={e => setFormData({...formData, description: e.target.value})} />
                     <input placeholder="Employee Name (Optional)" className="w-full border p-3 rounded-lg" value={formData.employeeName || ''} onChange={e => setFormData({...formData, employeeName: e.target.value})} />
                     <input required type="number" placeholder="Amount" className="w-full border p-3 rounded-lg" value={formData.amount || ''} onChange={e => setFormData({...formData, amount: e.target.value})} />
+                    <ProofInput />
                   </>
                 )}
 
@@ -721,6 +765,7 @@ function App() {
                       <input type="number" placeholder="Cash Out" className="w-full border p-3 rounded-lg" value={formData.cashOut || ''} onChange={e => setFormData({...formData, cashOut: e.target.value})} />
                       <input type="number" placeholder="Cash In" className="w-full border p-3 rounded-lg" value={formData.cashIn || ''} onChange={e => setFormData({...formData, cashIn: e.target.value})} />
                     </div>
+                    <ProofInput />
                   </>
                 )}
 
@@ -738,6 +783,7 @@ function App() {
                     <select className="w-full border p-3 rounded-lg bg-white" value={formData.status || 'Pending'} onChange={e => setFormData({...formData, status: e.target.value})}>
                       <option value="Pending">Pending</option><option value="Cleared">Cleared</option>
                     </select>
+                    <ProofInput />
                   </>
                 )}
 
@@ -753,7 +799,7 @@ function App() {
                 )}
 
                 <div className="flex gap-3 justify-end mt-8">
-                  <button type="button" onClick={() => setShowForm(false)} className="px-6 py-3 text-slate-500 hover:bg-slate-100 rounded-lg font-medium">Cancel</button>
+                  <button type="button" onClick={() => { setShowForm(false); setFileToUpload(null); }} className="px-6 py-3 text-slate-500 hover:bg-slate-100 rounded-lg font-medium">Cancel</button>
                   <button type="submit" disabled={isSubmitting} className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold shadow-lg shadow-blue-200">
                     {isSubmitting ? 'Saving...' : 'Save'}
                   </button>
