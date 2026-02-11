@@ -620,7 +620,7 @@ function App() {
                     {view === 'clients' && <><th className="p-4">Date</th><th className="p-4">Client Name</th><th className="p-4">Retainer (Monthly)</th><th className="p-4">Project Name</th><th className="p-4 text-right">Project Total</th><th className="p-4 text-right">Advance Received</th><th className="p-4 text-right">Balance</th><th className="p-4">Status</th></>}
                     {view === 'petty-cash' && <><th className="p-4">Date</th><th className="p-4">Description</th><th className="p-4">Head</th><th className="p-4 text-right">Cash Out</th><th className="p-4 text-right">Cash In</th></>}
                     {view === 'expenses' && <><th className="p-4">Date</th><th className="p-4">Category</th><th className="p-4">Description</th><th className="p-4">Employee</th><th className="p-4 text-right">Amount</th></>}
-                    {view === 'salaries' && <><th className="p-4">Employee</th><th className="p-4">Type</th><th className="p-4">Base Salary</th><th className="p-4 text-right">Overtime/Bonus</th><th className="p-4 text-right">Total Payable</th><th className="p-4">Status</th></>}
+                    {view === 'salaries' && <><th className="p-4">Date</th><th className="p-4">Employee</th><th className="p-4">Type</th><th className="p-4">Base Salary</th><th className="p-4 text-right">Overtime/Bonus</th><th className="p-4 text-right">Total Payable</th><th className="p-4">Status</th></>}
                     {view === 'vendors' && <><th className="p-4">Vendor Name</th><th className="p-4">Service Type</th><th className="p-4 text-right">Total Payable</th><th className="p-4 text-right">Paid</th><th className="p-4 text-right">Balance</th></>}
                     {view === 'bank' && <><th className="p-4">Date</th><th className="p-4">Bank</th><th className="p-4">Cheque #</th><th className="p-4">Description</th><th className="p-4 text-right">Amount</th><th className="p-4">Clearing Date</th><th className="p-4">Status</th></>}
                     <th className="p-4 text-center">Action</th>
@@ -666,6 +666,7 @@ function App() {
 
                   {view === 'salaries' && filteredSalaries.map(item => (
                     <tr key={item.id} className="hover:bg-slate-50">
+                      <td className="p-4 text-sm text-slate-500">{item.date || '-'}</td>
                       <td className="p-4 font-medium text-sm">{item.employeeName}</td>
                       <td className="p-4 text-sm"><span className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-bold">{item.type}</span></td>
                       <td className="p-4 text-sm text-slate-500">{formatCurrency(item.baseSalary)}</td>
