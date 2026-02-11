@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
   LayoutDashboard, Wallet, Receipt, Users, Building2, Briefcase, Truck,
-  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy
+  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as ChartTooltip, Legend } from 'recharts';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js";
@@ -586,7 +586,16 @@ function App() {
 
             {/* EXPENSE CHART */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-                <h3 className="text-lg font-bold text-slate-800 mb-4">Expense Distribution</h3>
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-bold text-slate-800">Expense Distribution</h3>
+                    <button 
+                        onClick={() => window.location.reload()} 
+                        className="flex items-center gap-2 text-sm text-slate-500 hover:text-blue-600"
+                        title="Force refresh data"
+                    >
+                        <RefreshCw size={14} /> Refresh Data
+                    </button>
+                </div>
                 <div className="h-64">
                     {expenseChartData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
@@ -601,8 +610,11 @@ function App() {
                             </PieChart>
                         </ResponsiveContainer>
                     ) : (
-                        <div className="flex items-center justify-center h-full text-slate-400">
-                            No data available for chart
+                        <div className="flex items-center justify-center h-full text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                            <div className="text-center">
+                                <p className="mb-2">No expense data found for this period.</p>
+                                <p className="text-xs">Try changing the Month/Year filter or add expenses.</p>
+                            </div>
                         </div>
                     )}
                 </div>
