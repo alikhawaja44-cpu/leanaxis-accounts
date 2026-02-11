@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
   LayoutDashboard, Wallet, Receipt, Users, Building2, Briefcase, Truck,
@@ -30,11 +30,20 @@ const formatCurrency = (amount) => {
   return new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 }).format(amount);
 };
 
+const escapeCSV = (str) => {
+  if (str === null || str === undefined) return '""';
+  const stringified = String(str).replace(/"/g, '""');
+  return `"${stringified}"`;
+};
+
 const exportToCSV = (data, filename) => {
-  if (!data.length) return;
+  if (!data || !data.length) {
+    alert("No data to export");
+    return;
+  }
   const headers = Object.keys(data[0]).join(',');
-  const rows = data.map(row => Object.values(row).map(v => `"${v}"`).join(',')).join('\n');
-  const csvContent = "data:text/csv;charset=utf-8," + headers + '\n' + rows;
+  const rows = data.map(row => Object.values(row).map(escapeCSV).join(',')).join('\n');
+  const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + headers + '\n' + rows;
   const encodedUri = encodeURI(csvContent);
   const link = document.createElement("a");
   link.setAttribute("href", encodedUri);
@@ -48,6 +57,7 @@ const exportToCSV = (data, filename) => {
 function useFirebaseSync(collectionName, defaultValue = []) {
     const [data, setData] = useState(defaultValue);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
 
     useEffect(() => {
         const q = query(collection(db, collectionName), orderBy("createdAt", "desc"));
@@ -57,26 +67,30 @@ function useFirebaseSync(collectionName, defaultValue = []) {
             setLoading(false);
         }, (error) => {
             console.error("Firebase sync error:", error);
+            setError(error);
             setLoading(false);
         });
         return () => unsubscribe();
     }, [collectionName]);
 
-    return [data, loading];
+    return [data, loading, error];
 }
 
-// --- LOCAL STORAGE HOOK (Kept for Auth state only) ---
+// --- LOCAL STORAGE HOOK ---
 function useStickyState(defaultValue, key) {
   const [value, setValue] = useState(() => {
-    const stickyValue = window.localStorage.getItem(key);
-    return stickyValue !== null ? JSON.parse(stickyValue) : defaultValue;
+    try {
+      const stickyValue = window.localStorage.getItem(key);
+      return stickyValue !== null ? JSON.parse(stickyValue) : defaultValue;
+    } catch (e) {
+      return defaultValue;
+    }
   });
   useEffect(() => {
     window.localStorage.setItem(key, JSON.stringify(value));
   }, [key, value]);
   return [value, setValue];
 }
-
 
 // --- LOGIN COMPONENT ---
 const LoginView = ({ onLogin, loading, error }) => {
@@ -121,7 +135,7 @@ const LoginView = ({ onLogin, loading, error }) => {
 
           {error && <div className="text-red-600 text-sm text-center bg-red-50 p-3 rounded-lg border border-red-100 flex items-center justify-center gap-2"><Lock size={16} /> {error}</div>}
           
-          <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-md mt-4 flex justify-center gap-2 items-center">
+          <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-md mt-4 flex justify-center gap-2 items-center disabled:bg-blue-400 disabled:cursor-not-allowed">
             {loading ? 'Verifying...' : <><LogIn size={20} /> Login</>}
           </button>
         </form>
@@ -130,12 +144,12 @@ const LoginView = ({ onLogin, loading, error }) => {
   );
 };
 
-
 // --- MAIN APP COMPONENT ---
 function App() {
   // Auth State
   const [isAuthenticated, setIsAuthenticated] = useStickyState(false, 'leanaxis_auth');
   const [currentUser, setCurrentUser] = useStickyState(null, 'leanaxis_current_user');
+  const [authLoading, setAuthLoading] = useState(true);
   
   // Mobile Menu State
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -148,11 +162,12 @@ function App() {
   // Forms State
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({});
-  const [fileToUpload, setFileToUpload] = useState(null); // File state
+  const [fileToUpload, setFileToUpload] = useState(null);
   const [isEditingUser, setIsEditingUser] = useState(false); 
   const [isEditingRecord, setIsEditingRecord] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState(null);
+  const seedingRef = useRef(false);
 
   // --- FIREBASE DATA HOOKS ---
   const [pettyCash] = useFirebaseSync('petty_cash');
@@ -165,7 +180,8 @@ function App() {
 
   // --- SEED ADMIN IF EMPTY ---
   useEffect(() => {
-      if (!usersLoading && users.length === 0) {
+      if (!usersLoading && users.length === 0 && !seedingRef.current) {
+          seedingRef.current = true;
           const seedAdmin = async () => {
               try {
                   await addDoc(collection(db, 'users'), {
@@ -185,10 +201,19 @@ function App() {
 
   // --- HANDLERS ---
   const handleLogin = (loginInput, password) => {
+      setAuthLoading(true);
+      
+      if (usersLoading) {
+          setAuthError('Please wait, syncing data...');
+          setAuthLoading(false);
+          return;
+      }
+
       if (users.length === 0 && loginInput === 'admin' && password === 'admin123') {
           setIsAuthenticated(true);
-          setCurrentUser({ username: 'admin', role: 'Admin' });
+          setCurrentUser({ username: 'admin', role: 'Admin', id: 'local' });
           setAuthError(null);
+          setAuthLoading(false);
           return;
       }
 
@@ -198,8 +223,9 @@ function App() {
           setCurrentUser(user); 
           setAuthError(null);
       } else {
-          setAuthError('Invalid credentials (or syncing, please wait...)');
+          setAuthError('Invalid credentials');
       }
+      setAuthLoading(false);
   };
 
   const handleLogout = () => {
@@ -213,13 +239,13 @@ function App() {
           await deleteDoc(doc(db, collectionName, id));
       } catch (e) {
           console.error("Error deleting: ", e);
-          alert("Failed to delete record.");
+          alert("Failed to delete record: " + e.message);
       }
   };
 
   const handleDelete = (id, type) => {
-    if (currentUser.role !== 'Admin') return alert('Access Denied: Only Admins can delete records.');
-    if(!confirm('Delete this record? This cannot be undone.')) return;
+    if (currentUser?.role !== 'Admin') return alert('Access Denied: Only Admins can delete records.');
+    if(!window.confirm('Delete this record? This cannot be undone.')) return;
     
     const map = {
         'petty': 'petty_cash', 'expense': 'expenses', 'salary': 'salaries',
@@ -229,7 +255,7 @@ function App() {
   };
 
   const handleEdit = (item) => {
-      if (currentUser.role !== 'Admin') return alert('Access Denied: Only Admins can edit records.');
+      if (currentUser?.role !== 'Admin') return alert('Access Denied: Only Admins can edit records.');
       setFormData({ ...item });
       setIsEditingRecord(true);
       setShowForm(true);
@@ -239,11 +265,10 @@ function App() {
       const { id, createdAt, lastEditedAt, lastEditedBy, proofUrl, ...dataToCopy } = item;
       setFormData({ 
           ...dataToCopy, 
-          // Auto-set date to today if it's missing or old, ensures dashboard visibility
-          date: new Date().toISOString().split('T')[0] 
+          date: new Date().toISOString().split('T')[0]
       });
-      setFileToUpload(null); // Clear file
-      setIsEditingRecord(false); // Ensure it saves as NEW
+      setFileToUpload(null);
+      setIsEditingRecord(false);
       setIsEditingUser(false);
       setShowForm(true);
   };
@@ -251,13 +276,13 @@ function App() {
   const uploadFile = async (file) => {
       if (!file) return null;
       try {
-          const storageRef = ref(storage, `proofs/${Date.now()}_${file.name}`);
+          const storageRef = ref(storage, `proofs/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`);
           const snapshot = await uploadBytes(storageRef, file);
           const url = await getDownloadURL(snapshot.ref);
           return url;
       } catch (e) {
           console.error("Upload failed:", e);
-          alert("Failed to upload proof image.");
+          alert("Failed to upload proof image: " + e.message);
           return null;
       }
   };
@@ -271,19 +296,30 @@ function App() {
               if (url) proofUrl = url;
           }
 
-          // Ensure date is present
           const finalData = { 
               ...data, 
-              date: data.date || new Date().toISOString().split('T')[0], // Fallback date
+              date: data.date || new Date().toISOString().split('T')[0],
               proofUrl 
           };
 
+          Object.keys(finalData).forEach(key => {
+              if (finalData[key] === undefined) delete finalData[key];
+          });
+
           if (id) {
-             await updateDoc(doc(db, collectionName, id), { ...finalData, lastEditedBy: currentUser.username, lastEditedAt: new Date().toISOString() });
-             alert("Record updated!");
+             await updateDoc(doc(db, collectionName, id), { 
+                 ...finalData, 
+                 lastEditedBy: currentUser.username, 
+                 lastEditedAt: new Date().toISOString() 
+             });
+             alert("Record updated successfully!");
           } else {
-             await addDoc(collection(db, collectionName), { ...finalData, addedBy: currentUser.username, createdAt: new Date().toISOString() });
-             alert("Record saved!");
+             await addDoc(collection(db, collectionName), { 
+                 ...finalData, 
+                 addedBy: currentUser.username, 
+                 createdAt: new Date().toISOString() 
+             });
+             alert("Record saved successfully!");
           }
           setShowForm(false);
           setFormData({});
@@ -292,7 +328,7 @@ function App() {
           setIsEditingUser(false);
       } catch (e) {
           console.error("Error saving: ", e);
-          alert("Failed to save. Check internet connection.");
+          alert("Failed to save: " + e.message);
       } finally {
           setIsSubmitting(false);
       }
@@ -300,6 +336,7 @@ function App() {
 
   const handleAddSubmit = (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
     
     let targetCollection = null;
     if (view === 'manage-users') targetCollection = 'users';
@@ -311,10 +348,14 @@ function App() {
     else if (view === 'vendors') targetCollection = 'vendors';
 
     if (targetCollection) {
-        if (targetCollection === 'users' && !isEditingUser) {
-            if (users.some(u => u.username === formData.username)) {
-                alert("Username already exists!");
-                return;
+        if (targetCollection === 'users') {
+            const duplicateUser = users.find(u => u.username === formData.username);
+            if (duplicateUser) {
+                if (!isEditingUser || (isEditingUser && duplicateUser.id !== formData.id)) {
+                    alert("Username already exists!");
+                    setIsSubmitting(false);
+                    return;
+                }
             }
         }
 
@@ -325,28 +366,33 @@ function App() {
   };
 
   const handleEditUser = (user) => {
-      setFormData({ ...user, originalUsername: user.username });
+      setFormData({ ...user });
       setIsEditingUser(true);
       setShowForm(true);
   };
 
   const handleDeleteUser = (user) => {
       if (user.username === 'admin') { alert("Cannot delete main admin!"); return; }
-      if (!confirm("Delete user?")) return;
+      if (!window.confirm("Delete user?")) return;
       deleteRecord('users', user.id);
   };
 
   // --- FILTERING & CALCULATIONS ---
   const filterByDate = (items, dateKey = 'date') => {
+    if (!items) return [];
     if (selectedMonth === 'All' && selectedYear === 'All') return items;
     return items.filter(item => {
-      // Fallback to createdAt if date is missing
       const dateStr = item[dateKey] || item.createdAt || item.dueDate || item.clearingDate; 
       if (!dateStr) return false;
-      const date = new Date(dateStr);
-      const monthMatch = selectedMonth === 'All' || date.toLocaleString('default', { month: 'long' }) === selectedMonth;
-      const yearMatch = selectedYear === 'All' || date.getFullYear().toString() === selectedYear;
-      return monthMatch && yearMatch;
+      try {
+          const date = new Date(dateStr);
+          if (isNaN(date.getTime())) return false;
+          const monthMatch = selectedMonth === 'All' || date.toLocaleString('default', { month: 'long' }) === selectedMonth;
+          const yearMatch = selectedYear === 'All' || date.getFullYear().toString() === selectedYear;
+          return monthMatch && yearMatch;
+      } catch (e) {
+          return false;
+      }
     });
   };
 
@@ -355,7 +401,6 @@ function App() {
   const filteredSalaries = useMemo(() => filterByDate(salaries), [salaries, selectedMonth, selectedYear]);
   const filteredBankRecords = useMemo(() => filterByDate(bankRecords), [bankRecords, selectedMonth, selectedYear]);
   const filteredClients = useMemo(() => filterByDate(clients), [clients, selectedMonth, selectedYear]); 
-  const filteredVendors = useMemo(() => filterByDate(vendors), [vendors]);
 
   const totals = useMemo(() => {
     const totalPettyCashOut = filteredPettyCash.reduce((acc, curr) => acc + (Number(curr.cashOut) || 0), 0);
@@ -363,10 +408,11 @@ function App() {
     const totalSalaries = filteredSalaries.reduce((acc, curr) => acc + (Number(curr.totalPayable) || 0), 0);
     const totalVendorPending = vendors.reduce((acc, curr) => acc + (Number(curr.amountPayable) || 0) - (Number(curr.amountPaid) || 0), 0);
     const totalClientPending = clients.reduce((acc, curr) => acc + (Number(curr.projectTotal) || 0) - (Number(curr.advanceReceived) || 0), 0);
+    const pettyBalance = pettyCash.reduce((acc, curr) => acc + (Number(curr.cashIn) || 0) - (Number(curr.cashOut) || 0), 0);
     
     return {
       expense: totalPettyCashOut + totalExpenses + totalSalaries,
-      pettyBalance: pettyCash.reduce((acc, curr) => acc + (Number(curr.cashIn) || 0) - (Number(curr.cashOut) || 0), 0),
+      pettyBalance: pettyBalance,
       vendorPending: totalVendorPending,
       clientPending: totalClientPending
     };
@@ -403,12 +449,11 @@ function App() {
               </a>
           )}
           
-          {/* Duplicate Button - Accessible to all roles if they can create */}
           <button onClick={() => handleDuplicate(item)} className="p-2 text-green-600 hover:bg-green-50 rounded-full transition-colors" title="Duplicate Entry">
               <Copy size={16} />
           </button>
 
-          {currentUser.role === 'Admin' && (
+          {currentUser?.role === 'Admin' && (
              <>
                 <button onClick={() => type === 'user' ? handleEditUser(item) : handleEdit(item)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors" title="Edit">
                     <Edit size={16} />
@@ -421,14 +466,13 @@ function App() {
       </div>
   );
 
-  // Reusable File Input Component
   const ProofInput = () => (
       <div className="border-t pt-4 mt-2">
           <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Attach Proof (Receipt/Bill)</label>
           <div className="flex items-center gap-2">
               <label className="cursor-pointer flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-lg transition">
                   <Upload size={18} />
-                  <span className="text-sm font-medium">{fileToUpload ? fileToUpload.name : "Choose File"}</span>
+                  <span className="text-sm font-medium truncate max-w-[150px]">{fileToUpload ? fileToUpload.name : "Choose File"}</span>
                   <input type="file" className="hidden" accept="image/*,.pdf" onChange={e => setFileToUpload(e.target.files[0])} />
               </label>
               {fileToUpload && <button type="button" onClick={() => setFileToUpload(null)} className="text-red-500 hover:bg-red-50 p-1 rounded"><X size={16}/></button>}
@@ -437,7 +481,7 @@ function App() {
       </div>
   );
 
-  if (!isAuthenticated) return <LoginView onLogin={handleLogin} error={authError} />;
+  if (!isAuthenticated) return <LoginView onLogin={handleLogin} loading={authLoading || usersLoading} error={authError} />;
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
@@ -474,7 +518,7 @@ function App() {
           <NavButton id="vendors" icon={Truck} label="Vendor Management" />
           <NavButton id="bank" icon={Building2} label="Bank & Cheques" />
           
-          {currentUser.role === 'Admin' && (
+          {currentUser?.role === 'Admin' && (
              <div className="mt-8 pt-4 border-t border-slate-100">
                 <NavButton id="manage-users" icon={UserPlus} label="Manage Users" />
              </div>
@@ -482,7 +526,7 @@ function App() {
         </nav>
 
         <div className="p-4 border-t border-slate-100">
-           <div className="mb-4 px-2 text-xs text-slate-500 text-center">Logged in as: <span className="font-bold text-slate-700">{currentUser.username}</span></div>
+           <div className="mb-4 px-2 text-xs text-slate-500 text-center">Logged in as: <span className="font-bold text-slate-700">{currentUser?.username}</span></div>
           <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors font-medium text-sm">
              <Lock size={16} /> Logout
           </button>
@@ -525,7 +569,7 @@ function App() {
                 <div className="flex gap-2 w-full md:w-auto">
                   {view !== 'manage-users' && (
                       <button onClick={() => {
-                        if (view === 'clients') exportToCSV(filteredClients, 'clients.csv'); // Export filtered clients
+                        if (view === 'clients') exportToCSV(filteredClients, 'clients.csv');
                         else if (view === 'vendors') exportToCSV(vendors, 'vendors.csv');
                         else if (view === 'petty-cash') exportToCSV(filteredPettyCash, 'petty_cash.csv');
                         else if (view === 'expenses') exportToCSV(filteredExpenses, 'expenses.csv');
@@ -648,7 +692,7 @@ function App() {
                       <td className="p-4 text-sm">{item.projectName || '-'}</td>
                       <td className="p-4 text-right text-sm">{formatCurrency(item.projectTotal)}</td>
                       <td className="p-4 text-right text-sm text-green-600">{formatCurrency(item.advanceReceived)}</td>
-                      <td className="p-4 text-right text-sm font-bold text-red-600">{formatCurrency(Number(item.projectTotal) - Number(item.advanceReceived))}</td>
+                      <td className="p-4 text-right text-sm font-bold text-red-600">{formatCurrency(Number(item.projectTotal || 0) - Number(item.advanceReceived || 0))}</td>
                       <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold whitespace-nowrap ${item.status === 'Completed' ? 'bg-green-100 text-green-700' : item.status === 'Ongoing' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>{item.status || 'Ongoing'}</span></td>
                       <td className="p-4"><ActionButtons item={item} type="client" /></td>
                     </tr>
@@ -680,7 +724,13 @@ function App() {
                     <tr key={item.id} className="hover:bg-slate-50">
                       <td className="p-4 text-sm text-slate-500">{item.date || '-'}</td>
                       <td className="p-4 font-medium text-sm">{item.employeeName}</td>
-                      <td className="p-4 text-sm"><span className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-bold">{item.type}</span></td>
+                      <td className="p-4 text-sm">
+                        <span className={`px-2 py-1 rounded text-xs font-bold whitespace-nowrap ${
+                            item.type === 'Monthly Salary' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'
+                        }`}>
+                            {item.type}
+                        </span>
+                      </td>
                       <td className="p-4 text-sm text-slate-500">{formatCurrency(item.baseSalary)}</td>
                       <td className="p-4 text-right text-sm text-green-600">+{formatCurrency(item.overtimeOrBonus)}</td>
                       <td className="p-4 text-right font-bold text-sm">{formatCurrency(item.totalPayable)}</td>
@@ -689,13 +739,13 @@ function App() {
                     </tr>
                   ))}
 
-                  {view === 'vendors' && filteredVendors.map(item => (
+                  {view === 'vendors' && vendors.map(item => (
                     <tr key={item.id} className="hover:bg-slate-50">
                       <td className="p-4 font-medium text-sm">{item.name}</td>
                       <td className="p-4 text-sm text-slate-500">{item.serviceType}</td>
                       <td className="p-4 text-right text-sm font-bold">{formatCurrency(item.amountPayable)}</td>
                       <td className="p-4 text-right text-sm text-green-600">{formatCurrency(item.amountPaid)}</td>
-                      <td className="p-4 text-right text-sm font-bold text-red-600">{formatCurrency(Number(item.amountPayable) - Number(item.amountPaid))}</td>
+                      <td className="p-4 text-right text-sm font-bold text-red-600">{formatCurrency(Number(item.amountPayable || 0) - Number(item.amountPaid || 0))}</td>
                       <td className="p-4"><ActionButtons item={item} type="vendor" /></td>
                     </tr>
                   ))}
@@ -733,8 +783,8 @@ function App() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {users.map((u, idx) => (
-                                <tr key={idx} className="hover:bg-slate-50">
+                            {users.map((u) => (
+                                <tr key={u.id} className="hover:bg-slate-50">
                                     <td className="p-4 font-medium">{u.username}</td>
                                     <td className="p-4 text-sm">{u.email}</td>
                                     <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${u.role === 'Admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{u.role}</span></td>
@@ -794,7 +844,6 @@ function App() {
 
                 {view === 'salaries' && (
                   <>
-                    {/* NEW DATE FIELD FOR SALARY */}
                     <div className="space-y-1">
                         <label className="text-xs font-bold text-slate-500 uppercase">Payment/Entry Date</label>
                         <input required type="date" className="w-full border p-3 rounded-lg" value={formData.date || new Date().toISOString().split('T')[0]} onChange={e => setFormData({...formData, date: e.target.value})} />
@@ -864,34 +913,36 @@ function App() {
                         <input type="date" className="w-full border p-3 rounded-lg" value={formData.clearingDate || ''} onChange={e => setFormData({...formData, clearingDate: e.target.value})} />
                     </div>
                     <select className="w-full border p-3 rounded-lg bg-white" value={formData.status || 'Pending'} onChange={e => setFormData({...formData, status: e.target.value})}>
-                      <option value="Pending">Pending</option><option value="Cleared">Cleared</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Cleared">Cleared</option>
+                        <option value="Bounced">Bounced</option>
                     </select>
                     <ProofInput />
                   </>
                 )}
 
                 {view === 'manage-users' && (
-                    <>
-                        <input required placeholder="Username" className="w-full border p-3 rounded-lg" value={formData.username || ''} onChange={e => setFormData({...formData, username: e.target.value})} />
-                        <input required type="email" placeholder="Email" className="w-full border p-3 rounded-lg" value={formData.email || ''} onChange={e => setFormData({...formData, email: e.target.value})} />
-                        <input required={!isEditingUser} type="password" placeholder="Password" className="w-full border p-3 rounded-lg" value={formData.password || ''} onChange={e => setFormData({...formData, password: e.target.value})} />
-                        <select className="w-full border p-3 rounded-lg bg-white" value={formData.role || 'Staff'} onChange={e => setFormData({...formData, role: e.target.value})}>
-                            <option value="Staff">Staff</option><option value="Admin">Admin</option>
-                        </select>
-                    </>
+                  <>
+                    <input required placeholder="Username" className="w-full border p-3 rounded-lg" value={formData.username || ''} onChange={e => setFormData({...formData, username: e.target.value})} />
+                    <input required type="email" placeholder="Email" className="w-full border p-3 rounded-lg" value={formData.email || ''} onChange={e => setFormData({...formData, email: e.target.value})} />
+                    <select className="w-full border p-3 rounded-lg bg-white" value={formData.role || 'User'} onChange={e => setFormData({...formData, role: e.target.value})}>
+                        <option value="User">User</option>
+                        <option value="Admin">Admin</option>
+                    </select>
+                    <input required={!isEditingUser} type="password" placeholder={isEditingUser ? "Leave blank to keep current password" : "Password"} className="w-full border p-3 rounded-lg" value={formData.password || ''} onChange={e => setFormData({...formData, password: e.target.value})} />
+                  </>
                 )}
 
-                <div className="flex gap-3 justify-end mt-8">
-                  <button type="button" onClick={() => { setShowForm(false); setFileToUpload(null); }} className="px-6 py-3 text-slate-500 hover:bg-slate-100 rounded-lg font-medium">Cancel</button>
-                  <button type="submit" disabled={isSubmitting} className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold shadow-lg shadow-blue-200">
-                    {isSubmitting ? 'Saving...' : 'Save'}
-                  </button>
+                <div className="pt-4 flex gap-3">
+                    <button type="button" onClick={() => setShowForm(false)} className="flex-1 py-3 border border-slate-300 rounded-lg text-slate-700 font-bold hover:bg-slate-50" disabled={isSubmitting}>Cancel</button>
+                    <button type="submit" className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed" disabled={isSubmitting}>
+                        {isSubmitting ? 'Saving...' : (isEditingRecord || isEditingUser ? 'Update' : 'Save')}
+                    </button>
                 </div>
               </form>
             </div>
           </div>
         )}
-
       </main>
     </div>
   );
