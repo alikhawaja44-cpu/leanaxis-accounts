@@ -239,8 +239,8 @@ function App() {
       const { id, createdAt, lastEditedAt, lastEditedBy, proofUrl, ...dataToCopy } = item;
       setFormData({ 
           ...dataToCopy, 
-          // Keep old date so user sees what they are copying, but they can edit it
-          // date: new Date().toISOString().split('T')[0] // Option: Auto-set to today
+          // Auto-set date to today if it's missing or old, ensures dashboard visibility
+          date: new Date().toISOString().split('T')[0] 
       });
       setFileToUpload(null); // Clear file
       setIsEditingRecord(false); // Ensure it saves as NEW
@@ -271,7 +271,12 @@ function App() {
               if (url) proofUrl = url;
           }
 
-          const finalData = { ...data, proofUrl };
+          // Ensure date is present
+          const finalData = { 
+              ...data, 
+              date: data.date || new Date().toISOString().split('T')[0], // Fallback date
+              proofUrl 
+          };
 
           if (id) {
              await updateDoc(doc(db, collectionName, id), { ...finalData, lastEditedBy: currentUser.username, lastEditedAt: new Date().toISOString() });
@@ -335,7 +340,8 @@ function App() {
   const filterByDate = (items, dateKey = 'date') => {
     if (selectedMonth === 'All' && selectedYear === 'All') return items;
     return items.filter(item => {
-      const dateStr = item[dateKey] || item.dueDate || item.clearingDate; 
+      // Fallback to createdAt if date is missing
+      const dateStr = item[dateKey] || item.createdAt || item.dueDate || item.clearingDate; 
       if (!dateStr) return false;
       const date = new Date(dateStr);
       const monthMatch = selectedMonth === 'All' || date.toLocaleString('default', { month: 'long' }) === selectedMonth;
@@ -775,6 +781,12 @@ function App() {
 
                 {view === 'salaries' && (
                   <>
+                    {/* NEW DATE FIELD FOR SALARY */}
+                    <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-500 uppercase">Payment/Entry Date</label>
+                        <input required type="date" className="w-full border p-3 rounded-lg" value={formData.date || new Date().toISOString().split('T')[0]} onChange={e => setFormData({...formData, date: e.target.value})} />
+                    </div>
+                    
                     <input required placeholder="Employee Name" className="w-full border p-3 rounded-lg" value={formData.employeeName || ''} onChange={e => setFormData({...formData, employeeName: e.target.value})} />
                     <select className="w-full border p-3 rounded-lg bg-white" value={formData.type || 'Monthly Salary'} onChange={e => setFormData({...formData, type: e.target.value})}>
                         <option value="Monthly Salary">Monthly Salary</option>
