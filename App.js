@@ -2,8 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
   LayoutDashboard, Wallet, Receipt, Users, Building2, Briefcase, Truck,
-  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon
+  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy
 } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as ChartTooltip, Legend } from 'recharts';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js";
 import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, query, orderBy, setDoc } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore.js";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-storage.js";
@@ -234,6 +235,19 @@ function App() {
       setShowForm(true);
   };
 
+  const handleDuplicate = (item) => {
+      const { id, createdAt, lastEditedAt, lastEditedBy, proofUrl, ...dataToCopy } = item;
+      setFormData({ 
+          ...dataToCopy, 
+          // Keep old date so user sees what they are copying, but they can edit it
+          // date: new Date().toISOString().split('T')[0] // Option: Auto-set to today
+      });
+      setFileToUpload(null); // Clear file
+      setIsEditingRecord(false); // Ensure it saves as NEW
+      setIsEditingUser(false);
+      setShowForm(true);
+  };
+
   const uploadFile = async (file) => {
       if (!file) return null;
       try {
@@ -335,7 +349,7 @@ function App() {
   const filteredSalaries = useMemo(() => filterByDate(salaries), [salaries, selectedMonth, selectedYear]);
   const filteredBankRecords = useMemo(() => filterByDate(bankRecords), [bankRecords, selectedMonth, selectedYear]);
   const filteredClients = useMemo(() => filterByDate(clients), [clients, selectedMonth, selectedYear]); 
-  const filteredVendors = useMemo(() => vendors, [vendors]);
+  const filteredVendors = useMemo(() => filterByDate(vendors), [vendors]);
 
   const totals = useMemo(() => {
     const totalPettyCashOut = filteredPettyCash.reduce((acc, curr) => acc + (Number(curr.cashOut) || 0), 0);
@@ -351,6 +365,18 @@ function App() {
       clientPending: totalClientPending
     };
   }, [filteredPettyCash, filteredExpenses, filteredSalaries, vendors, clients, pettyCash]); 
+
+  // --- PIE CHART DATA ---
+  const expenseChartData = useMemo(() => {
+      const data = [
+          { name: 'Petty Cash', value: filteredPettyCash.reduce((acc, curr) => acc + (Number(curr.cashOut) || 0), 0) },
+          { name: 'Expenses', value: filteredExpenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0) },
+          { name: 'Salaries', value: filteredSalaries.reduce((acc, curr) => acc + (Number(curr.totalPayable) || 0), 0) }
+      ];
+      return data.filter(d => d.value > 0);
+  }, [filteredPettyCash, filteredExpenses, filteredSalaries]);
+
+  const COLORS = ['#0088FE', '#00C49F', '#FFBB28'];
 
   // --- RENDER HELPERS ---
   const NavButton = ({ id, icon: Icon, label }) => (
@@ -370,6 +396,12 @@ function App() {
                   <LinkIcon size={16} />
               </a>
           )}
+          
+          {/* Duplicate Button - Accessible to all roles if they can create */}
+          <button onClick={() => handleDuplicate(item)} className="p-2 text-green-600 hover:bg-green-50 rounded-full transition-colors" title="Duplicate Entry">
+              <Copy size={16} />
+          </button>
+
           {currentUser.role === 'Admin' && (
              <>
                 <button onClick={() => type === 'user' ? handleEditUser(item) : handleEdit(item)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors" title="Edit">
@@ -507,41 +539,67 @@ function App() {
 
         {/* DASHBOARD VIEW */}
         {view === 'dashboard' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-red-50 rounded-lg text-red-600"><ArrowUpRight size={24} /></div>
-                <span className="text-xs font-bold text-slate-400 uppercase">Total Expenses</span>
+          <div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-6">
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="p-3 bg-red-50 rounded-lg text-red-600"><ArrowUpRight size={24} /></div>
+                  <span className="text-xs font-bold text-slate-400 uppercase">Total Expenses</span>
+                </div>
+                <h3 className="text-2xl font-bold text-slate-800">{formatCurrency(totals.expense)}</h3>
+                <p className="text-xs text-slate-500 mt-2">Filtered period outflow</p>
               </div>
-              <h3 className="text-2xl font-bold text-slate-800">{formatCurrency(totals.expense)}</h3>
-              <p className="text-xs text-slate-500 mt-2">Filtered period outflow</p>
+
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="p-3 bg-blue-50 rounded-lg text-blue-600"><Wallet size={24} /></div>
+                  <span className="text-xs font-bold text-slate-400 uppercase">Petty Cash</span>
+                </div>
+                <h3 className="text-2xl font-bold text-slate-800">{formatCurrency(totals.pettyBalance)}</h3>
+                <p className="text-xs text-slate-500 mt-2">Current liquid cash</p>
+              </div>
+
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="p-3 bg-green-50 rounded-lg text-green-600"><Briefcase size={24} /></div>
+                  <span className="text-xs font-bold text-slate-400 uppercase">Client Receivables</span>
+                </div>
+                <h3 className="text-2xl font-bold text-slate-800">{formatCurrency(totals.clientPending)}</h3>
+                <p className="text-xs text-slate-500 mt-2">Remaining project balances</p>
+              </div>
+
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="p-3 bg-orange-50 rounded-lg text-orange-600"><Truck size={24} /></div>
+                  <span className="text-xs font-bold text-slate-400 uppercase">Vendor Payables</span>
+                </div>
+                <h3 className="text-2xl font-bold text-slate-800">{formatCurrency(totals.vendorPending)}</h3>
+                <p className="text-xs text-slate-500 mt-2">Outstanding vendor bills</p>
+              </div>
             </div>
 
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-blue-50 rounded-lg text-blue-600"><Wallet size={24} /></div>
-                <span className="text-xs font-bold text-slate-400 uppercase">Petty Cash</span>
-              </div>
-              <h3 className="text-2xl font-bold text-slate-800">{formatCurrency(totals.pettyBalance)}</h3>
-              <p className="text-xs text-slate-500 mt-2">Current liquid cash</p>
-            </div>
-
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-green-50 rounded-lg text-green-600"><Briefcase size={24} /></div>
-                <span className="text-xs font-bold text-slate-400 uppercase">Client Receivables</span>
-              </div>
-              <h3 className="text-2xl font-bold text-slate-800">{formatCurrency(totals.clientPending)}</h3>
-              <p className="text-xs text-slate-500 mt-2">Remaining project balances</p>
-            </div>
-
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-orange-50 rounded-lg text-orange-600"><Truck size={24} /></div>
-                <span className="text-xs font-bold text-slate-400 uppercase">Vendor Payables</span>
-              </div>
-              <h3 className="text-2xl font-bold text-slate-800">{formatCurrency(totals.vendorPending)}</h3>
-              <p className="text-xs text-slate-500 mt-2">Outstanding vendor bills</p>
+            {/* EXPENSE CHART */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+                <h3 className="text-lg font-bold text-slate-800 mb-4">Expense Distribution</h3>
+                <div className="h-64">
+                    {expenseChartData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                                <Pie data={expenseChartData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} fill="#8884d8" paddingAngle={5} dataKey="value">
+                                    {expenseChartData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                    ))}
+                                </Pie>
+                                <ChartTooltip formatter={(value) => formatCurrency(value)} />
+                                <Legend />
+                            </PieChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="flex items-center justify-center h-full text-slate-400">
+                            No data available for chart
+                        </div>
+                    )}
+                </div>
             </div>
           </div>
         )}
