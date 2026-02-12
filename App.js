@@ -2,12 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
   LayoutDashboard, Wallet, Receipt, Users, Building2, Briefcase, Truck,
-  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw
+  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, FileInput
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as ChartTooltip, Legend } from 'recharts';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js";
-import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, query, orderBy, setDoc } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, query, orderBy, setDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore.js";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-storage.js";
+import Papa from "https://cdn.skypack.dev/papaparse@5.4.1";
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
@@ -298,6 +299,84 @@ function App() {
       }
   };
 
+  // --- BULK IMPORT HANDLER ---
+  const handleImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Define mandatory fields for mapping
+    const fieldMapping = {
+        'clients': ['date', 'name', 'retainerAmount', 'projectName', 'projectTotal', 'advanceReceived', 'status'],
+        'petty-cash': ['date', 'description', 'head', 'cashOut', 'cashIn'],
+        'expenses': ['date', 'category', 'description', 'employeeName', 'amount'],
+        'salaries': ['date', 'employeeName', 'type', 'baseSalary', 'overtimeOrBonus', 'totalPayable', 'status'],
+        'vendors': ['name', 'serviceType', 'amountPayable', 'amountPaid'],
+        'bank': ['date', 'bank', 'cheque', 'description', 'amount', 'clearingDate', 'status']
+    };
+
+    const targetCollectionMap = {
+        'clients': 'clients',
+        'petty-cash': 'petty_cash',
+        'expenses': 'expenses',
+        'salaries': 'salaries',
+        'vendors': 'vendors',
+        'bank': 'bank_records'
+    };
+
+    const currentView = view;
+    if (!fieldMapping[currentView]) return alert("Import not supported for this view.");
+
+    Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: async (results) => {
+            const rows = results.data;
+            if (rows.length === 0) return alert("File is empty.");
+
+            // Confirm import
+            if (!confirm(`Found ${rows.length} rows. Import into ${currentView}?`)) return;
+
+            const batch = writeBatch(db);
+            const collectionRef = collection(db, targetCollectionMap[currentView]);
+            
+            let count = 0;
+            rows.forEach(row => {
+                // Basic cleanup
+                const cleanRow = {};
+                Object.keys(row).forEach(key => {
+                    if (row[key]) cleanRow[key.trim()] = row[key].trim();
+                });
+
+                // Add metadata
+                cleanRow.createdAt = new Date().toISOString();
+                cleanRow.addedBy = currentUser.username;
+                cleanRow.imported = true;
+                
+                // Ensure date exists if required
+                if (!cleanRow.date && fieldMapping[currentView].includes('date')) {
+                    cleanRow.date = new Date().toISOString().split('T')[0];
+                }
+
+                // Add to batch (create new doc ref)
+                const newDocRef = doc(collectionRef);
+                batch.set(newDocRef, cleanRow);
+                count++;
+            });
+
+            try {
+                await batch.commit();
+                alert(`Successfully imported ${count} records!`);
+            } catch (err) {
+                console.error("Import failed:", err);
+                alert("Import failed. See console for details.");
+            }
+        },
+        error: (err) => {
+            alert("Error parsing CSV: " + err.message);
+        }
+    });
+  };
+
   const handleAddSubmit = (e) => {
     e.preventDefault();
     
@@ -535,6 +614,15 @@ function App() {
                         <Download size={18} /> Export
                       </button>
                   )}
+
+                  {/* IMPORT BUTTON */}
+                  {view !== 'manage-users' && (
+                    <label className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors text-blue-600 bg-white shadow-sm text-sm cursor-pointer">
+                        <Upload size={18} /> Import
+                        <input type="file" accept=".csv" onChange={handleImport} className="hidden" />
+                    </label>
+                  )}
+
                   <button onClick={() => { setShowForm(true); setIsEditingUser(false); setIsEditingRecord(false); setFormData({}); setFileToUpload(null); }} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm text-sm">
                     <Plus size={18} /> {view === 'manage-users' ? 'Add User' : 'Add New'}
                   </button>
@@ -862,13 +950,5 @@ function App() {
                   <>
                     <input required type="date" className="w-full border p-3 rounded-lg" value={formData.date || ''} onChange={e => setFormData({...formData, date: e.target.value})} />
                     <input required placeholder="Bank Name" className="w-full border p-3 rounded-lg" value={formData.bank || ''} onChange={e => setFormData({...formData, bank: e.target.value})} />
-                    <input required placeholder="Cheque #" className="w-full border p-3 rounded-lg" value={formData.cheque || ''} onChange={e => setFormData({...formData, cheque: e.target.value})} />
-                    <input required placeholder="Description" className="w-full border p-3 rounded-lg" value={formData.description || ''} onChange={e => setFormData({...formData, description: e.target.value})} />
-                    <input required type="number" placeholder="Amount" className="w-full border p-3 rounded-lg" value={formData.amount || ''} onChange={e => setFormData({...formData, amount: e.target.value})} />
-                    <div className="space-y-1">
-                        <label className="text-xs font-bold text-slate-500 uppercase">Expected Clearing Date</label>
-                        <input type="date" className="w-full border p-3 rounded-lg" value={formData.clearingDate || ''} onChange={e => setFormData({...formData, clearingDate: e.target.value})} />
-                    </div>
-                    <select className="w-full border p-3 rounded-lg bg-white" value={formData.status || 'Pending'} onChange={e => setFormData({...formData, status: e.target.value})}>
 
-[Showing lines 1-859 of 916 (50.0KB limit). Use offset=860 to continue.]
+[Showing lines 1-913 of 966 (52.8KB limit). Use offset=914 to continue.]
