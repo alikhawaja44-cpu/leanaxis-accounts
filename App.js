@@ -950,5 +950,48 @@ function App() {
                   <>
                     <input required type="date" className="w-full border p-3 rounded-lg" value={formData.date || ''} onChange={e => setFormData({...formData, date: e.target.value})} />
                     <input required placeholder="Bank Name" className="w-full border p-3 rounded-lg" value={formData.bank || ''} onChange={e => setFormData({...formData, bank: e.target.value})} />
+                    <input placeholder="Cheque # (Optional)" className="w-full border p-3 rounded-lg" value={formData.cheque || ''} onChange={e => setFormData({...formData, cheque: e.target.value})} />
+                    <input required placeholder="Description / Purpose" className="w-full border p-3 rounded-lg" value={formData.description || ''} onChange={e => setFormData({...formData, description: e.target.value})} />
+                    <input type="number" placeholder="Amount" className="w-full border p-3 rounded-lg font-bold" value={formData.amount || ''} onChange={e => setFormData({...formData, amount: e.target.value})} />
+                    
+                    <div className="pt-2 border-t mt-2"><p className="text-xs font-bold text-slate-500 uppercase mb-2">Clearing Status</p></div>
+                    <select className="w-full border p-3 rounded-lg bg-white" value={formData.status || 'Pending'} onChange={e => setFormData({...formData, status: e.target.value})}>
+                      <option value="Pending">Pending (Not Cleared)</option><option value="Cleared">Cleared (Money Available)</option>
+                    </select>
+                    
+                    {formData.status === 'Cleared' && (
+                        <input required type="date" placeholder="Clearing Date" className="w-full border p-3 rounded-lg mt-2" value={formData.clearingDate || ''} onChange={e => setFormData({...formData, clearingDate: e.target.value})} />
+                    )}
+                    <ProofInput />
+                  </>
+                )}
 
-[Showing lines 1-913 of 966 (52.8KB limit). Use offset=914 to continue.]
+                {view === 'manage-users' && (
+                    <>
+                        <input required placeholder="Username" className="w-full border p-3 rounded-lg" value={formData.username || ''} onChange={e => setFormData({...formData, username: e.target.value})} disabled={isEditingUser && formData.username === 'admin'} />
+                        <input required type="email" placeholder="Email Address" className="w-full border p-3 rounded-lg" value={formData.email || ''} onChange={e => setFormData({...formData, email: e.target.value})} />
+                        <input required type="password" placeholder="Password" className="w-full border p-3 rounded-lg" value={formData.password || ''} onChange={e => setFormData({...formData, password: e.target.value})} />
+                        <select className="w-full border p-3 rounded-lg bg-white" value={formData.role || 'User'} onChange={e => setFormData({...formData, role: e.target.value})} disabled={formData.username === 'admin'}>
+                            <option value="User">Standard User (Read/Write)</option>
+                            <option value="Admin">Administrator (Full Control)</option>
+                        </select>
+                        {formData.username === 'admin' && <p className="text-xs text-red-500">Note: The main admin username/role cannot be changed.</p>}
+                    </>
+                )}
+
+                <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-lg mt-4 flex items-center justify-center gap-2">
+                  {isSubmitting ? <><RefreshCw className="animate-spin" size={20} /> Saving...</> : <><CheckCircle size={20} /> Save Record</>}
+                </button>
+              
+              </form>
+            </div>
+          </div>
+        )}
+
+      </main>
+    </div>
+  );
+}
+
+const root = createRoot(document.getElementById('root'));
+root.render(<App />);
