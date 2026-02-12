@@ -9,7 +9,6 @@ import Papa from "papaparse";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js";
 import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, query, orderBy, setDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore.js";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-storage.js";
-import Papa from "https://cdn.skypack.dev/papaparse@5.4.1";
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
