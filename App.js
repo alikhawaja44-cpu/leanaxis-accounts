@@ -20,7 +20,6 @@ const firebaseConfig = {
     appId: "1:855221056961:web:b4129012fa0f56f58a6b40"
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const storage = getStorage(app);
@@ -51,13 +50,22 @@ function useFirebaseSync(collectionName, defaultValue = []) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const q = query(collection(db, collectionName), orderBy("createdAt", "desc"));
+        const q = query(collection(db, collectionName), orderBy("date", "desc")); // Changed to sort by Date by default
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            // Client-side sort fallback just in case 'date' string format varies
+            items.sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
             setData(items);
             setLoading(false);
         }, (error) => {
             console.error("Firebase sync error:", error);
+            // Fallback for missing index error
+            const qFallback = query(collection(db, collectionName));
+            getDocs(qFallback).then(snap => {
+                 const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                 items.sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
+                 setData(items);
+            });
             setLoading(false);
         });
         return () => unsubscribe();
@@ -78,7 +86,6 @@ function useStickyState(defaultValue, key) {
   return [value, setValue];
 }
 
-
 // --- LOGIN COMPONENT ---
 const LoginView = ({ onLogin, loading, error }) => {
   const [loginInput, setLoginInput] = useState('');
@@ -97,31 +104,16 @@ const LoginView = ({ onLogin, loading, error }) => {
         </div>
         <h2 className="text-2xl font-bold text-center text-slate-800 mb-2">LeanAxis Accounts</h2>
         <p className="text-center text-slate-500 mb-8">Cloud Agency System ☁️</p>
-        
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-bold text-slate-600 mb-1">Username or Email</label>
-            <input 
-              type="text" 
-              required 
-              className="w-full border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all" 
-              value={loginInput} 
-              onChange={(e) => setLoginInput(e.target.value)} 
-            />
+            <input type="text" required className="w-full border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all" value={loginInput} onChange={(e) => setLoginInput(e.target.value)} />
           </div>
           <div>
             <label className="block text-sm font-bold text-slate-600 mb-1">Password</label>
-            <input 
-              type="password" 
-              required 
-              className="w-full border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all" 
-              value={password} 
-              onChange={(e) => setPassword(e.target.value)} 
-            />
+            <input type="password" required className="w-full border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all" value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
-
           {error && <div className="text-red-600 text-sm text-center bg-red-50 p-3 rounded-lg border border-red-100 flex items-center justify-center gap-2"><Lock size={16} /> {error}</div>}
-          
           <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-md mt-4 flex justify-center gap-2 items-center">
             {loading ? 'Verifying...' : <><LogIn size={20} /> Login</>}
           </button>
@@ -131,11 +123,11 @@ const LoginView = ({ onLogin, loading, error }) => {
   );
 };
 
-
 // --- MAIN APP COMPONENT ---
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useStickyState(false, 'leanaxis_auth');
   const [currentUser, setCurrentUser] = useStickyState(null, 'leanaxis_current_user');
+  const [imgbbKey, setImgbbKey] = useStickyState('', 'leanaxis_imgbb_key'); 
   
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [view, setView] = useState('dashboard');
@@ -161,13 +153,7 @@ function App() {
 
   useEffect(() => {
       if (!usersLoading && users.length === 0) {
-          addDoc(collection(db, 'users'), {
-              username: 'admin',
-              password: 'admin123',
-              email: 'admin@leanaxis.com',
-              role: 'Admin',
-              createdAt: new Date().toISOString()
-          }).catch(console.error);
+          addDoc(collection(db, 'users'), { username: 'admin', password: 'admin123', email: 'admin@leanaxis.com', role: 'Admin', createdAt: new Date().toISOString() }).catch(console.error);
       }
   }, [users, usersLoading]);
 
@@ -179,26 +165,12 @@ function App() {
           return;
       }
       const user = users.find(u => (u.username === loginInput || u.email === loginInput) && u.password === password);
-      if (user) { 
-          setIsAuthenticated(true);
-          setCurrentUser(user); 
-          setAuthError(null);
-      } else {
-          setAuthError('Invalid credentials');
-      }
+      if (user) { setIsAuthenticated(true); setCurrentUser(user); setAuthError(null); } else { setAuthError('Invalid credentials'); }
   };
 
-  const handleLogout = () => {
-      setIsAuthenticated(false);
-      setCurrentUser(null);
-      setView('dashboard'); 
-  };
+  const handleLogout = () => { setIsAuthenticated(false); setCurrentUser(null); setView('dashboard'); };
 
-  const deleteRecord = async (collectionName, id) => {
-      if(confirm('Delete this record? This cannot be undone.')) {
-          await deleteDoc(doc(db, collectionName, id));
-      }
-  };
+  const deleteRecord = async (collectionName, id) => { if(confirm('Delete this record?')) await deleteDoc(doc(db, collectionName, id)); };
 
   const handleDelete = (id, type) => {
     if (currentUser.role !== 'Admin') return alert('Access Denied: Only Admins can delete records.');
@@ -222,20 +194,24 @@ function App() {
       setShowForm(true);
   };
 
-  // --- FIREBASE STORAGE UPLOAD ---
+  // --- IMGBB UPLOAD ---
   const uploadFile = async (file) => {
       if (!file) return null;
-      setUploadProgress('Uploading to Firebase...');
+      if (!imgbbKey) {
+          alert("Please set your ImgBB API Key in Settings first!");
+          return null;
+      }
+      setUploadProgress('Uploading...');
+      const formData = new FormData();
+      formData.append("image", file);
       try {
-          const storageRef = ref(storage, `proofs/${Date.now()}_${file.name}`);
-          const metadata = { contentType: file.type }; // Fix for some browsers
-          const snapshot = await uploadBytes(storageRef, file, metadata);
-          const url = await getDownloadURL(snapshot.ref);
-          setUploadProgress('Done!');
-          return url;
+          const res = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbKey}`, { method: "POST", body: formData });
+          const data = await res.json();
+          if (data.success) { setUploadProgress('Done!'); return data.data.url; } 
+          else { throw new Error(data.error?.message || 'Upload failed'); }
       } catch (e) {
-          console.error("Upload failed:", e);
-          alert("Upload failed: " + e.message + "\n\n(Did you enable Storage Rules in Firebase Console?)");
+          console.error("Upload error:", e);
+          alert("Upload failed: " + e.message);
           setUploadProgress('Failed');
           return null;
       }
@@ -249,13 +225,7 @@ function App() {
               const url = await uploadFile(fileToUpload);
               if (url) proofUrl = url;
           }
-
-          const finalData = { 
-              ...data, 
-              date: data.date || new Date().toISOString().split('T')[0],
-              proofUrl 
-          };
-
+          const finalData = { ...data, date: data.date || new Date().toISOString().split('T')[0], proofUrl };
           if (id) {
              await updateDoc(doc(db, collectionName, id), { ...finalData, lastEditedBy: currentUser.username, lastEditedAt: new Date().toISOString() });
              alert("Record updated!");
@@ -302,15 +272,19 @@ function App() {
   };
 
   const filterByDate = (items) => {
-    if (selectedMonth === 'All' && selectedYear === 'All') return items;
-    return items.filter(item => {
-      const dateStr = item.date || item.createdAt; 
-      if (!dateStr) return false;
-      const date = new Date(dateStr);
-      const monthMatch = selectedMonth === 'All' || date.toLocaleString('default', { month: 'long' }) === selectedMonth;
-      const yearMatch = selectedYear === 'All' || date.getFullYear().toString() === selectedYear;
-      return monthMatch && yearMatch;
-    });
+    let filtered = items;
+    if (selectedMonth !== 'All' || selectedYear !== 'All') {
+        filtered = items.filter(item => {
+            const dateStr = item.date || item.createdAt; 
+            if (!dateStr) return false;
+            const date = new Date(dateStr);
+            const monthMatch = selectedMonth === 'All' || date.toLocaleString('default', { month: 'long' }) === selectedMonth;
+            const yearMatch = selectedYear === 'All' || date.getFullYear().toString() === selectedYear;
+            return monthMatch && yearMatch;
+        });
+    }
+    // Strict Date Sorting (Newest First)
+    return filtered.sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
   };
 
   const filteredPettyCash = useMemo(() => filterByDate(pettyCash), [pettyCash, selectedMonth, selectedYear]);
@@ -399,7 +373,7 @@ function App() {
           <NavButton id="salaries" icon={Users} label="Salary & Payments" />
           <NavButton id="vendors" icon={Truck} label="Vendor Management" />
           <NavButton id="bank" icon={Building2} label="Bank & Cheques" />
-          {currentUser.role === 'Admin' && <div className="mt-8 pt-4 border-t border-slate-100"><NavButton id="manage-users" icon={UserPlus} label="Manage Users" /></div>}
+          {currentUser.role === 'Admin' && <div className="mt-8 pt-4 border-t border-slate-100"><NavButton id="manage-users" icon={UserPlus} label="Manage Users" /><NavButton id="settings" icon={Settings} label="Settings" /></div>}
         </nav>
         <div className="p-4 border-t border-slate-100"><button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-red-200 text-red-600 rounded-lg font-medium text-sm"><Lock size={16} /> Logout</button></div>
       </aside>
@@ -408,14 +382,14 @@ function App() {
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
           <div><h2 className="text-xl md:text-2xl font-bold text-slate-800 capitalize">{view.replace('-', ' ')}</h2></div>
           <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-            {view !== 'manage-users' && view !== 'vendors' && (
+            {view !== 'manage-users' && view !== 'settings' && view !== 'vendors' && (
                 <div className="flex items-center gap-2 bg-white border border-slate-300 rounded-lg px-3 py-2 shadow-sm">
                     <Calendar size={18} className="text-slate-400" />
                     <select className="bg-transparent outline-none text-sm text-slate-700" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}><option value="All">All Months</option>{['January','February','March','April','May','June','July','August','September','October','November','December'].map(m => <option key={m} value={m}>{m}</option>)}</select>
                     <select className="bg-transparent outline-none text-sm text-slate-700 border-l pl-2 ml-1" value={selectedYear} onChange={e => setSelectedYear(e.target.value)}><option value="All">All Years</option><option value="2024">2024</option><option value="2025">2025</option><option value="2026">2026</option></select>
                 </div>
             )}
-            {view !== 'dashboard' && (
+            {view !== 'dashboard' && view !== 'settings' && (
                 <div className="flex gap-2 w-full md:w-auto">
                   <button onClick={() => { setShowForm(true); setIsEditingUser(false); setIsEditingRecord(false); setFormData({}); setFileToUpload(null); }} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm text-sm"><Plus size={18} /> {view === 'manage-users' ? 'Add User' : 'Add New'}</button>
                 </div>
@@ -446,47 +420,49 @@ function App() {
           </div>
         )}
 
-        {/* TABLES - VENDORS DESCRIPTION ADDED */}
-        {view === 'vendors' && (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="overflow-x-auto"><table className="w-full text-left min-w-[800px]"><thead className="bg-slate-50 text-slate-600 font-semibold text-sm border-b border-slate-200"><tr><th className="p-4">Vendor Name</th><th className="p-4">Service Type</th><th className="p-4">Description</th><th className="p-4 text-right">Total Payable</th><th className="p-4 text-right">Paid</th><th className="p-4 text-right">Balance</th><th className="p-4 text-center">Action</th></tr></thead>
-            <tbody className="divide-y divide-slate-100">{filteredVendors.map(item => (<tr key={item.id} className="hover:bg-slate-50"><td className="p-4 font-medium text-sm">{item.name}</td><td className="p-4 text-sm text-slate-500">{item.serviceType}</td><td className="p-4 text-sm text-slate-600 truncate max-w-[200px]">{item.description}</td><td className="p-4 text-right text-sm font-bold">{formatCurrency(item.amountPayable)}</td><td className="p-4 text-right text-sm text-green-600">{formatCurrency(item.amountPaid)}</td><td className="p-4 text-right text-sm font-bold text-red-600">{formatCurrency(Number(item.amountPayable) - Number(item.amountPaid))}</td><td className="p-4"><ActionButtons item={item} type="vendor" /></td></tr>))}</tbody></table></div>
-          </div>
-        )}
-
-        {/* OTHER TABLES */}
-        {['clients','petty-cash','expenses','salaries','bank'].includes(view) && (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left min-w-[800px]">
-                <thead className="bg-slate-50 text-slate-600 font-semibold text-sm border-b border-slate-200">
-                  <tr>
-                    {view === 'clients' && <><th className="p-4">Date</th><th className="p-4">Client Name</th><th className="p-4">Retainer</th><th className="p-4">Project</th><th className="p-4 text-right">Total</th><th className="p-4 text-right">Advance</th><th className="p-4 text-right">Balance</th><th className="p-4">Status</th></>}
-                    {view === 'petty-cash' && <><th className="p-4">Date</th><th className="p-4">Description</th><th className="p-4">Head</th><th className="p-4 text-right">Out</th><th className="p-4 text-right">In</th></>}
-                    {view === 'expenses' && <><th className="p-4">Date</th><th className="p-4">Category</th><th className="p-4">Description</th><th className="p-4">Employee</th><th className="p-4 text-right">Amount</th></>}
-                    {view === 'salaries' && <><th className="p-4">Date</th><th className="p-4">Employee</th><th className="p-4">Type</th><th className="p-4">Base</th><th className="p-4 text-right">Bonus</th><th className="p-4 text-right">Total</th><th className="p-4">Status</th></>}
-                    {view === 'bank' && <><th className="p-4">Date</th><th className="p-4">Bank</th><th className="p-4">Cheque</th><th className="p-4">Desc</th><th className="p-4 text-right">Amount</th><th className="p-4">Clearing</th><th className="p-4">Status</th></>}
-                    <th className="p-4 text-center">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {view === 'clients' && filteredClients.map(item => (<tr key={item.id} className="hover:bg-slate-50"><td className="p-4 text-sm">{item.date}</td><td className="p-4 font-bold">{item.name}</td><td className="p-4 text-green-600">{formatCurrency(item.retainerAmount)}</td><td className="p-4">{item.projectName}</td><td className="p-4 text-right">{formatCurrency(item.projectTotal)}</td><td className="p-4 text-right text-green-600">{formatCurrency(item.advanceReceived)}</td><td className="p-4 text-right font-bold text-red-600">{formatCurrency(Number(item.projectTotal)-Number(item.advanceReceived))}</td><td className="p-4"><span className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{item.status}</span></td><td className="p-4"><ActionButtons item={item} type="client"/></td></tr>))}
-                  {view === 'petty-cash' && filteredPettyCash.map(item => (<tr key={item.id} className="hover:bg-slate-50"><td className="p-4 text-sm">{item.date}</td><td className="p-4 font-bold">{item.description}</td><td className="p-4"><span className="bg-slate-100 px-2 py-1 rounded text-xs">{item.head}</span></td><td className="p-4 text-right text-red-600 font-bold">{formatCurrency(item.cashOut)}</td><td className="p-4 text-right text-green-600 font-bold">{formatCurrency(item.cashIn)}</td><td className="p-4"><ActionButtons item={item} type="petty"/></td></tr>))}
-                  {view === 'expenses' && filteredExpenses.map(item => (<tr key={item.id} className="hover:bg-slate-50"><td className="p-4 text-sm">{item.date}</td><td className="p-4"><span className="bg-purple-100 text-purple-700 px-2 py-1 rounded text-xs font-bold">{item.category}</span></td><td className="p-4">{item.description}</td><td className="p-4 text-slate-500">{item.employeeName}</td><td className="p-4 text-right font-bold">{formatCurrency(item.amount)}</td><td className="p-4"><ActionButtons item={item} type="expense"/></td></tr>))}
-                  {view === 'salaries' && filteredSalaries.map(item => (<tr key={item.id} className="hover:bg-slate-50"><td className="p-4 text-sm">{item.date}</td><td className="p-4 font-bold">{item.employeeName}</td><td className="p-4"><span className="bg-blue-50 text-blue-600 px-2 py-1 rounded text-xs">{item.type}</span></td><td className="p-4 text-slate-500">{formatCurrency(item.baseSalary)}</td><td className="p-4 text-right text-green-600">{formatCurrency(item.overtimeOrBonus)}</td><td className="p-4 text-right font-bold">{formatCurrency(item.totalPayable)}</td><td className="p-4"><span className="bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-bold">{item.status}</span></td><td className="p-4"><ActionButtons item={item} type="salary"/></td></tr>))}
-                  {view === 'bank' && filteredBankRecords.map(item => (<tr key={item.id} className="hover:bg-slate-50"><td className="p-4 text-sm">{item.date}</td><td className="p-4 font-bold text-blue-600">{item.bank}</td><td className="p-4 font-mono text-xs">{item.cheque}</td><td className="p-4 text-slate-600">{item.description}</td><td className="p-4 text-right font-bold">{formatCurrency(item.amount)}</td><td className="p-4 text-xs">{item.clearingDate}</td><td className="p-4"><span className="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs font-bold">{item.status}</span></td><td className="p-4"><ActionButtons item={item} type="bank"/></td></tr>))}
-                </tbody>
-              </table>
+        {/* SETTINGS VIEW */}
+        {view === 'settings' && (
+            <div className="bg-white p-6 rounded-xl shadow-sm max-w-lg">
+                <h3 className="text-lg font-bold mb-4">Configuration</h3>
+                <label className="block text-sm font-bold text-slate-600 mb-2">ImgBB API Key (For Free Image Hosting)</label>
+                <div className="flex gap-2">
+                    <input className="border p-2 rounded w-full" value={imgbbKey} onChange={e => setImgbbKey(e.target.value)} placeholder="Paste key from api.imgbb.com" />
+                    <a href="https://api.imgbb.com/" target="_blank" className="bg-blue-100 text-blue-600 px-3 py-2 rounded text-sm font-bold whitespace-nowrap">Get Key</a>
+                </div>
             </div>
+        )}
+
+        {/* TABLES */}
+        {view !== 'dashboard' && view !== 'manage-users' && view !== 'settings' && (
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="overflow-x-auto"><table className="w-full text-left min-w-[800px]"><thead className="bg-slate-50 text-slate-600 font-semibold text-sm border-b border-slate-200"><tr>
+                {view === 'clients' && <><th className="p-4">Date</th><th className="p-4">Name</th><th className="p-4">Retainer</th><th className="p-4">Project</th><th className="p-4 text-right">Total</th><th className="p-4 text-right">Advance</th><th className="p-4 text-right">Balance</th><th className="p-4">Status</th></>}
+                {view === 'petty-cash' && <><th className="p-4">Date</th><th className="p-4">Description</th><th className="p-4">Head</th><th className="p-4 text-right">Out</th><th className="p-4 text-right">In</th></>}
+                {view === 'expenses' && <><th className="p-4">Date</th><th className="p-4">Category</th><th className="p-4">Description</th><th className="p-4">Employee</th><th className="p-4 text-right">Amount</th></>}
+                {view === 'salaries' && <><th className="p-4">Date</th><th className="p-4">Employee</th><th className="p-4">Type</th><th className="p-4">Base</th><th className="p-4 text-right">Bonus</th><th className="p-4 text-right">Total</th><th className="p-4">Status</th></>}
+                {view === 'vendors' && <><th className="p-4">Vendor</th><th className="p-4">Service</th><th className="p-4">Description</th><th className="p-4 text-right">Total</th><th className="p-4 text-right">Paid</th><th className="p-4 text-right">Balance</th></>}
+                {view === 'bank' && <><th className="p-4">Date</th><th className="p-4">Bank</th><th className="p-4">Cheque</th><th className="p-4">Desc</th><th className="p-4 text-right">Amount</th><th className="p-4">Clearing</th><th className="p-4">Status</th></>}
+                <th className="p-4 text-center">Action</th>
+            </tr></thead>
+            <tbody className="divide-y divide-slate-100">
+                {/* RENDER ROWS based on view */}
+                {view === 'clients' && filteredClients.map(item => (<tr key={item.id} className="hover:bg-slate-50"><td className="p-4 text-sm">{item.date}</td><td className="p-4 font-bold">{item.name}</td><td className="p-4 text-green-600">{formatCurrency(item.retainerAmount)}</td><td className="p-4">{item.projectName}</td><td className="p-4 text-right">{formatCurrency(item.projectTotal)}</td><td className="p-4 text-right text-green-600">{formatCurrency(item.advanceReceived)}</td><td className="p-4 text-right font-bold text-red-600">{formatCurrency(Number(item.projectTotal)-Number(item.advanceReceived))}</td><td className="p-4"><span className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{item.status}</span></td><td className="p-4"><ActionButtons item={item} type="client"/></td></tr>))}
+                {view === 'vendors' && filteredVendors.map(item => (<tr key={item.id} className="hover:bg-slate-50"><td className="p-4 font-medium text-sm">{item.name}</td><td className="p-4 text-sm text-slate-500">{item.serviceType}</td><td className="p-4 text-sm text-slate-600 truncate max-w-[200px]">{item.description}</td><td className="p-4 text-right text-sm font-bold">{formatCurrency(item.amountPayable)}</td><td className="p-4 text-right text-sm text-green-600">{formatCurrency(item.amountPaid)}</td><td className="p-4 text-right text-sm font-bold text-red-600">{formatCurrency(Number(item.amountPayable) - Number(item.amountPaid))}</td><td className="p-4"><ActionButtons item={item} type="vendor" /></td></tr>))}
+                {view === 'petty-cash' && filteredPettyCash.map(item => (<tr key={item.id} className="hover:bg-slate-50"><td className="p-4 text-sm">{item.date}</td><td className="p-4 font-bold">{item.description}</td><td className="p-4"><span className="bg-slate-100 px-2 py-1 rounded text-xs">{item.head}</span></td><td className="p-4 text-right text-red-600 font-bold">{formatCurrency(item.cashOut)}</td><td className="p-4 text-right text-green-600 font-bold">{formatCurrency(item.cashIn)}</td><td className="p-4"><ActionButtons item={item} type="petty"/></td></tr>))}
+                {view === 'expenses' && filteredExpenses.map(item => (<tr key={item.id} className="hover:bg-slate-50"><td className="p-4 text-sm">{item.date}</td><td className="p-4"><span className="bg-purple-100 text-purple-700 px-2 py-1 rounded text-xs font-bold">{item.category}</span></td><td className="p-4">{item.description}</td><td className="p-4 text-slate-500">{item.employeeName}</td><td className="p-4 text-right font-bold">{formatCurrency(item.amount)}</td><td className="p-4"><ActionButtons item={item} type="expense"/></td></tr>))}
+                {view === 'salaries' && filteredSalaries.map(item => (<tr key={item.id} className="hover:bg-slate-50"><td className="p-4 text-sm">{item.date}</td><td className="p-4 font-bold">{item.employeeName}</td><td className="p-4"><span className="bg-blue-50 text-blue-600 px-2 py-1 rounded text-xs">{item.type}</span></td><td className="p-4 text-slate-500">{formatCurrency(item.baseSalary)}</td><td className="p-4 text-right text-green-600">{formatCurrency(item.overtimeOrBonus)}</td><td className="p-4 text-right font-bold">{formatCurrency(item.totalPayable)}</td><td className="p-4"><span className="bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-bold">{item.status}</span></td><td className="p-4"><ActionButtons item={item} type="salary"/></td></tr>))}
+                {view === 'bank' && filteredBankRecords.map(item => (<tr key={item.id} className="hover:bg-slate-50"><td className="p-4 text-sm">{item.date}</td><td className="p-4 font-bold text-blue-600">{item.bank}</td><td className="p-4 font-mono text-xs">{item.cheque}</td><td className="p-4 text-slate-600">{item.description}</td><td className="p-4 text-right font-bold">{formatCurrency(item.amount)}</td><td className="p-4 text-xs">{item.clearingDate}</td><td className="p-4"><span className="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs font-bold">{item.status}</span></td><td className="p-4"><ActionButtons item={item} type="bank"/></td></tr>))}
+            </tbody></table></div>
           </div>
         )}
 
-        {/* MODAL FORM */}
+        {/* MODAL FORM - RESTORED MISSING FIELDS */}
         {showForm && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-bold">{isEditingRecord ? 'Edit' : 'Add New'}</h3><button onClick={() => { setShowForm(false); setFileToUpload(null); }} className="text-slate-400"><X size={24}/></button></div>
               <form onSubmit={handleAddSubmit} className="space-y-4">
+                
                 {view === 'vendors' && (
                   <>
                     <input required placeholder="Vendor Name" className="w-full border p-3 rounded-lg" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} />
@@ -499,13 +475,67 @@ function App() {
                     <ProofInput />
                   </>
                 )}
-                {/* Standard fields for other views (Expense, Salary, etc.) would go here - simplified for this update */}
-                {view !== 'vendors' && (
-                    <div className="text-center p-4 text-slate-500">
-                        {/* Placeholder for other forms, real implementation has them */}
-                        Please re-select the category to load form fields.
-                    </div>
+
+                {view === 'clients' && (
+                  <>
+                    <input required type="date" className="w-full border p-3 rounded-lg" value={formData.date || ''} onChange={e => setFormData({...formData, date: e.target.value})} />
+                    <input required placeholder="Client Name" className="w-full border p-3 rounded-lg" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} />
+                    <input type="number" placeholder="Monthly Retainer" className="w-full border p-3 rounded-lg" value={formData.retainerAmount || ''} onChange={e => setFormData({...formData, retainerAmount: e.target.value})} />
+                    <input placeholder="Project Name" className="w-full border p-3 rounded-lg" value={formData.projectName || ''} onChange={e => setFormData({...formData, projectName: e.target.value})} />
+                    <input type="number" placeholder="Project Total" className="w-full border p-3 rounded-lg" value={formData.projectTotal || ''} onChange={e => setFormData({...formData, projectTotal: e.target.value})} />
+                    <input type="number" placeholder="Advance Received" className="w-full border p-3 rounded-lg" value={formData.advanceReceived || ''} onChange={e => setFormData({...formData, advanceReceived: e.target.value})} />
+                    <select className="w-full border p-3 rounded-lg bg-white" value={formData.status || 'Ongoing'} onChange={e => setFormData({...formData, status: e.target.value})}><option>Ongoing</option><option>Completed</option><option>On Hold</option></select>
+                    <ProofInput />
+                  </>
                 )}
+
+                {view === 'petty-cash' && (
+                  <>
+                    <input required type="date" className="w-full border p-3 rounded-lg" value={formData.date || ''} onChange={e => setFormData({...formData, date: e.target.value})} />
+                    <input required placeholder="Description" className="w-full border p-3 rounded-lg" value={formData.description || ''} onChange={e => setFormData({...formData, description: e.target.value})} />
+                    <select className="w-full border p-3 rounded-lg bg-white" value={formData.head || 'Office Expenses'} onChange={e => setFormData({...formData, head: e.target.value})}><option>Office Expenses</option><option>Meals & Entertainment</option><option>Traveling</option><option>Custom</option></select>
+                    {formData.head === 'Custom' && <input required placeholder="Custom Head" className="w-full border p-3 rounded-lg" value={formData.customHead || ''} onChange={e => setFormData({...formData, customHead: e.target.value})} />}
+                    <div className="grid grid-cols-2 gap-4"><input type="number" placeholder="Cash Out" className="w-full border p-3 rounded-lg" value={formData.cashOut || ''} onChange={e => setFormData({...formData, cashOut: e.target.value})} /><input type="number" placeholder="Cash In" className="w-full border p-3 rounded-lg" value={formData.cashIn || ''} onChange={e => setFormData({...formData, cashIn: e.target.value})} /></div>
+                    <ProofInput />
+                  </>
+                )}
+
+                {view === 'expenses' && (
+                  <>
+                    <input required type="date" className="w-full border p-3 rounded-lg" value={formData.date || ''} onChange={e => setFormData({...formData, date: e.target.value})} />
+                    <select className="w-full border p-3 rounded-lg bg-white" value={formData.category || 'General'} onChange={e => setFormData({...formData, category: e.target.value})}><option>General</option><option>Office Rent</option><option>Utilities</option><option>Travel</option><option>Other</option></select>
+                    <input required placeholder="Description" className="w-full border p-3 rounded-lg" value={formData.description || ''} onChange={e => setFormData({...formData, description: e.target.value})} />
+                    <input placeholder="Employee (Optional)" className="w-full border p-3 rounded-lg" value={formData.employeeName || ''} onChange={e => setFormData({...formData, employeeName: e.target.value})} />
+                    <input required type="number" placeholder="Amount" className="w-full border p-3 rounded-lg" value={formData.amount || ''} onChange={e => setFormData({...formData, amount: e.target.value})} />
+                    <ProofInput />
+                  </>
+                )}
+
+                {view === 'salaries' && (
+                  <>
+                    <input required type="date" className="w-full border p-3 rounded-lg" value={formData.date || ''} onChange={e => setFormData({...formData, date: e.target.value})} />
+                    <input required placeholder="Employee Name" className="w-full border p-3 rounded-lg" value={formData.employeeName || ''} onChange={e => setFormData({...formData, employeeName: e.target.value})} />
+                    <select className="w-full border p-3 rounded-lg bg-white" value={formData.type || 'Monthly Salary'} onChange={e => setFormData({...formData, type: e.target.value})}><option>Monthly Salary</option><option>Project-Based</option></select>
+                    <input type="number" placeholder="Base Salary" className="w-full border p-3 rounded-lg" value={formData.baseSalary || ''} onChange={e => setFormData({...formData, baseSalary: e.target.value})} />
+                    <input type="number" placeholder="Bonus/Overtime" className="w-full border p-3 rounded-lg" value={formData.overtimeOrBonus || ''} onChange={e => setFormData({...formData, overtimeOrBonus: e.target.value})} />
+                    <input type="number" placeholder="Total Payable" className="w-full border p-3 rounded-lg font-bold" value={formData.totalPayable || ''} onChange={e => setFormData({...formData, totalPayable: e.target.value})} />
+                    <select className="w-full border p-3 rounded-lg bg-white" value={formData.status || 'Unpaid'} onChange={e => setFormData({...formData, status: e.target.value})}><option>Unpaid</option><option>Paid</option></select>
+                    <ProofInput />
+                  </>
+                )}
+
+                {view === 'bank' && (
+                  <>
+                    <input required type="date" className="w-full border p-3 rounded-lg" value={formData.date || ''} onChange={e => setFormData({...formData, date: e.target.value})} />
+                    <input required placeholder="Bank Name" className="w-full border p-3 rounded-lg" value={formData.bank || ''} onChange={e => setFormData({...formData, bank: e.target.value})} />
+                    <input placeholder="Cheque #" className="w-full border p-3 rounded-lg" value={formData.cheque || ''} onChange={e => setFormData({...formData, cheque: e.target.value})} />
+                    <input required placeholder="Description" className="w-full border p-3 rounded-lg" value={formData.description || ''} onChange={e => setFormData({...formData, description: e.target.value})} />
+                    <input type="number" placeholder="Amount" className="w-full border p-3 rounded-lg" value={formData.amount || ''} onChange={e => setFormData({...formData, amount: e.target.value})} />
+                    <select className="w-full border p-3 rounded-lg bg-white" value={formData.status || 'Pending'} onChange={e => setFormData({...formData, status: e.target.value})}><option>Pending</option><option>Cleared</option></select>
+                    <ProofInput />
+                  </>
+                )}
+
                 <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold flex justify-center gap-2">{isSubmitting ? 'Saving...' : 'Save Record'}</button>
               </form>
             </div>
