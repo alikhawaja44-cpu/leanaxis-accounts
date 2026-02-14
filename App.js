@@ -227,17 +227,39 @@ function App() {
   }, [users, usersLoading]);
 
   const handleLogin = async (loginInput, password) => {
+      // 1. Calculate Hash for new users
       const inputHash = await hashPassword(password);
       
+      // 2. Find user by username or email
+      const user = users.find(u => u.username === loginInput || u.email === loginInput);
+
+      if (user) {
+          // 3. Check BOTH legacy (plain) and new (hashed) passwords
+          const isLegacyMatch = user.password === password;
+          const isHashMatch = user.password === inputHash;
+
+          if (isLegacyMatch || isHashMatch) {
+              setIsAuthenticated(true); 
+              setCurrentUser(user); 
+              setAuthError(null);
+              
+              // Auto-upgrade legacy password to hash for security
+              if (isLegacyMatch) {
+                  updateDoc(doc(db, 'users', user.id), { password: inputHash }).catch(console.error);
+              }
+              return;
+          }
+      }
+
+      // 4. Fallback for initial Admin
       if (users.length === 0 && loginInput === 'admin' && password === 'admin123') {
           setIsAuthenticated(true);
           setCurrentUser({ username: 'admin', role: 'Admin' });
           setAuthError(null);
           return;
       }
-      const user = users.find(u => (u.username === loginInput || u.email === loginInput) && u.password === inputHash);
-      if (user) { setIsAuthenticated(true); setCurrentUser(user); setAuthError(null); } 
-      else { setAuthError('Invalid credentials'); }
+
+      setAuthError('Invalid credentials');
   };
 
   const handleLogout = () => { setIsAuthenticated(false); setCurrentUser(null); setView('dashboard'); };
