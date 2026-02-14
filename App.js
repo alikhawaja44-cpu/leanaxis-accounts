@@ -31,6 +31,41 @@ const formatCurrency = (amount) => {
   return new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 }).format(amount);
 };
 
+// PASSWORD ENCRYPTION - SECURITY FIX
+const hashPassword = async (password) => {
+  if (!password) return '';
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+const comparePassword = async (inputPassword, storedHash) => {
+  const inputHash = await hashPassword(inputPassword);
+  return inputHash === storedHash;
+};
+
+// INPUT VALIDATION HELPERS
+const isValidEmail = (email) => {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+};
+
+const sanitizeInput = (input) => {
+  if (typeof input !== 'string') return input;
+  return input.replace(/[<>]/g, '').trim();
+};
+
+// TAX CALCULATION (Pakistan GST)
+const calculateTax = (amount, taxRate = 18) => {
+  const tax = (Number(amount) || 0) * (taxRate / 100);
+  return {
+    subtotal: Number(amount) || 0,
+    tax: tax,
+    total: (Number(amount) || 0) + tax
+  };
+};
+
 const exportToCSV = (data, filename) => {
   if (!data.length) return;
   const headers = Object.keys(data[0]).join(',');
@@ -174,21 +209,35 @@ function App() {
       return Array.from(banks).filter(Boolean);
   }, [bankRecords]);
 
+  // Create default admin with hashed password
   useEffect(() => {
-      if (!usersLoading && users.length === 0) {
-          addDoc(collection(db, 'users'), { username: 'admin', password: 'admin123', email: 'admin@leanaxis.com', role: 'Admin', createdAt: new Date().toISOString() }).catch(console.error);
-      }
+      const createDefaultAdmin = async () => {
+          if (!usersLoading && users.length === 0) {
+              const hashedPassword = await hashPassword('admin123');
+              addDoc(collection(db, 'users'), { 
+                  username: 'admin', 
+                  password: hashedPassword, 
+                  email: 'admin@leanaxis.com', 
+                  role: 'Admin', 
+                  createdAt: new Date().toISOString() 
+              }).catch(console.error);
+          }
+      };
+      createDefaultAdmin();
   }, [users, usersLoading]);
 
-  const handleLogin = (loginInput, password) => {
+  const handleLogin = async (loginInput, password) => {
+      const inputHash = await hashPassword(password);
+      
       if (users.length === 0 && loginInput === 'admin' && password === 'admin123') {
           setIsAuthenticated(true);
           setCurrentUser({ username: 'admin', role: 'Admin' });
           setAuthError(null);
           return;
       }
-      const user = users.find(u => (u.username === loginInput || u.email === loginInput) && u.password === password);
-      if (user) { setIsAuthenticated(true); setCurrentUser(user); setAuthError(null); } else { setAuthError('Invalid credentials'); }
+      const user = users.find(u => (u.username === loginInput || u.email === loginInput) && u.password === inputHash);
+      if (user) { setIsAuthenticated(true); setCurrentUser(user); setAuthError(null); } 
+      else { setAuthError('Invalid credentials'); }
   };
 
   const handleLogout = () => { setIsAuthenticated(false); setCurrentUser(null); setView('dashboard'); };
@@ -266,13 +315,39 @@ function App() {
   const saveToFirebase = async (collectionName, data, id = null) => {
       setIsSubmitting(true);
       try {
-          let proofUrl = data.proofUrl || null;
+          // INPUT VALIDATION
+          if (data.email && !isValidEmail(data.email)) {
+              alert("Please enter a valid email address");
+              setIsSubmitting(false);
+              return;
+          }
+          
+          // Sanitize text inputs
+          const sanitizedData = { ...data };
+          Object.keys(sanitizedData).forEach(key => {
+              if (typeof sanitizedData[key] === 'string') {
+                  sanitizedData[key] = sanitizeInput(sanitizedData[key]);
+              }
+          });
+
+          let proofUrl = sanitizedData.proofUrl || null;
           if (fileToUpload) {
               const url = await uploadFile(fileToUpload);
               if (url) proofUrl = url;
           }
-          const finalData = { ...data, date: data.date || new Date().toISOString().split('T')[0], proofUrl };
+          
+          // HASH PASSWORD FOR USERS
+          let finalData = { ...sanitizedData, date: sanitizedData.date || new Date().toISOString().split('T')[0], proofUrl };
+          if (collectionName === 'users' && finalData.password) {
+              finalData.password = await hashPassword(finalData.password);
+          }
+          
           if (id) {
+             // For editing users, don't update password if blank
+             if (collectionName === 'users' && !finalData.password) {
+                 const { password, ...dataWithoutPassword } = finalData;
+                 finalData = dataWithoutPassword;
+             }
              await updateDoc(doc(db, collectionName, id), { ...finalData, lastEditedBy: currentUser.username, lastEditedAt: new Date().toISOString() });
              alert("Record updated!");
           } else {
@@ -293,7 +368,7 @@ function App() {
       }
   };
 
-  const handleAddSubmit = (e) => {
+  const handleAddSubmit = async (e) => {
     e.preventDefault();
     let targetCollection = null;
     if (view === 'manage-users') targetCollection = 'users';
@@ -305,12 +380,24 @@ function App() {
     else if (view === 'vendors') targetCollection = 'vendors';
 
     if (targetCollection) {
+        // DUPLICATE PREVENTION
         if (targetCollection === 'users' && !isEditingUser) {
             if (users.some(u => u.username === formData.username)) {
                 alert("Username already exists!");
                 return;
             }
+            if (users.some(u => u.email === formData.email)) {
+                alert("Email already registered!");
+                return;
+            }
         }
+        
+        // EMAIL VALIDATION
+        if (formData.email && !isValidEmail(formData.email)) {
+            alert("Please enter a valid email address");
+            return;
+        }
+        
         const docId = (isEditingRecord || isEditingUser) ? formData.id : null;
         const { id, ...dataToSave } = formData; 
         saveToFirebase(targetCollection, dataToSave, docId);
