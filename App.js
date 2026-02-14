@@ -31,6 +31,41 @@ const formatCurrency = (amount) => {
   return new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 }).format(amount);
 };
 
+// PASSWORD ENCRYPTION - SECURITY FIX
+const hashPassword = async (password) => {
+  if (!password) return '';
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+const comparePassword = async (inputPassword, storedHash) => {
+  const inputHash = await hashPassword(inputPassword);
+  return inputHash === storedHash;
+};
+
+// INPUT VALIDATION HELPERS
+const isValidEmail = (email) => {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+};
+
+const sanitizeInput = (input) => {
+  if (typeof input !== 'string') return input;
+  return input.replace(/[<>]/g, '').trim();
+};
+
+// TAX CALCULATION (Pakistan GST)
+const calculateTax = (amount, taxRate = 18) => {
+  const tax = (Number(amount) || 0) * (taxRate / 100);
+  return {
+    subtotal: Number(amount) || 0,
+    tax: tax,
+    total: (Number(amount) || 0) + tax
+  };
+};
+
 const exportToCSV = (data, filename) => {
   if (!data.length) return;
   const headers = Object.keys(data[0]).join(',');
@@ -174,21 +209,57 @@ function App() {
       return Array.from(banks).filter(Boolean);
   }, [bankRecords]);
 
+  // Create default admin with hashed password
   useEffect(() => {
-      if (!usersLoading && users.length === 0) {
-          addDoc(collection(db, 'users'), { username: 'admin', password: 'admin123', email: 'admin@leanaxis.com', role: 'Admin', createdAt: new Date().toISOString() }).catch(console.error);
-      }
+      const createDefaultAdmin = async () => {
+          if (!usersLoading && users.length === 0) {
+              const hashedPassword = await hashPassword('admin123');
+              addDoc(collection(db, 'users'), { 
+                  username: 'admin', 
+                  password: hashedPassword, 
+                  email: 'admin@leanaxis.com', 
+                  role: 'Admin', 
+                  createdAt: new Date().toISOString() 
+              }).catch(console.error);
+          }
+      };
+      createDefaultAdmin();
   }, [users, usersLoading]);
 
-  const handleLogin = (loginInput, password) => {
+  const handleLogin = async (loginInput, password) => {
+      // 1. Calculate Hash for new users
+      const inputHash = await hashPassword(password);
+      
+      // 2. Find user by username or email
+      const user = users.find(u => u.username === loginInput || u.email === loginInput);
+
+      if (user) {
+          // 3. Check BOTH legacy (plain) and new (hashed) passwords
+          const isLegacyMatch = user.password === password;
+          const isHashMatch = user.password === inputHash;
+
+          if (isLegacyMatch || isHashMatch) {
+              setIsAuthenticated(true); 
+              setCurrentUser(user); 
+              setAuthError(null);
+              
+              // Auto-upgrade legacy password to hash for security
+              if (isLegacyMatch) {
+                  updateDoc(doc(db, 'users', user.id), { password: inputHash }).catch(console.error);
+              }
+              return;
+          }
+      }
+
+      // 4. Fallback for initial Admin
       if (users.length === 0 && loginInput === 'admin' && password === 'admin123') {
           setIsAuthenticated(true);
           setCurrentUser({ username: 'admin', role: 'Admin' });
           setAuthError(null);
           return;
       }
-      const user = users.find(u => (u.username === loginInput || u.email === loginInput) && u.password === password);
-      if (user) { setIsAuthenticated(true); setCurrentUser(user); setAuthError(null); } else { setAuthError('Invalid credentials'); }
+
+      setAuthError('Invalid credentials');
   };
 
   const handleLogout = () => { setIsAuthenticated(false); setCurrentUser(null); setView('dashboard'); };
@@ -266,13 +337,39 @@ function App() {
   const saveToFirebase = async (collectionName, data, id = null) => {
       setIsSubmitting(true);
       try {
-          let proofUrl = data.proofUrl || null;
+          // INPUT VALIDATION
+          if (data.email && !isValidEmail(data.email)) {
+              alert("Please enter a valid email address");
+              setIsSubmitting(false);
+              return;
+          }
+          
+          // Sanitize text inputs
+          const sanitizedData = { ...data };
+          Object.keys(sanitizedData).forEach(key => {
+              if (typeof sanitizedData[key] === 'string') {
+                  sanitizedData[key] = sanitizeInput(sanitizedData[key]);
+              }
+          });
+
+          let proofUrl = sanitizedData.proofUrl || null;
           if (fileToUpload) {
               const url = await uploadFile(fileToUpload);
               if (url) proofUrl = url;
           }
-          const finalData = { ...data, date: data.date || new Date().toISOString().split('T')[0], proofUrl };
+          
+          // HASH PASSWORD FOR USERS
+          let finalData = { ...sanitizedData, date: sanitizedData.date || new Date().toISOString().split('T')[0], proofUrl };
+          if (collectionName === 'users' && finalData.password) {
+              finalData.password = await hashPassword(finalData.password);
+          }
+          
           if (id) {
+             // For editing users, don't update password if blank
+             if (collectionName === 'users' && !finalData.password) {
+                 const { password, ...dataWithoutPassword } = finalData;
+                 finalData = dataWithoutPassword;
+             }
              await updateDoc(doc(db, collectionName, id), { ...finalData, lastEditedBy: currentUser.username, lastEditedAt: new Date().toISOString() });
              alert("Record updated!");
           } else {
@@ -293,7 +390,7 @@ function App() {
       }
   };
 
-  const handleAddSubmit = (e) => {
+  const handleAddSubmit = async (e) => {
     e.preventDefault();
     let targetCollection = null;
     if (view === 'manage-users') targetCollection = 'users';
@@ -305,12 +402,24 @@ function App() {
     else if (view === 'vendors') targetCollection = 'vendors';
 
     if (targetCollection) {
+        // DUPLICATE PREVENTION
         if (targetCollection === 'users' && !isEditingUser) {
             if (users.some(u => u.username === formData.username)) {
                 alert("Username already exists!");
                 return;
             }
+            if (users.some(u => u.email === formData.email)) {
+                alert("Email already registered!");
+                return;
+            }
         }
+        
+        // EMAIL VALIDATION
+        if (formData.email && !isValidEmail(formData.email)) {
+            alert("Please enter a valid email address");
+            return;
+        }
+        
         const docId = (isEditingRecord || isEditingUser) ? formData.id : null;
         const { id, ...dataToSave } = formData; 
         saveToFirebase(targetCollection, dataToSave, docId);
@@ -534,7 +643,7 @@ function App() {
             {view !== 'dashboard' && view !== 'settings' && (
                 <div className="flex gap-3">
                   <button onClick={handleMasterExport} className="p-2.5 border border-slate-200 bg-white text-slate-600 rounded-xl shadow-sm hover:bg-slate-50 hover:text-indigo-600 transition-all" title="Download Master CSV"><FileDown size={20} /></button>
-                  <button onClick={() => { setShowForm(true); setIsEditingUser(false); setIsEditingRecord(false); setFormData({}); setFileToUpload(null); }} className="flex items-center justify-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-600/20 text-sm font-bold hover:bg-indigo-700 transition-all hover:scale-[1.02] active:scale-95"><Plus size={18} /> Add New</button>
+                  <button onClick={() => { setShowForm(true); setIsEditingUser(false); setIsEditingRecord(false); setFormData({}); setFileToUpload(null); }} className="flex items-center justify-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-600/20 text-sm font-bold hover:bg-indigo-700 transition-all hover:scale-[1.02] active:scale-95"><Plus size={18} /> {view === 'manage-users' ? 'Add User' : 'Add New'}</button>
                 </div>
             )}
           </div>
@@ -605,6 +714,80 @@ function App() {
           </div>
         )}
 
+        {/* MANAGE USERS VIEW - FIXED */}
+        {view === 'manage-users' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-300">
+            {usersLoading ? (
+              <div className="p-12 text-center">
+                <RefreshCw className="animate-spin mx-auto mb-4 text-indigo-600" size={40} />
+                <p className="text-slate-500">Loading users...</p>
+              </div>
+            ) : users.length === 0 ? (
+              <div className="p-12 text-center">
+                <Users className="mx-auto mb-4 text-slate-300" size={64} />
+                <p className="text-xl font-bold text-slate-700 mb-2">No users found</p>
+                <p className="text-slate-500 mb-6">Get started by adding your first user</p>
+                <button 
+                  onClick={() => { setShowForm(true); setIsEditingUser(false); setIsEditingRecord(false); setFormData({}); setFileToUpload(null); }}
+                  className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold mx-auto hover:bg-indigo-700 transition-all"
+                >
+                  <Plus size={20} /> Add User
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left min-w-[800px]">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-wider">Username</th>
+                      <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-wider">Email</th>
+                      <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-wider">Role</th>
+                      <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Created</th>
+                      <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {users.map(item => (
+                      <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-5">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-white font-bold text-sm">
+                              {item.username?.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="font-bold text-slate-800">{item.username}</span>
+                          </div>
+                        </td>
+                        <td className="p-5 text-sm text-slate-600">{item.email}</td>
+                        <td className="p-5">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                            item.role === 'Admin' 
+                              ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' 
+                              : item.role === 'Editor'
+                              ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                              : 'bg-slate-100 text-slate-600 border border-slate-200'
+                          }`}>
+                            {item.role}
+                          </span>
+                        </td>
+                        <td className="p-5 text-center text-sm text-slate-500">
+                          {item.createdAt ? new Date(item.createdAt).toLocaleDateString('en-US', { 
+                            year: 'numeric', 
+                            month: 'short', 
+                            day: 'numeric' 
+                          }) : '-'}
+                        </td>
+                        <td className="p-5 text-center">
+                          <ActionButtons item={item} type="user" />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* SETTINGS VIEW */}
         {view === 'settings' && (
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 max-w-lg mx-auto mt-10">
@@ -671,11 +854,69 @@ function App() {
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-8 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
               <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-4">
-                  <h3 className="text-2xl font-bold text-slate-800 tracking-tight">{isEditingRecord ? 'Edit Record' : 'Add New Record'}</h3>
+                  <h3 className="text-2xl font-bold text-slate-800 tracking-tight">
+                    {view === 'manage-users' 
+                      ? (isEditingUser ? 'Edit User' : 'Add New User')
+                      : (isEditingRecord ? 'Edit Record' : 'Add New Record')
+                    }
+                  </h3>
                   <button onClick={() => { setShowForm(false); setFileToUpload(null); }} className="text-slate-400 hover:text-red-500 transition-colors bg-slate-50 p-2 rounded-full hover:bg-red-50"><X size={20}/></button>
               </div>
               <form onSubmit={handleAddSubmit} className="space-y-5">
                 
+                {/* USER FORM - FIXED */}
+                {view === 'manage-users' && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Username *</label>
+                      <input 
+                        required 
+                        placeholder="Enter username" 
+                        className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                        value={formData.username || ''} 
+                        onChange={e => setFormData({...formData, username: e.target.value})} 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Email *</label>
+                      <input 
+                        type="email"
+                        required 
+                        placeholder="Enter email address" 
+                        className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                        value={formData.email || ''} 
+                        onChange={e => setFormData({...formData, email: e.target.value})} 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                        Password {isEditingUser && <span className="text-slate-400 font-normal normal-case">(leave blank to keep current)</span>}
+                      </label>
+                      <input 
+                        type="password"
+                        required={!isEditingUser}
+                        placeholder={isEditingUser ? "Leave blank to keep current" : "Enter password"} 
+                        className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                        value={formData.password || ''} 
+                        onChange={e => setFormData({...formData, password: e.target.value})} 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Role *</label>
+                      <select 
+                        required
+                        className="w-full border border-slate-200 p-3 rounded-xl text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                        value={formData.role || 'Viewer'} 
+                        onChange={e => setFormData({...formData, role: e.target.value})}
+                      >
+                        <option value="Viewer">Viewer (Read Only)</option>
+                        <option value="Editor">Editor (Can Add/Edit)</option>
+                        <option value="Admin">Admin (Full Access)</option>
+                      </select>
+                    </div>
+                  </>
+                )}
+
                 {/* DYNAMIC FORM FIELDS */}
                 {view === 'vendors' && (
                   <>
