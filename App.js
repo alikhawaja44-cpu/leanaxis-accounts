@@ -580,6 +580,8 @@ function App() {
         
         <nav className="flex-1 p-6 space-y-2 overflow-y-auto">
           <NavButton id="dashboard" icon={LayoutDashboard} label="Dashboard" />
+          <NavButton id="reports" icon={PieChart} label="Profit & Loss" />
+          <NavButton id="invoices" icon={FileText} label="Invoice Generator" />
           <div className="pt-4 pb-2 px-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Modules</div>
           <NavButton id="clients" icon={Briefcase} label="Clients & Projects" />
           <NavButton id="petty-cash" icon={Wallet} label="Petty Cash" />
@@ -785,6 +787,137 @@ function App() {
                 </table>
               </div>
             )}
+          </div>
+        )}
+
+        {/* PROFIT & LOSS REPORT VIEW */}
+        {view === 'reports' && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+               <div className="bg-white p-6 rounded-2xl shadow-sm border border-emerald-100">
+                  <p className="text-xs font-bold text-slate-400 uppercase">Total Revenue</p>
+                  <h3 className="text-3xl font-bold text-emerald-600 mt-2">{formatCurrency(totals.revenue)}</h3>
+                  <p className="text-xs text-emerald-500 mt-1 font-medium">+ Inflow from Clients & Cash</p>
+               </div>
+               <div className="bg-white p-6 rounded-2xl shadow-sm border border-rose-100">
+                  <p className="text-xs font-bold text-slate-400 uppercase">Total Expenses</p>
+                  <h3 className="text-3xl font-bold text-rose-600 mt-2">{formatCurrency(totals.expense)}</h3>
+                  <p className="text-xs text-rose-500 mt-1 font-medium">- Outflow (Salaries, Bills, etc)</p>
+               </div>
+               <div className="bg-white p-6 rounded-2xl shadow-sm border border-indigo-100">
+                  <p className="text-xs font-bold text-slate-400 uppercase">Net Profit</p>
+                  <h3 className={`text-3xl font-bold mt-2 ${totals.saving >= 0 ? 'text-indigo-600' : 'text-orange-600'}`}>{formatCurrency(totals.saving)}</h3>
+                  <p className="text-xs text-indigo-500 mt-1 font-medium">= Revenue - Expenses</p>
+               </div>
+               <div className="bg-white p-6 rounded-2xl shadow-sm border border-amber-100">
+                  <p className="text-xs font-bold text-slate-400 uppercase">Est. Tax (18% GST)</p>
+                  <h3 className="text-3xl font-bold text-amber-600 mt-2">{formatCurrency(totals.revenue * 0.18)}</h3>
+                  <p className="text-xs text-amber-500 mt-1 font-medium">If applicable on revenue</p>
+               </div>
+            </div>
+
+            {/* Detailed Breakdown Table */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                  <h3 className="text-lg font-bold text-slate-800 mb-4">Income Breakdown</h3>
+                  <div className="space-y-3">
+                     <div className="flex justify-between p-3 bg-emerald-50 rounded-lg">
+                        <span className="text-sm font-medium text-slate-600">Client Advances</span>
+                        <span className="font-bold text-emerald-700">{formatCurrency(filteredClients.reduce((acc, curr) => acc + (Number(curr.advanceReceived) || 0), 0))}</span>
+                     </div>
+                     <div className="flex justify-between p-3 bg-emerald-50 rounded-lg">
+                        <span className="text-sm font-medium text-slate-600">Petty Cash In</span>
+                        <span className="font-bold text-emerald-700">{formatCurrency(filteredPettyCash.reduce((acc, curr) => acc + (Number(curr.cashIn) || 0), 0))}</span>
+                     </div>
+                  </div>
+               </div>
+
+               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                  <h3 className="text-lg font-bold text-slate-800 mb-4">Expense Breakdown</h3>
+                  <div className="space-y-3">
+                     <div className="flex justify-between p-3 bg-rose-50 rounded-lg">
+                        <span className="text-sm font-medium text-slate-600">Salaries</span>
+                        <span className="font-bold text-rose-700">{formatCurrency(filteredSalaries.reduce((acc, curr) => acc + (Number(curr.totalPayable) || 0), 0))}</span>
+                     </div>
+                     <div className="flex justify-between p-3 bg-rose-50 rounded-lg">
+                        <span className="text-sm font-medium text-slate-600">Operational Expenses</span>
+                        <span className="font-bold text-rose-700">{formatCurrency(filteredExpenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0))}</span>
+                     </div>
+                     <div className="flex justify-between p-3 bg-rose-50 rounded-lg">
+                        <span className="text-sm font-medium text-slate-600">Petty Cash Out</span>
+                        <span className="font-bold text-rose-700">{formatCurrency(filteredPettyCash.reduce((acc, curr) => acc + (Number(curr.cashOut) || 0), 0))}</span>
+                     </div>
+                  </div>
+               </div>
+            </div>
+          </div>
+        )}
+
+        {/* INVOICE GENERATOR VIEW */}
+        {view === 'invoices' && (
+          <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 max-w-4xl mx-auto animate-in fade-in zoom-in-95 duration-300">
+            <div className="flex justify-between items-start mb-8 border-b pb-6">
+              <div>
+                 <div className="bg-indigo-600 text-white font-bold text-2xl px-4 py-2 rounded-lg inline-block mb-2">INVOICE</div>
+                 <p className="text-slate-500 text-sm">Professional Services</p>
+              </div>
+              <div className="text-right">
+                 <h2 className="font-bold text-xl text-slate-800">LeanAxis Agency</h2>
+                 <p className="text-sm text-slate-500">Lahore, Pakistan</p>
+                 <p className="text-sm text-slate-500">contact@leanaxis.com</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-8 mb-8">
+               <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Bill To</label>
+                  <select className="w-full border p-3 rounded-lg bg-slate-50" onChange={(e) => {
+                      const client = clients.find(c => c.name === e.target.value);
+                      if(client) setFormData({...formData, clientName: client.name, clientProject: client.projectName});
+                  }}>
+                     <option>Select Client...</option>
+                     {clients.map(c => <option key={c.id} value={c.name}>{c.name} ({c.projectName})</option>)}
+                  </select>
+                  <input className="w-full mt-2 border p-2 rounded text-sm" placeholder="Client Name" value={formData.clientName || ''} onChange={e => setFormData({...formData, clientName: e.target.value})} />
+                  <input className="w-full mt-2 border p-2 rounded text-sm" placeholder="Project Name" value={formData.clientProject || ''} onChange={e => setFormData({...formData, clientProject: e.target.value})} />
+               </div>
+               <div className="text-right">
+                  <div className="mb-2"><span className="text-slate-500 text-sm font-bold mr-4">Invoice Date:</span> <input type="date" className="border p-1 rounded text-right" value={formData.date || new Date().toISOString().split('T')[0]} onChange={e => setFormData({...formData, date: e.target.value})} /></div>
+                  <div><span className="text-slate-500 text-sm font-bold mr-4">Due Date:</span> <input type="date" className="border p-1 rounded text-right" /></div>
+               </div>
+            </div>
+
+            <table className="w-full mb-8">
+               <thead className="bg-slate-50 border-b">
+                  <tr>
+                     <th className="text-left p-3 text-sm font-bold text-slate-500">Description</th>
+                     <th className="text-right p-3 text-sm font-bold text-slate-500 w-24">Qty/Hrs</th>
+                     <th className="text-right p-3 text-sm font-bold text-slate-500 w-32">Rate</th>
+                     <th className="text-right p-3 text-sm font-bold text-slate-500 w-32">Amount</th>
+                  </tr>
+               </thead>
+               <tbody>
+                  <tr className="border-b">
+                     <td className="p-3"><input className="w-full outline-none" placeholder="Item Description" value={formData.itemDesc || ''} onChange={e => setFormData({...formData, itemDesc: e.target.value})} /></td>
+                     <td className="p-3"><input type="number" className="w-full text-right outline-none" placeholder="1" value={formData.qty || 1} onChange={e => setFormData({...formData, qty: e.target.value})} /></td>
+                     <td className="p-3"><input type="number" className="w-full text-right outline-none" placeholder="0" value={formData.rate || ''} onChange={e => setFormData({...formData, rate: e.target.value})} /></td>
+                     <td className="p-3 text-right font-bold">{formatCurrency((formData.qty || 1) * (formData.rate || 0))}</td>
+                  </tr>
+               </tbody>
+            </table>
+
+            <div className="flex justify-end">
+               <div className="w-64 space-y-2">
+                  <div className="flex justify-between text-sm text-slate-600"><span>Subtotal:</span> <span className="font-bold">{formatCurrency((formData.qty || 1) * (formData.rate || 0))}</span></div>
+                  <div className="flex justify-between text-sm text-slate-600"><span>Tax (0%):</span> <span>Rs0</span></div>
+                  <div className="flex justify-between text-lg font-bold text-slate-800 border-t pt-2"><span>Total:</span> <span>{formatCurrency((formData.qty || 1) * (formData.rate || 0))}</span></div>
+               </div>
+            </div>
+
+            <div className="mt-8 pt-8 border-t flex justify-end gap-3 print:hidden">
+               <button onClick={() => window.print()} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 flex items-center gap-2"><FileText size={18}/> Print / Save PDF</button>
+            </div>
           </div>
         )}
 
