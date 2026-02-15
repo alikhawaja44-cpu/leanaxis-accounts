@@ -25,6 +25,28 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
+// --- ERROR BOUNDARY ---
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, errorInfo) { console.error("Uncaught error:", error, errorInfo); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 text-center bg-red-50 min-h-screen flex flex-col items-center justify-center">
+          <h1 className="text-2xl font-bold text-red-600 mb-4">Something went wrong.</h1>
+          <p className="text-red-800 bg-red-100 p-4 rounded mb-4 max-w-md break-words font-mono text-sm">{this.state.error && this.state.error.toString()}</p>
+          <button onClick={() => window.location.reload()} className="bg-red-600 text-white px-4 py-2 rounded">Reload Page</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // --- HELPER FUNCTIONS ---
 const formatCurrency = (amount) => {
   if (amount === undefined || amount === null || isNaN(Number(amount))) return 'Rs0';
@@ -523,6 +545,7 @@ function App() {
                     { l:'Net Profit', v:totals.profit, i:Wallet, c:totals.profit>=0?'text-indigo-600':'text-orange-600', b:totals.profit>=0?'bg-indigo-50':'bg-orange-50' },
                     { l:'Pending Invoices', v:totals.clientPending, i:Clock, c:'text-amber-600', b:'bg-amber-50' }
                 ].map((s,i) => <div key={i} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow"><div className="flex justify-between mb-4"><div className={`p-3.5 rounded-xl ${s.b} ${s.c}`}><s.i size={24}/></div></div><p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{s.l}</p><h3 className="text-2xl font-bold text-slate-800 mt-1">{formatCurrency(s.v)}</h3></div>)}
+                
                 <div className="md:col-span-2 lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 h-96 relative">
                     <h3 className="font-bold text-slate-800 mb-4 text-lg">Expense Breakdown</h3>
                     <ResponsiveContainer width="100%" height="90%"><RePieChart><Pie data={expenseChartData} innerRadius={80} outerRadius={110} paddingAngle={5} dataKey="value" cornerRadius={6}>{expenseChartData.map((e,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} strokeWidth={0}/>)}</Pie><ChartTooltip formatter={formatCurrency} contentStyle={{borderRadius:'12px', border:'none', boxShadow:'0 4px 6px -1px rgba(0, 0, 0, 0.1)'}}/><Legend verticalAlign="bottom" iconType="circle"/></RePieChart></ResponsiveContainer>
@@ -693,4 +716,4 @@ function App() {
 }
 
 const root = createRoot(document.getElementById('root'));
-root.render(<App />);
+root.render(<ErrorBoundary><App /></ErrorBoundary>);
