@@ -142,7 +142,7 @@ const LoginView = ({ onLogin, loading, error }) => {
 };
 
 // --- INVOICE GENERATOR ---
-const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice }) => {
+const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onGenerateRecurring }) => {
     const [viewMode, setViewMode] = useState('list'); 
     const [invoiceData, setInvoiceData] = useState({
         client: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0
@@ -186,7 +186,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice }) =
                 <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-bold text-slate-800">Invoices</h2>
                     <div className="flex gap-2">
-                        <button onClick={handleGenerateRecurring} className="bg-white border border-indigo-200 text-indigo-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-indigo-50 transition-all"><RefreshCw size={18}/> Generate Monthly Retainers</button>
+                        <button onClick={onGenerateRecurring} className="bg-white border border-indigo-200 text-indigo-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-indigo-50 transition-all"><RefreshCw size={18}/> Generate Monthly Retainers</button>
                         <button onClick={() => { setInvoiceData({ client: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0 }); setViewMode('create'); }} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all hover:scale-105 active:scale-95"><Plus size={18}/> Create Invoice</button>
                     </div>
                 </div>
@@ -545,7 +545,7 @@ function App() {
             </div>
         )}
 
-        {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => handleDelete(id, 'invoice')} />}
+        {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => handleDelete(id, 'invoice')} onGenerateRecurring={handleGenerateRecurring} />}
 
         {/* GENERIC TABLE RENDERER - Responsive Wrapper */}
         {['clients','vendors','petty-cash','expenses','salaries','bank','manage-users','vendor-bills'].includes(view) && (
