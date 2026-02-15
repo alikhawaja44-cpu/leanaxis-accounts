@@ -31,7 +31,6 @@ const formatCurrency = (amount) => {
   return new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 }).format(amount);
 };
 
-// PASSWORD ENCRYPTION
 const hashPassword = async (password) => {
   if (!password) return '';
   const encoder = new TextEncoder();
@@ -39,13 +38,6 @@ const hashPassword = async (password) => {
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-};
-
-const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-
-const sanitizeInput = (input) => {
-  if (typeof input !== 'string') return input;
-  return input.replace(/[<>]/g, '').trim();
 };
 
 const calculateTax = (amount, taxRate = 0) => {
@@ -140,11 +132,10 @@ const LoginView = ({ onLogin, loading, error }) => {
   );
 };
 
-// --- INVOICE GENERATOR COMPONENT ---
+// --- INVOICE GENERATOR ---
 const InvoiceGenerator = ({ clients, onSave }) => {
     const [invoiceData, setInvoiceData] = useState({
-        client: '', date: new Date().toISOString().split('T')[0], dueDate: '', 
-        items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0, notes: ''
+        client: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0
     });
 
     const addItem = () => setInvoiceData({...invoiceData, items: [...invoiceData.items, { desc: '', qty: 1, rate: 0 }]});
@@ -154,90 +145,30 @@ const InvoiceGenerator = ({ clients, onSave }) => {
         setInvoiceData({...invoiceData, items: newItems});
     };
     const removeItem = (index) => {
-        if(invoiceData.items.length > 1) {
-            setInvoiceData({...invoiceData, items: invoiceData.items.filter((_, i) => i !== index)});
-        }
+        if(invoiceData.items.length > 1) setInvoiceData({...invoiceData, items: invoiceData.items.filter((_, i) => i !== index)});
     };
 
-    const calculateTotal = () => {
-        const subtotal = invoiceData.items.reduce((acc, item) => acc + (item.qty * item.rate), 0);
-        const { tax, total } = calculateTax(subtotal, invoiceData.taxRate);
-        return { subtotal, tax, total };
-    };
-
-    const { subtotal, tax, total } = calculateTotal();
-
-    const handlePrint = () => {
-        window.print();
-    };
+    const { subtotal, tax, total } = calculateTax(invoiceData.items.reduce((acc, item) => acc + (item.qty * item.rate), 0), invoiceData.taxRate);
 
     return (
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 max-w-4xl mx-auto">
-            <div className="flex justify-between items-start mb-8 border-b border-slate-100 pb-6">
-                <div>
-                    <h2 className="text-3xl font-bold text-slate-900">INVOICE</h2>
-                    <p className="text-slate-500">LeanAxis Agency</p>
-                </div>
-                <div className="text-right">
-                    <div className="bg-indigo-600 text-white font-bold py-1 px-3 rounded text-sm mb-2 inline-block">DRAFT</div>
-                    <p className="text-slate-400 text-sm">Date: {invoiceData.date}</p>
-                </div>
+        <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200 max-w-4xl mx-auto animate-in fade-in zoom-in-95 duration-300">
+            <div className="flex flex-col md:flex-row justify-between items-start mb-8 border-b border-slate-100 pb-6 gap-4">
+                <div><h2 className="text-2xl md:text-3xl font-bold text-slate-900">INVOICE</h2><p className="text-slate-500">LeanAxis Agency</p></div>
+                <div className="text-left md:text-right"><div className="bg-indigo-600 text-white font-bold py-1 px-3 rounded text-sm mb-2 inline-block">DRAFT</div><p className="text-slate-400 text-sm">Date: {invoiceData.date}</p></div>
             </div>
-
-            <div className="grid grid-cols-2 gap-8 mb-8">
-                <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Bill To</label>
-                    <select className="w-full border border-slate-200 p-3 rounded-xl text-sm bg-slate-50" value={invoiceData.client} onChange={e => setInvoiceData({...invoiceData, client: e.target.value})}>
-                        <option value="">Select Client</option>
-                        {clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                    </select>
-                </div>
-                <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Details</label>
-                    <div className="flex gap-2">
-                        <input type="date" className="w-full border border-slate-200 p-3 rounded-xl text-sm" value={invoiceData.date} onChange={e => setInvoiceData({...invoiceData, date: e.target.value})} />
-                        <input type="number" placeholder="Tax %" className="w-24 border border-slate-200 p-3 rounded-xl text-sm" value={invoiceData.taxRate} onChange={e => setInvoiceData({...invoiceData, taxRate: e.target.value})} />
-                    </div>
-                </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-8">
+                <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">Bill To</label><select className="w-full border border-slate-200 p-3 rounded-xl text-sm bg-slate-50" value={invoiceData.client} onChange={e => setInvoiceData({...invoiceData, client: e.target.value})}><option value="">Select Client</option>{clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select></div>
+                <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">Details</label><div className="flex gap-2"><input type="date" className="w-full border border-slate-200 p-3 rounded-xl text-sm" value={invoiceData.date} onChange={e => setInvoiceData({...invoiceData, date: e.target.value})} /><input type="number" placeholder="Tax %" className="w-24 border border-slate-200 p-3 rounded-xl text-sm" value={invoiceData.taxRate} onChange={e => setInvoiceData({...invoiceData, taxRate: e.target.value})} /></div></div>
             </div>
-
-            <table className="w-full mb-8">
-                <thead>
-                    <tr className="bg-slate-50 text-left">
-                        <th className="p-3 text-xs font-bold text-slate-500 uppercase rounded-l-lg">Description</th>
-                        <th className="p-3 text-xs font-bold text-slate-500 uppercase w-20">Qty</th>
-                        <th className="p-3 text-xs font-bold text-slate-500 uppercase w-32">Rate</th>
-                        <th className="p-3 text-xs font-bold text-slate-500 uppercase w-32 text-right rounded-r-lg">Amount</th>
-                        <th className="w-10"></th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                    {invoiceData.items.map((item, i) => (
-                        <tr key={i}>
-                            <td className="p-2"><input className="w-full bg-transparent outline-none font-medium text-slate-700" placeholder="Item description" value={item.desc} onChange={e => updateItem(i, 'desc', e.target.value)} /></td>
-                            <td className="p-2"><input type="number" className="w-full bg-transparent outline-none text-slate-600" value={item.qty} onChange={e => updateItem(i, 'qty', Number(e.target.value))} /></td>
-                            <td className="p-2"><input type="number" className="w-full bg-transparent outline-none text-slate-600" value={item.rate} onChange={e => updateItem(i, 'rate', Number(e.target.value))} /></td>
-                            <td className="p-2 text-right font-bold text-slate-700">{formatCurrency(item.qty * item.rate)}</td>
-                            <td className="p-2 text-center"><button onClick={() => removeItem(i)} className="text-red-400 hover:text-red-600"><Trash2 size={16}/></button></td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-
+            <div className="overflow-x-auto">
+                <table className="w-full mb-8 min-w-[600px]">
+                    <thead><tr className="bg-slate-50 text-left"><th className="p-3 text-xs font-bold text-slate-500 uppercase rounded-l-lg">Description</th><th className="p-3 text-xs font-bold text-slate-500 uppercase w-20">Qty</th><th className="p-3 text-xs font-bold text-slate-500 uppercase w-32">Rate</th><th className="p-3 text-xs font-bold text-slate-500 uppercase w-32 text-right rounded-r-lg">Amount</th><th className="w-10"></th></tr></thead>
+                    <tbody className="divide-y divide-slate-100">{invoiceData.items.map((item, i) => (<tr key={i}><td className="p-2"><input className="w-full bg-transparent outline-none font-medium text-slate-700" placeholder="Item description" value={item.desc} onChange={e => updateItem(i, 'desc', e.target.value)} /></td><td className="p-2"><input type="number" className="w-full bg-transparent outline-none text-slate-600" value={item.qty} onChange={e => updateItem(i, 'qty', Number(e.target.value))} /></td><td className="p-2"><input type="number" className="w-full bg-transparent outline-none text-slate-600" value={item.rate} onChange={e => updateItem(i, 'rate', Number(e.target.value))} /></td><td className="p-2 text-right font-bold text-slate-700">{formatCurrency(item.qty * item.rate)}</td><td className="p-2 text-center"><button onClick={() => removeItem(i)} className="text-red-400 hover:text-red-600"><Trash2 size={16}/></button></td></tr>))}</tbody>
+                </table>
+            </div>
             <button onClick={addItem} className="flex items-center gap-2 text-sm font-bold text-indigo-600 hover:text-indigo-800 mb-8"><Plus size={16}/> Add Line Item</button>
-
-            <div className="flex justify-end mb-8">
-                <div className="w-64 space-y-3">
-                    <div className="flex justify-between text-sm text-slate-500"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
-                    <div className="flex justify-between text-sm text-slate-500"><span>Tax ({invoiceData.taxRate}%)</span><span>{formatCurrency(tax)}</span></div>
-                    <div className="flex justify-between text-xl font-bold text-slate-800 border-t border-slate-200 pt-3"><span>Total</span><span>{formatCurrency(total)}</span></div>
-                </div>
-            </div>
-
-            <div className="flex gap-4 print:hidden">
-                <button onClick={handlePrint} className="flex-1 flex items-center justify-center gap-2 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-200 transition-colors"><Printer size={18}/> Print / PDF</button>
-                <button onClick={() => onSave(invoiceData)} className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"><CheckCircle size={18}/> Save Invoice</button>
-            </div>
+            <div className="flex justify-end mb-8"><div className="w-full md:w-64 space-y-3"><div className="flex justify-between text-sm text-slate-500"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div><div className="flex justify-between text-sm text-slate-500"><span>Tax ({invoiceData.taxRate}%)</span><span>{formatCurrency(tax)}</span></div><div className="flex justify-between text-xl font-bold text-slate-800 border-t border-slate-200 pt-3"><span>Total</span><span>{formatCurrency(total)}</span></div></div></div>
+            <div className="flex flex-col md:flex-row gap-4 print:hidden"><button onClick={() => window.print()} className="flex-1 flex items-center justify-center gap-2 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-200 transition-colors"><Printer size={18}/> Print / PDF</button><button onClick={() => onSave(invoiceData)} className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"><CheckCircle size={18}/> Save Invoice</button></div>
         </div>
     );
 };
@@ -269,13 +200,7 @@ function App() {
   const [bankRecords] = useFirebaseSync('bank_records');
   const [clients] = useFirebaseSync('clients');
   const [vendors] = useFirebaseSync('vendors');
-  const [invoices] = useFirebaseSync('invoices');
   const [users, usersLoading] = useFirebaseSync('users');
-
-  const uniqueBanks = useMemo(() => {
-      const banks = new Set(bankRecords.map(b => b.bank));
-      return Array.from(banks).filter(Boolean);
-  }, [bankRecords]);
 
   // Create default admin
   useEffect(() => {
@@ -413,22 +338,23 @@ function App() {
   if (!isAuthenticated) return <LoginView onLogin={handleLogin} error={authError} />;
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
-      {/* MOBILE NAV */}
-      <div className="md:hidden fixed top-0 w-full bg-slate-900 border-b border-slate-800 p-4 z-50 flex justify-between items-center shadow">
-        <div className="flex items-center gap-3 text-white font-bold"><div className="bg-indigo-500 p-1 rounded">LA</div> LeanAxis</div>
-        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-slate-300"><Menu/></button>
+    <div className="min-h-screen bg-slate-50 font-sans overflow-x-hidden text-slate-900">
+      
+      {/* MOBILE HEADER */}
+      <div className="md:hidden fixed top-0 w-full bg-slate-900 border-b border-slate-800 p-4 z-50 flex justify-between items-center shadow-lg">
+        <div className="flex items-center gap-3 text-white font-bold"><div className="bg-indigo-500 p-1.5 rounded-lg">LA</div> LeanAxis</div>
+        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-slate-300 hover:text-white"><Menu size={24}/></button>
       </div>
 
-      {/* SIDEBAR */}
-      <aside className={`fixed inset-y-0 w-72 bg-slate-900 flex flex-col z-40 transition-transform md:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} pt-20 md:pt-0`}>
+      {/* SIDEBAR - Fixed Width & Position */}
+      <aside className={`fixed inset-y-0 left-0 z-40 w-72 bg-slate-900 border-r border-slate-800 flex flex-col transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 shadow-2xl`}>
         <div className="p-8 border-b border-slate-800 hidden md:block">
             <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-3"><div className="bg-gradient-to-r from-indigo-500 to-cyan-500 p-2 rounded-lg">LA</div> LeanAxis</h1>
         </div>
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           <NavButton id="dashboard" icon={LayoutDashboard} label="Dashboard" />
           <NavButton id="reports" icon={FileText} label="Profit & Loss" />
-          <div className="pt-4 px-4 text-xs font-bold text-slate-600 uppercase">Modules</div>
+          <div className="pt-4 px-4 text-xs font-bold text-slate-600 uppercase tracking-widest">Modules</div>
           <NavButton id="invoices" icon={FileText} label="Invoices" />
           <NavButton id="clients" icon={Briefcase} label="Clients" />
           <NavButton id="petty-cash" icon={Wallet} label="Petty Cash" />
@@ -436,91 +362,96 @@ function App() {
           <NavButton id="salaries" icon={Users} label="Salaries" />
           <NavButton id="vendors" icon={Truck} label="Vendors" />
           <NavButton id="bank" icon={Building2} label="Bank" />
-          {currentUser.role === 'Admin' && <><div className="pt-4 px-4 text-xs font-bold text-slate-600 uppercase">Admin</div><NavButton id="manage-users" icon={UserPlus} label="Users" /><NavButton id="settings" icon={Settings} label="Settings" /></>}
+          {currentUser.role === 'Admin' && <><div className="pt-4 px-4 text-xs font-bold text-slate-600 uppercase tracking-widest">Admin</div><NavButton id="manage-users" icon={UserPlus} label="Users" /><NavButton id="settings" icon={Settings} label="Settings" /></>}
         </nav>
         <div className="p-4 border-t border-slate-800"><button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 p-3 rounded-lg border border-slate-700 text-slate-300 hover:bg-red-600 hover:border-red-600 hover:text-white transition-all font-bold text-sm"><Lock size={16}/> Logout</button></div>
       </aside>
 
-      {/* MAIN */}
-      <main className="flex-1 overflow-auto p-4 md:p-8 pt-24 md:pt-8 bg-slate-50">
-        <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-8 gap-5">
-            <div><h2 className="text-3xl font-bold text-slate-900 capitalize">{view.replace('-', ' ')}</h2></div>
+      {/* OVERLAY FOR MOBILE */}
+      {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-30 md:hidden backdrop-blur-sm" onClick={() => setIsSidebarOpen(false)}></div>}
+
+      {/* MAIN CONTENT - Pushed by Margin on Desktop */}
+      <main className="md:ml-72 min-h-screen pt-20 md:pt-8 p-4 md:p-8 transition-all duration-300">
+        <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-8 gap-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
+            <div><h2 className="text-3xl font-bold text-slate-900 capitalize tracking-tight">{view.replace('-', ' ')}</h2></div>
             <div className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto">
-                {view !== 'dashboard' && <div className="relative flex-1 sm:w-64"><Search className="absolute left-3 top-3 text-slate-400" size={18}/><input className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm" placeholder="Search..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
+                {view !== 'dashboard' && <div className="relative flex-1 sm:w-64"><Search className="absolute left-3 top-3 text-slate-400" size={18}/><input className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Search..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
                 {['clients','expenses','petty-cash','salaries','bank'].includes(view) && (
-                    <div className="flex gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
-                        <select className="bg-transparent text-sm font-medium outline-none" value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}><option value="All">All Months</option>{['January','February','March','April','May','June','July','August','September','October','November','December'].map(m=><option key={m}>{m}</option>)}</select>
-                        <select className="bg-transparent text-sm font-medium outline-none border-l pl-2" value={selectedYear} onChange={e=>setSelectedYear(e.target.value)}><option value="All">All Years</option><option>2024</option><option>2025</option><option>2026</option></select>
+                    <div className="flex gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
+                        <select className="bg-transparent text-sm font-medium outline-none cursor-pointer" value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}><option value="All">All Months</option>{['January','February','March','April','May','June','July','August','September','October','November','December'].map(m=><option key={m}>{m}</option>)}</select>
+                        <div className="w-px bg-slate-200 mx-1"></div>
+                        <select className="bg-transparent text-sm font-medium outline-none cursor-pointer" value={selectedYear} onChange={e=>setSelectedYear(e.target.value)}><option value="All">All Years</option><option>2024</option><option>2025</option><option>2026</option></select>
                     </div>
                 )}
-                {!['dashboard','reports','invoices','settings'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-200"><Plus size={18}/> Add New</button>}
+                {!['dashboard','reports','invoices','settings'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all hover:scale-105 active:scale-95"><Plus size={18}/> Add New</button>}
             </div>
         </header>
 
         {view === 'dashboard' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
                 {[
-                    { l:'Revenue', v:totals.revenue, i:ArrowDownLeft, c:'text-emerald-600', b:'bg-emerald-50' },
-                    { l:'Expenses', v:totals.expense, i:ArrowUpRight, c:'text-rose-600', b:'bg-rose-50' },
+                    { l:'Total Revenue', v:totals.revenue, i:ArrowDownLeft, c:'text-emerald-600', b:'bg-emerald-50' },
+                    { l:'Total Expenses', v:totals.expense, i:ArrowUpRight, c:'text-rose-600', b:'bg-rose-50' },
                     { l:'Net Profit', v:totals.profit, i:Wallet, c:totals.profit>=0?'text-indigo-600':'text-orange-600', b:totals.profit>=0?'bg-indigo-50':'bg-orange-50' },
-                    { l:'Pending', v:totals.clientPending, i:Clock, c:'text-amber-600', b:'bg-amber-50' }
-                ].map((s,i) => <div key={i} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"><div className="flex justify-between mb-4"><div className={`p-3 rounded-xl ${s.b} ${s.c}`}><s.i/></div></div><p className="text-xs font-bold text-slate-400 uppercase">{s.l}</p><h3 className="text-2xl font-bold text-slate-800">{formatCurrency(s.v)}</h3></div>)}
+                    { l:'Pending Invoices', v:totals.clientPending, i:Clock, c:'text-amber-600', b:'bg-amber-50' }
+                ].map((s,i) => <div key={i} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow"><div className="flex justify-between mb-4"><div className={`p-3.5 rounded-xl ${s.b} ${s.c}`}><s.i size={24}/></div></div><p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{s.l}</p><h3 className="text-2xl font-bold text-slate-800 mt-1">{formatCurrency(s.v)}</h3></div>)}
                 
-                <div className="md:col-span-2 lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 h-80">
-                    <h3 className="font-bold text-slate-800 mb-4">Expense Breakdown</h3>
-                    <ResponsiveContainer><RePieChart><Pie data={expenseChartData} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">{expenseChartData.map((e,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}</Pie><ChartTooltip formatter={formatCurrency}/><Legend/></RePieChart></ResponsiveContainer>
+                <div className="md:col-span-2 lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 h-96 relative">
+                    <h3 className="font-bold text-slate-800 mb-4 text-lg">Expense Breakdown</h3>
+                    <ResponsiveContainer width="100%" height="90%"><RePieChart><Pie data={expenseChartData} innerRadius={80} outerRadius={110} paddingAngle={5} dataKey="value" cornerRadius={6}>{expenseChartData.map((e,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} strokeWidth={0}/>)}</Pie><ChartTooltip formatter={formatCurrency} contentStyle={{borderRadius:'12px', border:'none', boxShadow:'0 4px 6px -1px rgba(0, 0, 0, 0.1)'}}/><Legend verticalAlign="bottom" iconType="circle"/></RePieChart></ResponsiveContainer>
+                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none mt-4"><p className="text-xs font-bold text-slate-400 uppercase">Total Out</p><p className="text-xl font-bold text-slate-800">{formatCurrency(totals.expense)}</p></div>
                 </div>
             </div>
         )}
 
         {view === 'reports' && (
-            <div className="space-y-6">
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 text-center">
                     <h2 className="text-2xl font-bold text-slate-800 mb-2">Net Profit</h2>
-                    <p className={`text-4xl font-bold ${totals.profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(totals.profit)}</p>
-                    <p className="text-slate-400 text-sm mt-2">Total Revenue - Total Expenses</p>
+                    <p className={`text-5xl font-bold tracking-tight ${totals.profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(totals.profit)}</p>
+                    <p className="text-slate-400 text-sm mt-3 font-medium">Total Revenue - Total Expenses</p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"><h3 className="font-bold text-emerald-700 mb-4">Income Breakdown</h3><div className="space-y-3">{[{l:'Client Advance',v:totals.revenue - filteredPetty.reduce((a,c)=>a+(Number(c.cashIn)||0),0)},{l:'Petty Cash In',v:filteredPetty.reduce((a,c)=>a+(Number(c.cashIn)||0),0)}].map((i,k)=><div key={k} className="flex justify-between p-3 bg-emerald-50 rounded-lg"><span className="text-emerald-900 font-medium">{i.l}</span><span className="font-bold text-emerald-700">{formatCurrency(i.v)}</span></div>)}</div></div>
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"><h3 className="font-bold text-rose-700 mb-4">Expense Breakdown</h3><div className="space-y-3">{expenseChartData.map((i,k)=><div key={k} className="flex justify-between p-3 bg-rose-50 rounded-lg"><span className="text-rose-900 font-medium">{i.name}</span><span className="font-bold text-rose-700">{formatCurrency(i.value)}</span></div>)}</div></div>
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"><h3 className="font-bold text-emerald-700 mb-4 flex items-center gap-2"><ArrowDownLeft size={20}/> Income Breakdown</h3><div className="space-y-3">{[{l:'Client Advance',v:totals.revenue - filteredPetty.reduce((a,c)=>a+(Number(c.cashIn)||0),0)},{l:'Petty Cash In',v:filteredPetty.reduce((a,c)=>a+(Number(c.cashIn)||0),0)}].map((i,k)=><div key={k} className="flex justify-between p-4 bg-emerald-50 rounded-xl"><span className="text-emerald-900 font-medium">{i.l}</span><span className="font-bold text-emerald-700">{formatCurrency(i.v)}</span></div>)}</div></div>
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"><h3 className="font-bold text-rose-700 mb-4 flex items-center gap-2"><ArrowUpRight size={20}/> Expense Breakdown</h3><div className="space-y-3">{expenseChartData.map((i,k)=><div key={k} className="flex justify-between p-4 bg-rose-50 rounded-xl"><span className="text-rose-900 font-medium">{i.name}</span><span className="font-bold text-rose-700">{formatCurrency(i.value)}</span></div>)}</div></div>
                 </div>
             </div>
         )}
 
         {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv)} />}
 
-        {/* GENERIC TABLE RENDERER */}
+        {/* GENERIC TABLE RENDERER - Responsive Wrapper */}
         {['clients','vendors','petty-cash','expenses','salaries','bank','manage-users'].includes(view) && (
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-300">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase">
+                    <table className="w-full text-left min-w-[800px] border-collapse">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
                             <tr>
-                                {view==='clients' && <><th className="p-4">Date</th><th className="p-4">Client</th><th className="p-4 text-right">Total</th><th className="p-4 text-right">Paid</th><th className="p-4 text-right">Due</th><th className="p-4">Status</th></>}
-                                {view==='vendors' && <><th className="p-4">Vendor</th><th className="p-4">Type</th><th className="p-4 text-right">Total</th><th className="p-4 text-right">Paid</th><th className="p-4 text-right">Due</th></>}
-                                {view==='expenses' && <><th className="p-4">Date</th><th className="p-4">Category</th><th className="p-4">Desc</th><th className="p-4 text-right">Amount</th></>}
-                                {view==='manage-users' && <><th className="p-4">Username</th><th className="p-4">Email</th><th className="p-4">Role</th></>}
-                                {view==='petty-cash' && <><th className="p-4">Date</th><th className="p-4">Desc</th><th className="p-4 text-right">Out</th><th className="p-4 text-right">In</th></>}
-                                {view==='salaries' && <><th className="p-4">Date</th><th className="p-4">Employee</th><th className="p-4 text-right">Total</th><th className="p-4">Status</th></>}
-                                {view==='bank' && <><th className="p-4">Date</th><th className="p-4">Bank</th><th className="p-4 text-right">Amount</th><th className="p-4">Status</th></>}
-                                <th className="p-4 text-center">Actions</th>
+                                {view==='clients' && <><th className="p-5">Date</th><th className="p-5">Client</th><th className="p-5 text-right">Total</th><th className="p-5 text-right">Paid</th><th className="p-5 text-right">Due</th><th className="p-5">Status</th></>}
+                                {view==='vendors' && <><th className="p-5">Vendor</th><th className="p-5">Type</th><th className="p-5 text-right">Total</th><th className="p-5 text-right">Paid</th><th className="p-5 text-right">Due</th></>}
+                                {view==='expenses' && <><th className="p-5">Date</th><th className="p-5">Category</th><th className="p-5">Desc</th><th className="p-5 text-right">Amount</th></>}
+                                {view==='manage-users' && <><th className="p-5">Username</th><th className="p-5">Email</th><th className="p-5">Role</th></>}
+                                {view==='petty-cash' && <><th className="p-5">Date</th><th className="p-5">Desc</th><th className="p-5 text-right">Out</th><th className="p-5 text-right">In</th></>}
+                                {view==='salaries' && <><th className="p-5">Date</th><th className="p-5">Employee</th><th className="p-5 text-right">Total</th><th className="p-5">Status</th></>}
+                                {view==='bank' && <><th className="p-5">Date</th><th className="p-5">Bank</th><th className="p-5 text-right">Amount</th><th className="p-5">Status</th></>}
+                                <th className="p-5 text-center">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                             {(view==='clients'?filteredClients:view==='vendors'?filteredVendors:view==='expenses'?filteredExp:view==='petty-cash'?filteredPetty:view==='salaries'?filteredSal:view==='bank'?bankRecords:users).map(item => (
-                                <tr key={item.id} className="hover:bg-slate-50">
-                                    {view==='clients' && <><td className="p-4 text-sm text-slate-500">{item.date}</td><td className="p-4 font-bold">{item.name}</td><td className="p-4 text-right">{formatCurrency(item.projectTotal)}</td><td className="p-4 text-right text-emerald-600">{formatCurrency(item.advanceReceived)}</td><td className="p-4 text-right text-rose-600 font-bold">{formatCurrency((item.projectTotal||0)-(item.advanceReceived||0))}</td><td className="p-4"><span className="px-2 py-1 bg-slate-100 rounded text-xs font-bold">{item.status}</span></td></>}
-                                    {view==='vendors' && <><td className="p-4 font-bold">{item.name}</td><td className="p-4 text-sm">{item.serviceType}</td><td className="p-4 text-right">{formatCurrency(item.amountPayable)}</td><td className="p-4 text-right text-emerald-600">{formatCurrency(item.amountPaid)}</td><td className="p-4 text-right text-rose-600 font-bold">{formatCurrency((item.amountPayable||0)-(item.amountPaid||0))}</td></>}
-                                    {view==='expenses' && <><td className="p-4 text-sm">{item.date}</td><td className="p-4"><span className="px-2 py-1 bg-purple-50 text-purple-700 rounded text-xs font-bold">{item.category}</span></td><td className="p-4 text-sm">{item.description}</td><td className="p-4 text-right font-bold">{formatCurrency(item.amount)}</td></>}
-                                    {view==='manage-users' && <><td className="p-4 font-bold">{item.username}</td><td className="p-4 text-sm">{item.email}</td><td className="p-4"><span className="px-2 py-1 bg-indigo-50 text-indigo-700 rounded text-xs font-bold">{item.role}</span></td></>}
-                                    {view==='petty-cash' && <><td className="p-4 text-sm">{item.date}</td><td className="p-4 text-sm">{item.description}</td><td className="p-4 text-right font-bold text-rose-600">{item.cashOut?formatCurrency(item.cashOut):'-'}</td><td className="p-4 text-right font-bold text-emerald-600">{item.cashIn?formatCurrency(item.cashIn):'-'}</td></>}
-                                    {view==='salaries' && <><td className="p-4 text-sm">{item.date}</td><td className="p-4 font-bold">{item.employeeName}</td><td className="p-4 text-right">{formatCurrency(item.totalPayable)}</td><td className="p-4"><span className="px-2 py-1 bg-amber-50 text-amber-700 rounded text-xs font-bold">{item.status}</span></td></>}
-                                    {view==='bank' && <><td className="p-4 text-sm">{item.date}</td><td className="p-4 font-bold text-blue-600">{item.bank}</td><td className="p-4 text-right">{formatCurrency(item.amount)}</td><td className="p-4"><span className="px-2 py-1 bg-slate-100 rounded text-xs font-bold">{item.status}</span></td></>}
+                                <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                                    {view==='clients' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-slate-800">{item.name}</td><td className="p-5 text-right font-medium text-slate-600">{formatCurrency(item.projectTotal)}</td><td className="p-5 text-right text-emerald-600 font-medium">{formatCurrency(item.advanceReceived)}</td><td className="p-5 text-right text-rose-600 font-bold">{formatCurrency((item.projectTotal||0)-(item.advanceReceived||0))}</td><td className="p-5"><span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-bold uppercase">{item.status}</span></td></>}
+                                    {view==='vendors' && <><td className="p-5 font-bold text-slate-800">{item.name}</td><td className="p-5 text-sm text-slate-500">{item.serviceType}</td><td className="p-5 text-right font-medium text-slate-600">{formatCurrency(item.amountPayable)}</td><td className="p-5 text-right text-emerald-600 font-medium">{formatCurrency(item.amountPaid)}</td><td className="p-5 text-right text-rose-600 font-bold">{formatCurrency((item.amountPayable||0)-(item.amountPaid||0))}</td></>}
+                                    {view==='expenses' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5"><span className="px-2.5 py-1 bg-purple-50 text-purple-700 rounded-full text-xs font-bold">{item.category}</span></td><td className="p-5 text-sm text-slate-700">{item.description}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td></>}
+                                    {view==='manage-users' && <><td className="p-5 font-bold text-slate-800">{item.username}</td><td className="p-5 text-sm text-slate-600">{item.email}</td><td className="p-5"><span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-bold">{item.role}</span></td></>}
+                                    {view==='petty-cash' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 text-sm font-medium text-slate-800">{item.description}</td><td className="p-5 text-right font-bold text-rose-600">{item.cashOut?formatCurrency(item.cashOut):'-'}</td><td className="p-5 text-right font-bold text-emerald-600">{item.cashIn?formatCurrency(item.cashIn):'-'}</td></>}
+                                    {view==='salaries' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-slate-800">{item.employeeName}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.totalPayable)}</td><td className="p-5"><span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase ${item.status==='Paid'?'bg-emerald-50 text-emerald-700':'bg-orange-50 text-orange-700'}`}>{item.status}</span></td></>}
+                                    {view==='bank' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-blue-600">{item.bank}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-5"><span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase ${item.status==='Cleared'?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-700'}`}>{item.status}</span></td></>}
                                     
-                                    <td className="p-4 text-center">
+                                    <td className="p-5 text-center">
                                         <div className="flex justify-center gap-2">
-                                            {item.proofUrl && <a href={item.proofUrl} target="_blank" className="p-1.5 bg-blue-50 text-blue-600 rounded"><LinkIcon size={16}/></a>}
-                                            {currentUser.role === 'Admin' && <><button onClick={()=>handleEdit(item)} className="p-1.5 bg-indigo-50 text-indigo-600 rounded"><Edit size={16}/></button><button onClick={()=>handleDelete(item.id, view==='manage-users'?'user':view.replace('s',''))} className="p-1.5 bg-red-50 text-red-600 rounded"><Trash2 size={16}/></button></>}
+                                            {item.proofUrl && <a href={item.proofUrl} target="_blank" className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"><LinkIcon size={16}/></a>}
+                                            {currentUser.role === 'Admin' && <><button onClick={()=>handleEdit(item)} className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors"><Edit size={16}/></button><button onClick={()=>handleDelete(item.id, view==='manage-users'?'user':view.replace('s',''))} className="p-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"><Trash2 size={16}/></button></>}
                                         </div>
                                     </td>
                                 </tr>
@@ -531,21 +462,20 @@ function App() {
             </div>
         )}
 
-        {/* FORM MODAL */}
+        {/* FORM MODAL - Updated Styles */}
         {showForm && (
-            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                <div className="bg-white p-8 rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
-                    <div className="flex justify-between mb-6"><h3 className="text-xl font-bold">Add / Edit</h3><button onClick={()=>setShowForm(false)}><X/></button></div>
-                    <form onSubmit={handleAddSubmit} className="space-y-4">
-                        {view==='manage-users' && <><input required placeholder="Username" className="w-full border p-3 rounded-xl" value={formData.username||''} onChange={e=>setFormData({...formData,username:e.target.value})}/><input type="email" required placeholder="Email" className="w-full border p-3 rounded-xl" value={formData.email||''} onChange={e=>setFormData({...formData,email:e.target.value})}/><input type="password" placeholder="Password" className="w-full border p-3 rounded-xl" value={formData.password||''} onChange={e=>setFormData({...formData,password:e.target.value})}/><select className="w-full border p-3 rounded-xl" value={formData.role||'Viewer'} onChange={e=>setFormData({...formData,role:e.target.value})}><option>Viewer</option><option>Editor</option><option>Admin</option></select></>}
-                        {view==='clients' && <><input type="date" required className="w-full border p-3 rounded-xl" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input required placeholder="Client Name" className="w-full border p-3 rounded-xl" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/><input type="number" placeholder="Project Total" className="w-full border p-3 rounded-xl" value={formData.projectTotal||''} onChange={e=>setFormData({...formData,projectTotal:e.target.value})}/><input type="number" placeholder="Advance" className="w-full border p-3 rounded-xl" value={formData.advanceReceived||''} onChange={e=>setFormData({...formData,advanceReceived:e.target.value})}/><select className="w-full border p-3 rounded-xl" value={formData.status||'Ongoing'} onChange={e=>setFormData({...formData,status:e.target.value})}><option>Ongoing</option><option>Completed</option></select></>}
-                        {/* Generic Fields for other views */}
-                        {!['manage-users','clients'].includes(view) && <><input type="date" required className="w-full border p-3 rounded-xl" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input placeholder="Description/Name" className="w-full border p-3 rounded-xl" value={formData.description||formData.name||''} onChange={e=>setFormData({...formData,[view==='vendors'?'name':'description']:e.target.value})}/><input type="number" placeholder="Amount" className="w-full border p-3 rounded-xl" value={formData.amount||formData.cashOut||formData.totalPayable||formData.amountPayable||''} onChange={e=>setFormData({...formData,[view==='petty-cash'?'cashOut':view==='vendors'?'amountPayable':view==='salaries'?'totalPayable':'amount']:e.target.value})}/></>}
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                <div className="bg-white p-8 rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200 border border-slate-100">
+                    <div className="flex justify-between mb-8 border-b border-slate-100 pb-4"><h3 className="text-2xl font-bold text-slate-800">Add / Edit Record</h3><button onClick={()=>setShowForm(false)} className="text-slate-400 hover:text-red-500 transition-colors"><X size={24}/></button></div>
+                    <form onSubmit={handleAddSubmit} className="space-y-5">
+                        {view==='manage-users' && <><input required placeholder="Username" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.username||''} onChange={e=>setFormData({...formData,username:e.target.value})}/><input type="email" required placeholder="Email" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.email||''} onChange={e=>setFormData({...formData,email:e.target.value})}/><input type="password" placeholder="Password (leave blank to keep)" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.password||''} onChange={e=>setFormData({...formData,password:e.target.value})}/><select className="w-full border border-slate-200 p-3 rounded-xl text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.role||'Viewer'} onChange={e=>setFormData({...formData,role:e.target.value})}><option>Viewer</option><option>Editor</option><option>Admin</option></select></>}
+                        {view==='clients' && <><input type="date" required className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input required placeholder="Client Name" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/><input type="number" placeholder="Project Total" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.projectTotal||''} onChange={e=>setFormData({...formData,projectTotal:e.target.value})}/><input type="number" placeholder="Advance" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.advanceReceived||''} onChange={e=>setFormData({...formData,advanceReceived:e.target.value})}/><select className="w-full border border-slate-200 p-3 rounded-xl text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.status||'Ongoing'} onChange={e=>setFormData({...formData,status:e.target.value})}><option>Ongoing</option><option>Completed</option></select></>}
+                        {!['manage-users','clients'].includes(view) && <><input type="date" required className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input placeholder="Description/Name" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.description||formData.name||''} onChange={e=>setFormData({...formData,[view==='vendors'?'name':'description']:e.target.value})}/><input type="number" placeholder="Amount" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.amount||formData.cashOut||formData.totalPayable||formData.amountPayable||''} onChange={e=>setFormData({...formData,[view==='petty-cash'?'cashOut':view==='vendors'?'amountPayable':view==='salaries'?'totalPayable':'amount']:e.target.value})}/></>}
                         
-                        <div className="border-t pt-4">
-                            <label className="flex items-center gap-2 cursor-pointer bg-slate-100 p-3 rounded-xl hover:bg-slate-200"><Upload size={18}/><span className="text-sm font-medium">{fileToUpload?fileToUpload.name:"Attach Proof (Image/PDF)"}</span><input type="file" className="hidden" onChange={e=>setFileToUpload(e.target.files[0])}/></label>
+                        <div className="border-t border-slate-100 pt-4">
+                            <label className="flex items-center gap-2 cursor-pointer bg-slate-50 p-4 rounded-xl hover:bg-slate-100 transition-colors border border-slate-200"><Upload size={18} className="text-slate-400"/><span className="text-sm font-medium text-slate-600">{fileToUpload?fileToUpload.name:"Attach Proof (Image/PDF)"}</span><input type="file" className="hidden" onChange={e=>setFileToUpload(e.target.files[0])}/></label>
                         </div>
-                        <button disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700">{isSubmitting?'Saving...':'Save Record'}</button>
+                        <button disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 hover:scale-[1.02] active:scale-95 flex justify-center items-center gap-2">{isSubmitting?<><RefreshCw className="animate-spin" size={20}/> Saving...</>:<><CheckCircle size={20}/> Save Record</>}</button>
                     </form>
                 </div>
             </div>
