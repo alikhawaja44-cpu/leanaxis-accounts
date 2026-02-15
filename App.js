@@ -151,6 +151,27 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice }) =
 
     const { subtotal, tax, total } = calculateTax(invoiceData.items.reduce((acc, item) => acc + (item.qty * item.rate), 0), invoiceData.taxRate);
 
+    // AUTO-FILL LOGIC
+    useEffect(() => {
+        if (invoiceData.client) {
+            const client = clients.find(c => c.name === invoiceData.client);
+            if (client) {
+                const newItems = [];
+                if (Number(client.retainerAmount) > 0) {
+                    newItems.push({ desc: 'Monthly Retainer Service', qty: 1, rate: Number(client.retainerAmount) });
+                }
+                const balance = Number(client.projectTotal) - Number(client.advanceReceived);
+                if (balance > 0 && Number(client.retainerAmount) === 0) {
+                    newItems.push({ desc: `Balance Payment for ${client.projectName || 'Project'}`, qty: 1, rate: balance });
+                }
+                
+                if (newItems.length > 0) {
+                    setInvoiceData(prev => ({ ...prev, items: newItems }));
+                }
+            }
+        }
+    }, [invoiceData.client, clients]);
+
     if (viewMode === 'list') {
         return (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
