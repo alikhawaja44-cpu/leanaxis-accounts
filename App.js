@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
   LayoutDashboard, Wallet, Receipt, Users, Building2, Briefcase, Truck,
-  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, FileInput, Settings, FileDown, Search, Filter, FileText, Printer
+  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, FileInput, Settings, FileDown, Search, Filter, FileText, Printer, DollarSign, Percent
 } from 'lucide-react';
-import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip as ChartTooltip, Legend } from 'recharts';
+import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip as ChartTooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import Papa from "papaparse";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js";
 import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, query, orderBy, setDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore.js";
@@ -38,13 +38,6 @@ const hashPassword = async (password) => {
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-};
-
-const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-
-const sanitizeInput = (input) => {
-  if (typeof input !== 'string') return input;
-  return input.replace(/[<>]/g, '').trim();
 };
 
 const calculateTax = (amount, taxRate = 0) => {
@@ -140,7 +133,8 @@ const LoginView = ({ onLogin, loading, error }) => {
 };
 
 // --- INVOICE GENERATOR ---
-const InvoiceGenerator = ({ clients, onSave }) => {
+const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice }) => {
+    const [viewMode, setViewMode] = useState('list'); // 'list' or 'create'
     const [invoiceData, setInvoiceData] = useState({
         client: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0
     });
@@ -157,8 +151,54 @@ const InvoiceGenerator = ({ clients, onSave }) => {
 
     const { subtotal, tax, total } = calculateTax(invoiceData.items.reduce((acc, item) => acc + (item.qty * item.rate), 0), invoiceData.taxRate);
 
+    if (viewMode === 'list') {
+        return (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-2xl font-bold text-slate-800">Invoices</h2>
+                    <button onClick={() => setViewMode('create')} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all hover:scale-105 active:scale-95"><Plus size={18}/> Create Invoice</button>
+                </div>
+                
+                {savedInvoices.length === 0 ? (
+                    <div className="bg-white p-12 rounded-2xl shadow-sm border border-slate-200 text-center">
+                        <FileText className="mx-auto text-slate-300 mb-4" size={48} />
+                        <p className="text-slate-500 font-medium">No invoices created yet.</p>
+                    </div>
+                ) : (
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                <tr>
+                                    <th className="p-5">Date</th>
+                                    <th className="p-5">Client</th>
+                                    <th className="p-5 text-right">Total</th>
+                                    <th className="p-5 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {savedInvoices.map(inv => (
+                                    <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
+                                        <td className="p-5 text-sm text-slate-500">{inv.date}</td>
+                                        <td className="p-5 font-bold text-slate-800">{inv.client}</td>
+                                        <td className="p-5 text-right font-bold text-indigo-600">{formatCurrency(calculateTax(inv.items.reduce((a, i) => a + (i.qty * i.rate), 0), inv.taxRate).total)}</td>
+                                        <td className="p-5 text-center">
+                                            <button onClick={() => onDeleteInvoice(inv.id)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
     return (
         <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200 max-w-4xl mx-auto animate-in fade-in zoom-in-95 duration-300">
+            <div className="flex justify-between items-center mb-6">
+                <button onClick={() => setViewMode('list')} className="text-slate-400 hover:text-indigo-600 flex items-center gap-1 text-sm font-bold"><ArrowDownLeft className="rotate-90" size={16}/> Back to List</button>
+            </div>
             <div className="flex flex-col md:flex-row justify-between items-start mb-8 border-b border-slate-100 pb-6 gap-4">
                 <div><h2 className="text-2xl md:text-3xl font-bold text-slate-900">INVOICE</h2><p className="text-slate-500">LeanAxis Agency</p></div>
                 <div className="text-left md:text-right"><div className="bg-indigo-600 text-white font-bold py-1 px-3 rounded text-sm mb-2 inline-block">DRAFT</div><p className="text-slate-400 text-sm">Date: {invoiceData.date}</p></div>
@@ -175,7 +215,7 @@ const InvoiceGenerator = ({ clients, onSave }) => {
             </div>
             <button onClick={addItem} className="flex items-center gap-2 text-sm font-bold text-indigo-600 hover:text-indigo-800 mb-8"><Plus size={16}/> Add Line Item</button>
             <div className="flex justify-end mb-8"><div className="w-full md:w-64 space-y-3"><div className="flex justify-between text-sm text-slate-500"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div><div className="flex justify-between text-sm text-slate-500"><span>Tax ({invoiceData.taxRate}%)</span><span>{formatCurrency(tax)}</span></div><div className="flex justify-between text-xl font-bold text-slate-800 border-t border-slate-200 pt-3"><span>Total</span><span>{formatCurrency(total)}</span></div></div></div>
-            <div className="flex flex-col md:flex-row gap-4 print:hidden"><button onClick={() => window.print()} className="flex-1 flex items-center justify-center gap-2 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-200 transition-colors"><Printer size={18}/> Print / PDF</button><button onClick={() => onSave(invoiceData)} className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"><CheckCircle size={18}/> Save Invoice</button></div>
+            <div className="flex flex-col md:flex-row gap-4 print:hidden"><button onClick={() => window.print()} className="flex-1 flex items-center justify-center gap-2 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-200 transition-colors"><Printer size={18}/> Print / PDF</button><button onClick={() => { onSave(invoiceData); setViewMode('list'); }} className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"><CheckCircle size={18}/> Save Invoice</button></div>
         </div>
     );
 };
@@ -426,7 +466,7 @@ function App() {
             </div>
         )}
 
-        {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv)} />}
+        {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv)} savedInvoices={invoices} onDeleteInvoice={(id) => handleDelete(id, 'invoice')} />}
 
         {/* GENERIC TABLE RENDERER - Responsive Wrapper */}
         {['clients','vendors','petty-cash','expenses','salaries','bank','manage-users'].includes(view) && (
@@ -439,8 +479,8 @@ function App() {
                                 {view==='vendors' && <><th className="p-5">Vendor</th><th className="p-5">Type</th><th className="p-5 text-right">Total</th><th className="p-5 text-right">Paid</th><th className="p-5 text-right">Due</th></>}
                                 {view==='expenses' && <><th className="p-5">Date</th><th className="p-5">Category</th><th className="p-5">Desc</th><th className="p-5 text-right">Amount</th></>}
                                 {view==='manage-users' && <><th className="p-5">Username</th><th className="p-5">Email</th><th className="p-5">Role</th></>}
-                                {view==='petty-cash' && <><th className="p-5">Date</th><th className="p-5">Desc</th><th className="p-5 text-right">Out</th><th className="p-5 text-right">In</th></>}
-                                {view==='salaries' && <><th className="p-5">Date</th><th className="p-5">Employee</th><th className="p-5 text-right">Total</th><th className="p-5">Status</th></>}
+                                {view==='petty-cash' && <><th className="p-5">Date</th><th className="p-5">Desc</th><th className="p-5 text-right">Out</th><th className="p-5 text-right">In</th><th className="p-5">Payment</th></>}
+                                {view==='salaries' && <><th className="p-5">Date</th><th className="p-5">Employee</th><th className="p-5 text-right">Total</th><th className="p-5">Payment</th></>}
                                 {view==='bank' && <><th className="p-5">Date</th><th className="p-5">Bank</th><th className="p-5 text-right">Amount</th><th className="p-5">Status</th></>}
                                 <th className="p-5 text-center">Actions</th>
                             </tr>
@@ -452,8 +492,8 @@ function App() {
                                     {view==='vendors' && <><td className="p-5 font-bold text-slate-800">{item.name}</td><td className="p-5 text-sm text-slate-500">{item.serviceType}</td><td className="p-5 text-right font-medium text-slate-600">{formatCurrency(item.amountPayable)}</td><td className="p-5 text-right text-emerald-600 font-medium">{formatCurrency(item.amountPaid)}</td><td className="p-5 text-right text-rose-600 font-bold">{formatCurrency((item.amountPayable||0)-(item.amountPaid||0))}</td></>}
                                     {view==='expenses' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5"><span className="px-2.5 py-1 bg-purple-50 text-purple-700 rounded-full text-xs font-bold">{item.category}</span></td><td className="p-5 text-sm text-slate-700">{item.description}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td></>}
                                     {view==='manage-users' && <><td className="p-5 font-bold text-slate-800">{item.username}</td><td className="p-5 text-sm text-slate-600">{item.email}</td><td className="p-5"><span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-bold">{item.role}</span></td></>}
-                                    {view==='petty-cash' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 text-sm font-medium text-slate-800">{item.description}</td><td className="p-5 text-right font-bold text-rose-600">{item.cashOut?formatCurrency(item.cashOut):'-'}</td><td className="p-5 text-right font-bold text-emerald-600">{item.cashIn?formatCurrency(item.cashIn):'-'}</td></>}
-                                    {view==='salaries' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-slate-800">{item.employeeName}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.totalPayable)}</td><td className="p-5"><span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase ${item.status==='Paid'?'bg-emerald-50 text-emerald-700':'bg-orange-50 text-orange-700'}`}>{item.status}</span></td></>}
+                                    {view==='petty-cash' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 text-sm font-medium text-slate-800">{item.description}</td><td className="p-5 text-right font-bold text-rose-600">{item.cashOut?formatCurrency(item.cashOut):'-'}</td><td className="p-5 text-right font-bold text-emerald-600">{item.cashIn?formatCurrency(item.cashIn):'-'}</td><td className="p-5 text-xs">{item.bankName ? `${item.bankName} - ${item.chequeNumber}` : 'Cash'}</td></>}
+                                    {view==='salaries' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-slate-800">{item.employeeName}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.totalPayable)}</td><td className="p-5 text-xs">{item.bankName ? `${item.bankName} - ${item.chequeNumber}` : 'Cash'}</td></>}
                                     {view==='bank' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-blue-600">{item.bank}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-5"><span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase ${item.status==='Cleared'?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-700'}`}>{item.status}</span></td></>}
                                     
                                     <td className="p-5 text-center">
@@ -480,6 +520,14 @@ function App() {
                         {view==='clients' && <><input type="date" required className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input required placeholder="Client Name" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/><input type="number" placeholder="Project Total" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.projectTotal||''} onChange={e=>setFormData({...formData,projectTotal:e.target.value})}/><input type="number" placeholder="Advance" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.advanceReceived||''} onChange={e=>setFormData({...formData,advanceReceived:e.target.value})}/><select className="w-full border border-slate-200 p-3 rounded-xl text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.status||'Ongoing'} onChange={e=>setFormData({...formData,status:e.target.value})}><option>Ongoing</option><option>Completed</option></select></>}
                         {!['manage-users','clients'].includes(view) && <><input type="date" required className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input placeholder="Description/Name" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.description||formData.name||''} onChange={e=>setFormData({...formData,[view==='vendors'?'name':'description']:e.target.value})}/><input type="number" placeholder="Amount" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.amount||formData.cashOut||formData.totalPayable||formData.amountPayable||''} onChange={e=>setFormData({...formData,[view==='petty-cash'?'cashOut':view==='vendors'?'amountPayable':view==='salaries'?'totalPayable':'amount']:e.target.value})}/></>}
                         
+                        {(view === 'salaries' || view === 'petty-cash') && (
+                            <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
+                                <div className="col-span-2 text-xs font-bold text-slate-500 uppercase">Payment Details (Optional)</div>
+                                <input placeholder="Bank Name" className="w-full border border-slate-200 p-3 rounded-xl text-sm" value={formData.bankName || ''} onChange={e => setFormData({...formData, bankName: e.target.value})} />
+                                <input placeholder="Cheque Number" className="w-full border border-slate-200 p-3 rounded-xl text-sm" value={formData.chequeNumber || ''} onChange={e => setFormData({...formData, chequeNumber: e.target.value})} />
+                            </div>
+                        )}
+
                         <div className="border-t border-slate-100 pt-4">
                             <label className="flex items-center gap-2 cursor-pointer bg-slate-50 p-4 rounded-xl hover:bg-slate-100 transition-colors border border-slate-200"><Upload size={18} className="text-slate-400"/><span className="text-sm font-medium text-slate-600">{fileToUpload?fileToUpload.name:"Attach Proof (Image/PDF)"}</span><input type="file" className="hidden" onChange={e=>setFileToUpload(e.target.files[0])}/></label>
                         </div>
