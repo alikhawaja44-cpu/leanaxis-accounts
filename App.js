@@ -93,6 +93,13 @@ function useStickyState(defaultValue, key) {
   return [value, setValue];
 }
 
+// EXPENSE CATEGORIES HOOK
+function useExpenseCategories() {
+    const [categories, setCategories] = useState(['General', 'Office Rent', 'Utilities', 'Travel', 'Software', 'Meals', 'Other']);
+    const [storedCats, setStoredCats] = useStickyState(categories, 'leanaxis_expense_categories');
+    return [storedCats, setStoredCats];
+}
+
 // --- LOGIN COMPONENT ---
 const LoginView = ({ onLogin, loading, error }) => {
   const [loginInput, setLoginInput] = useState('');
@@ -270,6 +277,8 @@ function App() {
   const [vendors] = useFirebaseSync('vendors');
   const [invoices] = useFirebaseSync('invoices');
   const [users, usersLoading] = useFirebaseSync('users');
+  
+  const [expenseCategories, setExpenseCategories] = useExpenseCategories();
 
   // Create default admin
   useEffect(() => {
@@ -325,6 +334,33 @@ function App() {
     const push = (src, type) => src.forEach(i => allData.push({TYPE: type, ...i}));
     push(clients, 'Client'); push(vendors, 'Vendor'); push(pettyCash, 'Petty'); push(expenses, 'Expense'); push(salaries, 'Salary');
     if (allData.length) exportToCSV(allData, 'Master_Export.csv');
+  };
+
+  // RECURRING INVOICES
+  const handleGenerateRecurring = async () => {
+      if(!confirm("Generate draft invoices for all retainer clients for this month?")) return;
+      const currentMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
+      let count = 0;
+      
+      for (const client of clients) {
+          if (Number(client.retainerAmount) > 0) {
+              const exists = invoices.some(inv => inv.client === client.name && new Date(inv.date).toLocaleString('default', { month: 'long', year: 'numeric' }) === currentMonth);
+              if (!exists) {
+                  const newInvoice = {
+                      client: client.name,
+                      date: new Date().toISOString().split('T')[0],
+                      items: [{ desc: `Monthly Retainer - ${currentMonth}`, qty: 1, rate: Number(client.retainerAmount) }],
+                      taxRate: 0,
+                      status: 'Draft',
+                      addedBy: currentUser.username,
+                      createdAt: new Date().toISOString()
+                  };
+                  await addDoc(collection(db, 'invoices'), newInvoice);
+                  count++;
+              }
+          }
+      }
+      alert(`Generated ${count} recurring invoices!`);
   };
 
   const uploadFile = async (file) => {
@@ -415,7 +451,7 @@ function App() {
         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-slate-300 hover:text-white"><Menu size={24}/></button>
       </div>
 
-      {/* SIDEBAR - Fixed Width & Position */}
+      {/* SIDEBAR */}
       <aside className={`fixed inset-y-0 left-0 z-40 w-72 bg-slate-900 border-r border-slate-800 flex flex-col transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 shadow-2xl`}>
         <div className="p-8 border-b border-slate-800 hidden md:block">
             <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-3"><div className="bg-gradient-to-r from-indigo-500 to-cyan-500 p-2 rounded-lg">LA</div> LeanAxis</h1>
@@ -436,10 +472,10 @@ function App() {
         <div className="p-4 border-t border-slate-800"><button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 p-3 rounded-lg border border-slate-700 text-slate-300 hover:bg-red-600 hover:border-red-600 hover:text-white transition-all font-bold text-sm"><Lock size={16}/> Logout</button></div>
       </aside>
 
-      {/* OVERLAY FOR MOBILE */}
+      {/* OVERLAY */}
       {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-30 md:hidden backdrop-blur-sm" onClick={() => setIsSidebarOpen(false)}></div>}
 
-      {/* MAIN CONTENT - Pushed by Margin on Desktop */}
+      {/* MAIN CONTENT */}
       <main className="md:ml-72 min-h-screen pt-20 md:pt-8 p-4 md:p-8 transition-all duration-300">
         <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-8 gap-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
             <div><h2 className="text-3xl font-bold text-slate-900 capitalize tracking-tight">{view.replace('-', ' ')}</h2></div>
@@ -464,7 +500,6 @@ function App() {
                     { l:'Net Profit', v:totals.profit, i:Wallet, c:totals.profit>=0?'text-indigo-600':'text-orange-600', b:totals.profit>=0?'bg-indigo-50':'bg-orange-50' },
                     { l:'Pending Invoices', v:totals.clientPending, i:Clock, c:'text-amber-600', b:'bg-amber-50' }
                 ].map((s,i) => <div key={i} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow"><div className="flex justify-between mb-4"><div className={`p-3.5 rounded-xl ${s.b} ${s.c}`}><s.i size={24}/></div></div><p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{s.l}</p><h3 className="text-2xl font-bold text-slate-800 mt-1">{formatCurrency(s.v)}</h3></div>)}
-                
                 <div className="md:col-span-2 lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 h-96 relative">
                     <h3 className="font-bold text-slate-800 mb-4 text-lg">Expense Breakdown</h3>
                     <ResponsiveContainer width="100%" height="90%"><RePieChart><Pie data={expenseChartData} innerRadius={80} outerRadius={110} paddingAngle={5} dataKey="value" cornerRadius={6}>{expenseChartData.map((e,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} strokeWidth={0}/>)}</Pie><ChartTooltip formatter={formatCurrency} contentStyle={{borderRadius:'12px', border:'none', boxShadow:'0 4px 6px -1px rgba(0, 0, 0, 0.1)'}}/><Legend verticalAlign="bottom" iconType="circle"/></RePieChart></ResponsiveContainer>
@@ -531,6 +566,59 @@ function App() {
             </div>
         )}
 
+        {/* SETTINGS VIEW - Updated with Expense Categories */}
+        {view === 'settings' && (
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 max-w-lg mx-auto mt-10">
+                <h3 className="text-xl font-bold mb-6 text-slate-800 flex items-center gap-2"><Settings size={20} className="text-indigo-600"/> Configuration</h3>
+                
+                <div className="space-y-6">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Expense Categories</label>
+                        <div className="flex flex-wrap gap-2 mb-2">
+                            {expenseCategories.map(cat => (
+                                <span key={cat} className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2">
+                                    {cat} 
+                                    <button onClick={() => setExpenseCategories(expenseCategories.filter(c => c !== cat))} className="hover:text-red-500"><X size={14}/></button>
+                                </span>
+                            ))}
+                        </div>
+                        <div className="flex gap-2">
+                            <input 
+                                className="border border-slate-200 p-3 rounded-xl w-full text-sm outline-none focus:border-indigo-500" 
+                                placeholder="Add new category... (Press Enter)" 
+                                onKeyDown={e => {
+                                    if(e.key === 'Enter' && e.target.value) {
+                                        setExpenseCategories([...expenseCategories, e.target.value]);
+                                        e.target.value = '';
+                                    }
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">ImgBB API Key (Free Image Hosting)</label>
+                        <div className="flex gap-2">
+                            <input 
+                                className="border border-slate-200 p-3 rounded-xl w-full text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" 
+                                value={imgbbKey} 
+                                onChange={e => setImgbbKey(e.target.value)} 
+                                placeholder="Paste your API key here..." 
+                            />
+                            <a 
+                                href="https://api.imgbb.com/" 
+                                target="_blank" 
+                                className="bg-slate-100 text-slate-600 px-4 py-3 rounded-xl text-sm font-bold whitespace-nowrap hover:bg-slate-200 transition-colors"
+                            >
+                                Get Key
+                            </a>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-2 ml-1">Required to upload receipts and documents.</p>
+                    </div>
+                </div>
+            </div>
+        )}
+
         {/* FORM MODAL - Updated Styles */}
         {showForm && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -541,6 +629,12 @@ function App() {
                         {view==='clients' && <><input type="date" required className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input required placeholder="Client Name" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/><input type="number" placeholder="Project Total" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.projectTotal||''} onChange={e=>setFormData({...formData,projectTotal:e.target.value})}/><input type="number" placeholder="Advance" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.advanceReceived||''} onChange={e=>setFormData({...formData,advanceReceived:e.target.value})}/><select className="w-full border border-slate-200 p-3 rounded-xl text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.status||'Ongoing'} onChange={e=>setFormData({...formData,status:e.target.value})}><option>Ongoing</option><option>Completed</option></select></>}
                         {!['manage-users','clients'].includes(view) && <><input type="date" required className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input placeholder="Description/Name" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.description||formData.name||''} onChange={e=>setFormData({...formData,[view==='vendors'?'name':'description']:e.target.value})}/><input type="number" placeholder="Amount" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.amount||formData.cashOut||formData.totalPayable||formData.amountPayable||''} onChange={e=>setFormData({...formData,[view==='petty-cash'?'cashOut':view==='vendors'?'amountPayable':view==='salaries'?'totalPayable':'amount']:e.target.value})}/></>}
                         
+                        {view === 'expenses' && (
+                            <select className="w-full border border-slate-200 p-3 rounded-xl text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.category || 'General'} onChange={e => setFormData({...formData, category: e.target.value})}>
+                                {expenseCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                            </select>
+                        )}
+
                         {(view === 'salaries' || view === 'petty-cash') && (
                             <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
                                 <div className="col-span-2 text-xs font-bold text-slate-500 uppercase">Payment Details (Optional)</div>
