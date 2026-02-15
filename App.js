@@ -184,7 +184,10 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice }) =
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-bold text-slate-800">Invoices</h2>
-                    <button onClick={() => setViewMode('create')} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all hover:scale-105 active:scale-95"><Plus size={18}/> Create Invoice</button>
+                    <div className="flex gap-2">
+                        <button onClick={handleGenerateRecurring} className="bg-white border border-indigo-200 text-indigo-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-indigo-50 transition-all"><RefreshCw size={18}/> Generate Monthly Retainers</button>
+                        <button onClick={() => setViewMode('create')} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all hover:scale-105 active:scale-95"><Plus size={18}/> Create Invoice</button>
+                    </div>
                 </div>
                 
                 {savedInvoices.length === 0 ? (
@@ -276,6 +279,7 @@ function App() {
   const [clients] = useFirebaseSync('clients');
   const [vendors] = useFirebaseSync('vendors');
   const [invoices] = useFirebaseSync('invoices');
+  const [vendorBills] = useFirebaseSync('vendor_bills'); // NEW: Sync bills
   const [users, usersLoading] = useFirebaseSync('users');
   
   const [expenseCategories, setExpenseCategories] = useExpenseCategories();
@@ -313,7 +317,7 @@ function App() {
   
   const handleDelete = (id, type) => {
     if (currentUser.role !== 'Admin') return alert('Access Denied');
-    const map = { 'petty': 'petty_cash', 'expense': 'expenses', 'salary': 'salaries', 'bank': 'bank_records', 'client': 'clients', 'vendor': 'vendors', 'user': 'users', 'invoice': 'invoices' };
+    const map = { 'petty': 'petty_cash', 'expense': 'expenses', 'salary': 'salaries', 'bank': 'bank_records', 'client': 'clients', 'vendor': 'vendors', 'user': 'users', 'invoice': 'invoices', 'bill': 'vendor_bills' };
     if (map[type]) deleteRecord(map[type], id);
   };
 
@@ -336,7 +340,6 @@ function App() {
     if (allData.length) exportToCSV(allData, 'Master_Export.csv');
   };
 
-  // RECURRING INVOICES
   const handleGenerateRecurring = async () => {
       if(!confirm("Generate draft invoices for all retainer clients for this month?")) return;
       const currentMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
@@ -394,7 +397,7 @@ function App() {
 
   const handleAddSubmit = (e) => {
     e.preventDefault();
-    let col = { 'manage-users': 'users', 'petty-cash': 'petty_cash', 'expenses': 'expenses', 'salaries': 'salaries', 'bank': 'bank_records', 'clients': 'clients', 'vendors': 'vendors' }[view];
+    let col = { 'manage-users': 'users', 'petty-cash': 'petty_cash', 'expenses': 'expenses', 'salaries': 'salaries', 'bank': 'bank_records', 'clients': 'clients', 'vendors': 'vendors', 'vendor-bills': 'vendor_bills' }[view];
     if (col) saveToFirebase(col, formData, (isEditingRecord || isEditingUser) ? formData.id : null);
   };
 
@@ -416,15 +419,21 @@ function App() {
   const filteredSal = useMemo(() => filterData(salaries), [salaries, selectedMonth, selectedYear, searchTerm]);
   const filteredClients = useMemo(() => filterData(clients), [clients, selectedMonth, selectedYear, searchTerm]); 
   const filteredVendors = useMemo(() => filterData(vendors), [vendors]);
+  const filteredBills = useMemo(() => filterData(vendorBills), [vendorBills, selectedMonth, selectedYear, searchTerm]);
 
   const totals = useMemo(() => {
     const rev = filteredClients.reduce((a,c) => a + (Number(c.advanceReceived)||0), 0) + filteredPetty.reduce((a,c) => a + (Number(c.cashIn)||0), 0);
     const exp = filteredExp.reduce((a,c) => a + (Number(c.amount)||0), 0) + filteredSal.reduce((a,c) => a + (Number(c.totalPayable)||0), 0) + filteredPetty.reduce((a,c) => a + (Number(c.cashOut)||0), 0);
+    
+    // NEW: Calculate vendor pending from bills
+    const totalVendorBills = filteredBills.reduce((a,c) => a + (Number(c.amount)||0), 0);
+    const totalVendorPaid = filteredBills.reduce((a,c) => a + (Number(c.paidAmount)||0), 0);
+
     return { revenue: rev, expense: exp, profit: rev - exp, 
-             vendorPending: vendors.reduce((a,c) => a + ((Number(c.amountPayable)||0) - (Number(c.amountPaid)||0)), 0),
+             vendorPending: totalVendorBills - totalVendorPaid,
              clientPending: clients.reduce((a,c) => a + ((Number(c.projectTotal)||0) - (Number(c.advanceReceived)||0)), 0)
     };
-  }, [filteredPetty, filteredExp, filteredSal, clients, vendors]);
+  }, [filteredPetty, filteredExp, filteredSal, clients, vendors, filteredBills]);
 
   const expenseChartData = [
       { name: 'Petty', value: filteredPetty.reduce((a,c) => a+(Number(c.cashOut)||0),0) },
@@ -465,7 +474,8 @@ function App() {
           <NavButton id="petty-cash" icon={Wallet} label="Petty Cash" />
           <NavButton id="expenses" icon={Receipt} label="Expenses" />
           <NavButton id="salaries" icon={Users} label="Salaries" />
-          <NavButton id="vendors" icon={Truck} label="Vendors" />
+          <NavButton id="vendor-bills" icon={FileText} label="Vendor Bills" /> {/* New Bill View */}
+          <NavButton id="vendors" icon={Truck} label="Vendors List" />
           <NavButton id="bank" icon={Building2} label="Bank" />
           {currentUser.role === 'Admin' && <><div className="pt-4 px-4 text-xs font-bold text-slate-600 uppercase tracking-widest">Admin</div><NavButton id="manage-users" icon={UserPlus} label="Users" /><NavButton id="settings" icon={Settings} label="Settings" /></>}
         </nav>
@@ -481,7 +491,7 @@ function App() {
             <div><h2 className="text-3xl font-bold text-slate-900 capitalize tracking-tight">{view.replace('-', ' ')}</h2></div>
             <div className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto">
                 {view !== 'dashboard' && <div className="relative flex-1 sm:w-64"><Search className="absolute left-3 top-3 text-slate-400" size={18}/><input className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Search..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
-                {['clients','expenses','petty-cash','salaries','bank'].includes(view) && (
+                {['clients','expenses','petty-cash','salaries','bank','vendor-bills'].includes(view) && (
                     <div className="flex gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
                         <select className="bg-transparent text-sm font-medium outline-none cursor-pointer" value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}><option value="All">All Months</option>{['January','February','March','April','May','June','July','August','September','October','November','December'].map(m=><option key={m}>{m}</option>)}</select>
                         <div className="w-px bg-slate-200 mx-1"></div>
@@ -500,6 +510,7 @@ function App() {
                     { l:'Net Profit', v:totals.profit, i:Wallet, c:totals.profit>=0?'text-indigo-600':'text-orange-600', b:totals.profit>=0?'bg-indigo-50':'bg-orange-50' },
                     { l:'Pending Invoices', v:totals.clientPending, i:Clock, c:'text-amber-600', b:'bg-amber-50' }
                 ].map((s,i) => <div key={i} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow"><div className="flex justify-between mb-4"><div className={`p-3.5 rounded-xl ${s.b} ${s.c}`}><s.i size={24}/></div></div><p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{s.l}</p><h3 className="text-2xl font-bold text-slate-800 mt-1">{formatCurrency(s.v)}</h3></div>)}
+                
                 <div className="md:col-span-2 lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 h-96 relative">
                     <h3 className="font-bold text-slate-800 mb-4 text-lg">Expense Breakdown</h3>
                     <ResponsiveContainer width="100%" height="90%"><RePieChart><Pie data={expenseChartData} innerRadius={80} outerRadius={110} paddingAngle={5} dataKey="value" cornerRadius={6}>{expenseChartData.map((e,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} strokeWidth={0}/>)}</Pie><ChartTooltip formatter={formatCurrency} contentStyle={{borderRadius:'12px', border:'none', boxShadow:'0 4px 6px -1px rgba(0, 0, 0, 0.1)'}}/><Legend verticalAlign="bottom" iconType="circle"/></RePieChart></ResponsiveContainer>
@@ -525,7 +536,7 @@ function App() {
         {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv)} savedInvoices={invoices} onDeleteInvoice={(id) => handleDelete(id, 'invoice')} />}
 
         {/* GENERIC TABLE RENDERER - Responsive Wrapper */}
-        {['clients','vendors','petty-cash','expenses','salaries','bank','manage-users'].includes(view) && (
+        {['clients','vendors','petty-cash','expenses','salaries','bank','manage-users','vendor-bills'].includes(view) && (
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-300">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left min-w-[800px] border-collapse">
@@ -533,6 +544,7 @@ function App() {
                             <tr>
                                 {view==='clients' && <><th className="p-5">Date</th><th className="p-5">Client</th><th className="p-5 text-right">Total</th><th className="p-5 text-right">Paid</th><th className="p-5 text-right">Due</th><th className="p-5">Status</th></>}
                                 {view==='vendors' && <><th className="p-5">Vendor</th><th className="p-5">Type</th><th className="p-5 text-right">Total</th><th className="p-5 text-right">Paid</th><th className="p-5 text-right">Due</th></>}
+                                {view==='vendor-bills' && <><th className="p-5">Date</th><th className="p-5">Bill #</th><th className="p-5">Vendor</th><th className="p-5">Description</th><th className="p-5 text-right">Amount</th><th className="p-5 text-right">Paid</th><th className="p-5 text-right">Due</th><th className="p-5">Status</th></>}
                                 {view==='expenses' && <><th className="p-5">Date</th><th className="p-5">Category</th><th className="p-5">Desc</th><th className="p-5 text-right">Amount</th></>}
                                 {view==='manage-users' && <><th className="p-5">Username</th><th className="p-5">Email</th><th className="p-5">Role</th></>}
                                 {view==='petty-cash' && <><th className="p-5">Date</th><th className="p-5">Desc</th><th className="p-5 text-right">Out</th><th className="p-5 text-right">In</th><th className="p-5">Payment</th></>}
@@ -542,10 +554,11 @@ function App() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {(view==='clients'?filteredClients:view==='vendors'?filteredVendors:view==='expenses'?filteredExp:view==='petty-cash'?filteredPetty:view==='salaries'?filteredSal:view==='bank'?bankRecords:users).map(item => (
+                            {(view==='clients'?filteredClients:view==='vendors'?filteredVendors:view==='vendor-bills'?filteredBills:view==='expenses'?filteredExp:view==='petty-cash'?filteredPetty:view==='salaries'?filteredSal:view==='bank'?bankRecords:users).map(item => (
                                 <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                                     {view==='clients' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-slate-800">{item.name}</td><td className="p-5 text-right font-medium text-slate-600">{formatCurrency(item.projectTotal)}</td><td className="p-5 text-right text-emerald-600 font-medium">{formatCurrency(item.advanceReceived)}</td><td className="p-5 text-right text-rose-600 font-bold">{formatCurrency((item.projectTotal||0)-(item.advanceReceived||0))}</td><td className="p-5"><span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-bold uppercase">{item.status}</span></td></>}
                                     {view==='vendors' && <><td className="p-5 font-bold text-slate-800">{item.name}</td><td className="p-5 text-sm text-slate-500">{item.serviceType}</td><td className="p-5 text-right font-medium text-slate-600">{formatCurrency(item.amountPayable)}</td><td className="p-5 text-right text-emerald-600 font-medium">{formatCurrency(item.amountPaid)}</td><td className="p-5 text-right text-rose-600 font-bold">{formatCurrency((item.amountPayable||0)-(item.amountPaid||0))}</td></>}
+                                    {view==='vendor-bills' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-slate-800">{item.billNumber}</td><td className="p-5 font-medium text-indigo-600">{item.vendor}</td><td className="p-5 text-sm text-slate-500">{item.description}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-5 text-right text-emerald-600 font-medium">{formatCurrency(item.paidAmount)}</td><td className="p-5 text-right text-rose-600 font-bold">{formatCurrency(Number(item.amount) - Number(item.paidAmount))}</td><td className="p-5"><span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase ${Number(item.amount)-Number(item.paidAmount)<=0 ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>{Number(item.amount)-Number(item.paidAmount)<=0 ? 'Paid' : 'Due'}</span></td></>}
                                     {view==='expenses' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5"><span className="px-2.5 py-1 bg-purple-50 text-purple-700 rounded-full text-xs font-bold">{item.category}</span></td><td className="p-5 text-sm text-slate-700">{item.description}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td></>}
                                     {view==='manage-users' && <><td className="p-5 font-bold text-slate-800">{item.username}</td><td className="p-5 text-sm text-slate-600">{item.email}</td><td className="p-5"><span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-bold">{item.role}</span></td></>}
                                     {view==='petty-cash' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 text-sm font-medium text-slate-800">{item.description}</td><td className="p-5 text-right font-bold text-rose-600">{item.cashOut?formatCurrency(item.cashOut):'-'}</td><td className="p-5 text-right font-bold text-emerald-600">{item.cashIn?formatCurrency(item.cashIn):'-'}</td><td className="p-5 text-xs">{item.bankName ? `${item.bankName} - ${item.chequeNumber}` : 'Cash'}</td></>}
@@ -566,59 +579,6 @@ function App() {
             </div>
         )}
 
-        {/* SETTINGS VIEW - Updated with Expense Categories */}
-        {view === 'settings' && (
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 max-w-lg mx-auto mt-10">
-                <h3 className="text-xl font-bold mb-6 text-slate-800 flex items-center gap-2"><Settings size={20} className="text-indigo-600"/> Configuration</h3>
-                
-                <div className="space-y-6">
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Expense Categories</label>
-                        <div className="flex flex-wrap gap-2 mb-2">
-                            {expenseCategories.map(cat => (
-                                <span key={cat} className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2">
-                                    {cat} 
-                                    <button onClick={() => setExpenseCategories(expenseCategories.filter(c => c !== cat))} className="hover:text-red-500"><X size={14}/></button>
-                                </span>
-                            ))}
-                        </div>
-                        <div className="flex gap-2">
-                            <input 
-                                className="border border-slate-200 p-3 rounded-xl w-full text-sm outline-none focus:border-indigo-500" 
-                                placeholder="Add new category... (Press Enter)" 
-                                onKeyDown={e => {
-                                    if(e.key === 'Enter' && e.target.value) {
-                                        setExpenseCategories([...expenseCategories, e.target.value]);
-                                        e.target.value = '';
-                                    }
-                                }}
-                            />
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">ImgBB API Key (Free Image Hosting)</label>
-                        <div className="flex gap-2">
-                            <input 
-                                className="border border-slate-200 p-3 rounded-xl w-full text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" 
-                                value={imgbbKey} 
-                                onChange={e => setImgbbKey(e.target.value)} 
-                                placeholder="Paste your API key here..." 
-                            />
-                            <a 
-                                href="https://api.imgbb.com/" 
-                                target="_blank" 
-                                className="bg-slate-100 text-slate-600 px-4 py-3 rounded-xl text-sm font-bold whitespace-nowrap hover:bg-slate-200 transition-colors"
-                            >
-                                Get Key
-                            </a>
-                        </div>
-                        <p className="text-xs text-slate-400 mt-2 ml-1">Required to upload receipts and documents.</p>
-                    </div>
-                </div>
-            </div>
-        )}
-
         {/* FORM MODAL - Updated Styles */}
         {showForm && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -627,8 +587,24 @@ function App() {
                     <form onSubmit={handleAddSubmit} className="space-y-5">
                         {view==='manage-users' && <><input required placeholder="Username" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.username||''} onChange={e=>setFormData({...formData,username:e.target.value})}/><input type="email" required placeholder="Email" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.email||''} onChange={e=>setFormData({...formData,email:e.target.value})}/><input type="password" placeholder="Password (leave blank to keep)" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.password||''} onChange={e=>setFormData({...formData,password:e.target.value})}/><select className="w-full border border-slate-200 p-3 rounded-xl text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.role||'Viewer'} onChange={e=>setFormData({...formData,role:e.target.value})}><option>Viewer</option><option>Editor</option><option>Admin</option></select></>}
                         {view==='clients' && <><input type="date" required className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input required placeholder="Client Name" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/><input type="number" placeholder="Project Total" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.projectTotal||''} onChange={e=>setFormData({...formData,projectTotal:e.target.value})}/><input type="number" placeholder="Advance" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.advanceReceived||''} onChange={e=>setFormData({...formData,advanceReceived:e.target.value})}/><select className="w-full border border-slate-200 p-3 rounded-xl text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.status||'Ongoing'} onChange={e=>setFormData({...formData,status:e.target.value})}><option>Ongoing</option><option>Completed</option></select></>}
-                        {!['manage-users','clients'].includes(view) && <><input type="date" required className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input placeholder="Description/Name" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.description||formData.name||''} onChange={e=>setFormData({...formData,[view==='vendors'?'name':'description']:e.target.value})}/><input type="number" placeholder="Amount" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.amount||formData.cashOut||formData.totalPayable||formData.amountPayable||''} onChange={e=>setFormData({...formData,[view==='petty-cash'?'cashOut':view==='vendors'?'amountPayable':view==='salaries'?'totalPayable':'amount']:e.target.value})}/></>}
+                        {!['manage-users','clients','vendor-bills'].includes(view) && <><input type="date" required className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input placeholder="Description/Name" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.description||formData.name||''} onChange={e=>setFormData({...formData,[view==='vendors'?'name':'description']:e.target.value})}/><input type="number" placeholder="Amount" className="w-full border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.amount||formData.cashOut||formData.totalPayable||formData.amountPayable||''} onChange={e=>setFormData({...formData,[view==='petty-cash'?'cashOut':view==='vendors'?'amountPayable':view==='salaries'?'totalPayable':'amount']:e.target.value})}/></>}
                         
+                        {view === 'vendor-bills' && (
+                            <>
+                                <input type="date" required className="w-full border border-slate-200 p-3 rounded-xl text-sm" value={formData.date || ''} onChange={e => setFormData({ ...formData, date: e.target.value })} />
+                                <select className="w-full border border-slate-200 p-3 rounded-xl text-sm bg-white" value={formData.vendor || ''} onChange={e => setFormData({ ...formData, vendor: e.target.value })}>
+                                    <option value="">Select Vendor</option>
+                                    {vendors.map(v => <option key={v.id} value={v.name}>{v.name}</option>)}
+                                </select>
+                                <input placeholder="Bill # / Invoice Ref" className="w-full border border-slate-200 p-3 rounded-xl text-sm" value={formData.billNumber || ''} onChange={e => setFormData({ ...formData, billNumber: e.target.value })} />
+                                <input placeholder="Description" className="w-full border border-slate-200 p-3 rounded-xl text-sm" value={formData.description || ''} onChange={e => setFormData({ ...formData, description: e.target.value })} />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <input type="number" placeholder="Total Bill Amount" className="w-full border border-slate-200 p-3 rounded-xl text-sm" value={formData.amount || ''} onChange={e => setFormData({ ...formData, amount: e.target.value })} />
+                                    <input type="number" placeholder="Amount Paid" className="w-full border border-slate-200 p-3 rounded-xl text-sm" value={formData.paidAmount || ''} onChange={e => setFormData({ ...formData, paidAmount: e.target.value })} />
+                                </div>
+                            </>
+                        )}
+
                         {view === 'expenses' && (
                             <select className="w-full border border-slate-200 p-3 rounded-xl text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.category || 'General'} onChange={e => setFormData({...formData, category: e.target.value})}>
                                 {expenseCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
