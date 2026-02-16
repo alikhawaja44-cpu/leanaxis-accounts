@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
   LayoutDashboard, Wallet, Receipt, Users, Building2, Briefcase, Truck,
-  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, FileInput, Settings, FileDown, Search, Filter, FileText, Printer, DollarSign, Percent, CreditCard, Check, Share2
+  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, FileInput, Settings, FileDown, Search, Filter, FileText, Printer, DollarSign, Percent, CreditCard, Check, Share2, Database
 } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip as ChartTooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import Papa from "papaparse";
@@ -419,11 +419,64 @@ function App() {
   };
 
   const handleMasterExport = () => {
-    if(!confirm("Download ALL data?")) return;
-    const allData = [];
-    const push = (src, type) => src.forEach(i => allData.push({TYPE: type, ...i}));
-    push(clients, 'Client'); push(vendors, 'Vendor'); push(pettyCash, 'Petty'); push(expenses, 'Expense'); push(salaries, 'Salary');
-    if (allData.length) exportToCSV(allData, 'Master_Export.csv');
+    const dataToExport = {
+        clients, vendors, pettyCash, expenses, salaries, bankRecords, invoices, vendorBills, users
+    };
+    const jsonString = JSON.stringify(dataToExport, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `LeanAxis_Backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleImport = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    if (!confirm("This will merge imported data into your current database. Continue?")) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const importedData = JSON.parse(e.target.result);
+            const batch = writeBatch(db);
+            let count = 0;
+
+            const collections = {
+                'clients': 'clients',
+                'vendors': 'vendors',
+                'pettyCash': 'petty_cash',
+                'expenses': 'expenses',
+                'salaries': 'salaries',
+                'bankRecords': 'bank_records',
+                'invoices': 'invoices',
+                'vendorBills': 'vendor_bills'
+            };
+
+            for (const [key, colName] of Object.entries(collections)) {
+                if (importedData[key]) {
+                    importedData[key].forEach(item => {
+                        const { id, ...data } = item; // Remove ID to generate new one
+                        const ref = doc(collection(db, colName));
+                        batch.set(ref, data);
+                        count++;
+                    });
+                }
+            }
+
+            await batch.commit();
+            alert(`Successfully imported ${count} records!`);
+            window.location.reload();
+        } catch (error) {
+            console.error("Import failed:", error);
+            alert("Failed to import data. Invalid file format.");
+        }
+    };
+    reader.readAsText(file);
   };
 
   const handleGenerateRecurring = async () => {
@@ -648,7 +701,16 @@ function App() {
           <NavButton id="vendor-bills" icon={FileText} label="Vendor Bills" />
           <NavButton id="vendors" icon={Truck} label="Vendors List" />
           <NavButton id="bank" icon={Building2} label="Bank" />
-          {currentUser.role === 'Admin' && <><div className="pt-4 px-4 text-xs font-bold text-slate-600 uppercase tracking-widest">Admin</div><NavButton id="manage-users" icon={UserPlus} label="Users" /><NavButton id="settings" icon={Settings} label="Settings" /></>}
+          {currentUser.role === 'Admin' && (
+              <>
+                <div className="pt-4 px-4 text-xs font-bold text-slate-600 uppercase tracking-widest">Admin</div>
+                <NavButton id="manage-users" icon={UserPlus} label="Users" />
+                <NavButton id="settings" icon={Settings} label="Settings" />
+                <button onClick={handleMasterExport} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-emerald-400 hover:bg-slate-800 hover:text-emerald-300 transition-all">
+                    <Database size={20} /> <span className="font-medium text-sm">Backup / Export</span>
+                </button>
+              </>
+          )}
         </nav>
         <div className="p-4 border-t border-slate-800"><button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 p-3 rounded-lg border border-slate-700 text-slate-300 hover:bg-red-600 hover:border-red-600 hover:text-white transition-all font-bold text-sm"><Lock size={16}/> Logout</button></div>
       </aside>
@@ -661,7 +723,7 @@ function App() {
         <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-8 gap-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
             <div><h2 className="text-3xl font-bold text-slate-900 capitalize tracking-tight">{view.replace('-', ' ')}</h2></div>
             <div className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto">
-                {view !== 'dashboard' && <div className="relative flex-1 sm:w-64"><Search className="absolute left-3 top-3 text-slate-400" size={18}/><input className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Search..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
+                {view !== 'dashboard' && <div className="relative flex-1 sm:w-64"><Search className="absolute left-3 top-3 text-slate-400" size={18}/><input className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Search entries..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
                 {['clients','expenses','petty-cash','salaries','bank','vendor-bills'].includes(view) && (
                     <div className="flex gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
                         <select className="bg-transparent text-sm font-medium outline-none cursor-pointer" value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}><option value="All">All Months</option>{['January','February','March','April','May','June','July','August','September','October','November','December'].map(m=><option key={m}>{m}</option>)}</select>
@@ -716,7 +778,7 @@ function App() {
                                 {view==='clients' && <><th className="p-5">Date</th><th className="p-5">Client</th><th className="p-5 text-right">Total</th><th className="p-5 text-right">Paid</th><th className="p-5 text-right">Due</th><th className="p-5">Status</th></>}
                                 {view==='vendors' && <><th className="p-5">Vendor</th><th className="p-5">Type</th><th className="p-5 text-right">Total</th><th className="p-5 text-right">Paid</th><th className="p-5 text-right">Due</th></>}
                                 {view==='vendor-bills' && <><th className="p-5">Date</th><th className="p-5">Bill #</th><th className="p-5">Vendor</th><th className="p-5">Description</th><th className="p-5 text-right">Amount</th><th className="p-5 text-right">Paid</th><th className="p-5 text-right">Due</th><th className="p-5">Status</th></>}
-                                {view==='expenses' && <><th className="p-5">Date</th><th className="p-5">Category</th><th className="p-5">Desc</th><th className="p-5 text-right">Amount</th></>}
+                                {view==='expenses' && <><th className="p-5">Date</th><th className="p-5">Category</th><th className="p-5">Desc</th><th className="p-5 text-right">Amount</th><th className="p-5 text-xs">Payment Details</th></>}
                                 {view==='manage-users' && <><th className="p-5">Username</th><th className="p-5">Email</th><th className="p-5">Role</th></>}
                                 {view==='petty-cash' && <><th className="p-5">Date</th><th className="p-5">Desc</th><th className="p-5 text-right">Out</th><th className="p-5 text-right">In</th><th className="p-5">Payment</th></>}
                                 {view==='salaries' && <><th className="p-5">Date</th><th className="p-5">Employee</th><th className="p-5 text-right">Total</th><th className="p-5">Payment</th><th className="p-5">Status</th></>}
@@ -728,7 +790,7 @@ function App() {
                             {(view==='clients'?filteredClients:view==='vendors'?filteredVendors:view==='vendor-bills'?filteredBills:view==='expenses'?filteredExp:view==='petty-cash'?filteredPetty:view==='salaries'?filteredSal:view==='bank'?bankRecords:users).map(item => (
                                 <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                                     {view==='clients' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-slate-800">{item.name}</td><td className="p-5 text-right font-medium text-slate-600">{formatCurrency(item.projectTotal)}</td><td className="p-5 text-right text-emerald-600 font-medium">{formatCurrency(item.advanceReceived)}</td><td className="p-5 text-right text-rose-600 font-bold">{formatCurrency((item.projectTotal||0)-(item.advanceReceived||0))}</td><td className="p-5"><span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-bold uppercase">{item.status}</span></td></>}
-                                    {view==='vendors' && <><td className="p-5 font-bold text-slate-800">{item.name}</td><td className="p-5 text-sm text-slate-500">{item.serviceType}</td><td className="p-5 text-right font-medium text-slate-600">{formatCurrency(item.amountPayable)}</td><td className="p-5 text-right text-emerald-600 font-medium">{formatCurrency(item.amountPaid)}</td><td className="p-5 text-right text-rose-600 font-bold">{formatCurrency((item.amountPayable||0)-(item.amountPaid||0))}</td></>}
+                                    {view==='vendors' && <><td className="p-5 font-bold text-slate-800">{item.name}</td><td className="p-5 font-bold text-slate-800">{item.name}</td><td className="p-5 text-sm text-slate-500">{item.serviceType}</td><td className="p-5 text-right font-medium text-slate-600">{formatCurrency(item.amountPayable)}</td><td className="p-5 text-right text-emerald-600 font-medium">{formatCurrency(item.amountPaid)}</td><td className="p-5 text-right text-rose-600 font-bold">{formatCurrency((item.amountPayable||0)-(item.amountPaid||0))}</td></>}
                                     
                                     {/* VENDOR BILLS ROW WITH PAYMENT BUTTON */}
                                     {view==='vendor-bills' && (() => {
@@ -746,7 +808,7 @@ function App() {
                                         );
                                     })()}
 
-                                    {view==='expenses' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5"><span className="px-2.5 py-1 bg-purple-50 text-purple-700 rounded-full text-xs font-bold">{item.category}</span></td><td className="p-5 text-sm text-slate-700">{item.description}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td></>}
+                                    {view==='expenses' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5"><span className="px-2.5 py-1 bg-purple-50 text-purple-700 rounded-full text-xs font-bold">{item.category}</span></td><td className="p-5 text-sm text-slate-700">{item.description}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-5 text-xs text-slate-500">{item.bankName ? `${item.bankName} - ${item.chequeNumber}` : 'Cash'}</td></>}
                                     {view==='manage-users' && <><td className="p-5 font-bold text-slate-800">{item.username}</td><td className="p-5 text-sm text-slate-600">{item.email}</td><td className="p-5"><span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-bold">{item.role}</span></td></>}
                                     {view==='petty-cash' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 text-sm font-medium text-slate-800">{item.description}</td><td className="p-5 text-right font-bold text-rose-600">{item.cashOut?formatCurrency(item.cashOut):'-'}</td><td className="p-5 text-right font-bold text-emerald-600">{item.cashIn?formatCurrency(item.cashIn):'-'}</td><td className="p-5 text-xs">{item.bankName ? `${item.bankName} - ${item.chequeNumber}` : 'Cash'}</td></>}
                                     {view==='salaries' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-slate-800">{item.employeeName}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.totalPayable)}</td><td className="p-5 text-xs">{item.bankName ? `${item.bankName} - ${item.chequeNumber}` : 'Cash'}</td><td className="p-5"><span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase ${item.status==='Paid'?'bg-emerald-50 text-emerald-700':item.status==='Pending'?'bg-amber-50 text-amber-700':'bg-slate-100 text-slate-600'}`}>{item.status || 'Unpaid'}</span></td></>}
@@ -810,6 +872,21 @@ function App() {
                         </div>
                         <p className="text-xs text-slate-400 mt-2 ml-1">Required to upload receipts and documents.</p>
                     </div>
+
+                    {/* IMPORT/EXPORT SECTION */}
+                    <div>
+                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Data Management</label>
+                         <div className="flex flex-col gap-2">
+                             <button onClick={handleMasterExport} className="w-full bg-slate-100 text-slate-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-slate-200 transition-colors">
+                                 <Download size={18} /> Export All Data (Backup)
+                             </button>
+                             <label className="w-full bg-slate-100 text-slate-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-slate-200 transition-colors cursor-pointer">
+                                 <Upload size={18} /> Import Data
+                                 <input type="file" accept=".json" onChange={handleImport} className="hidden" />
+                             </label>
+                         </div>
+                    </div>
+
                 </div>
             </div>
         )}
@@ -887,7 +964,7 @@ function App() {
                             </select>
                         )}
 
-                        {(view === 'salaries' || view === 'petty-cash') && (
+                        {(view === 'salaries' || view === 'petty-cash' || view === 'expenses') && (
                             <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
                                 <div className="col-span-2 text-xs font-bold text-slate-500 uppercase">Payment Details (Optional)</div>
                                 <input placeholder="Bank Name" className="w-full border border-slate-200 p-3 rounded-xl text-sm" value={formData.bankName || ''} onChange={e => setFormData({...formData, bankName: e.target.value})} />
