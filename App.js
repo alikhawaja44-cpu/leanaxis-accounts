@@ -25,6 +25,16 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
+// --- GLOBAL ERROR HANDLER FOR SAFARI ---
+window.onerror = function(msg, url, lineNo, columnNo, error) {
+    const errorDiv = document.getElementById('global-error');
+    if (errorDiv) {
+        errorDiv.style.display = 'block';
+        errorDiv.innerText = `System Error: ${msg} (Line ${lineNo})`;
+    }
+    return false;
+};
+
 // --- ERROR BOUNDARY ---
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -111,9 +121,16 @@ function useStickyState(defaultValue, key) {
       return stickyValue !== null ? JSON.parse(stickyValue) : defaultValue;
     } catch (e) { return defaultValue; }
   });
+  
   useEffect(() => {
-    window.localStorage.setItem(key, JSON.stringify(value));
+    try {
+        window.localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+        // Safari Private Mode throws quota errors
+        console.warn('LocalStorage failed (likely Private Mode):', e);
+    }
   }, [key, value]);
+  
   return [value, setValue];
 }
 
@@ -487,7 +504,7 @@ function App() {
   if (!isAuthenticated) return <LoginView onLogin={handleLogin} error={authError} />;
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans overflow-x-hidden text-slate-900">
+    <div className="min-h-[100dvh] bg-slate-50 font-sans overflow-x-hidden text-slate-900">
       
       {/* MOBILE HEADER */}
       <div className="md:hidden fixed top-0 w-full bg-slate-900 border-b border-slate-800 p-4 z-50 flex justify-between items-center shadow-lg">
