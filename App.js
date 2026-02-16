@@ -35,6 +35,28 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
     return false;
 };
 
+// --- LOGO URL ---
+const LOGO_URL = "https://i.ibb.co/6R2qFhL/leanaxis-logo.png"; // Placeholder until user uploads or we host it. 
+// Since I cannot upload to ImgBB without a key, I will use a placeholder or data URI if small.
+// Let's use the text "LeanAxis" with the specific styling from the image until we have a hosted URL, 
+// OR I will ask the user to upload it to ImgBB in the settings.
+// BUT, the user provided the image. I can try to use a data URI for now if it's not too huge, 
+// or better, I'll instruct the user to put the file in the public folder.
+// For this turn, I'll update the code to *accept* a logo URL and default to the text style, 
+// but I'll also add a "Logo" image element that points to './logo.png' and tell the user to save the image there.
+
+// ACTUALLY, I will use a placeholder logic that looks for the logo.
+const Logo = ({ className }) => (
+    <div className={`flex items-center gap-2 ${className}`}>
+        <img src="./logo.png" alt="LeanAxis" className="h-10 object-contain" onError={(e) => {e.target.style.display='none'; e.target.nextSibling.style.display='flex'}} />
+        <div className="hidden items-center gap-2">
+            <div className="bg-gradient-to-r from-indigo-500 to-purple-500 p-2 rounded-lg text-white font-bold shadow-lg">LA</div>
+            <span className="font-bold text-slate-800 tracking-tight">LeanAxis</span>
+        </div>
+    </div>
+);
+
+
 // --- ERROR BOUNDARY ---
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -169,11 +191,14 @@ const LoginView = ({ onLogin, loading, error }) => {
       <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-indigo-600 rounded-full blur-[100px] opacity-30"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-cyan-600 rounded-full blur-[100px] opacity-30"></div>
       <div className="bg-slate-800/50 backdrop-blur-xl p-8 rounded-2xl shadow-2xl w-full max-w-md border border-slate-700 relative z-10">
-        <div className="flex justify-center mb-6">
-           <div className="bg-gradient-to-r from-indigo-500 to-cyan-500 p-4 rounded-xl text-white font-bold text-3xl shadow-lg">LA</div>
+        <div className="flex justify-center mb-8">
+           <img src="./logo.png" alt="LeanAxis" className="h-16 object-contain" onError={(e) => {
+               e.target.style.display = 'none';
+               e.target.nextSibling.style.display = 'block';
+           }}/>
+           <div className="hidden text-white font-bold text-4xl tracking-tight">LEAN<span className="text-indigo-400">AXIS</span></div>
         </div>
-        <h2 className="text-3xl font-bold text-center text-white mb-1">LeanAxis</h2>
-        <p className="text-center text-slate-400 mb-8 text-sm">Professional Agency Manager</p>
+        <h2 className="text-xl font-medium text-center text-slate-300 mb-8">Login to Dashboard</h2>
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
             <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Username</label>
@@ -348,7 +373,11 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                 <button onClick={() => setViewMode('list')} className="text-slate-400 hover:text-indigo-600 flex items-center gap-1 text-sm font-bold"><ArrowDownLeft className="rotate-90" size={16}/> Back to List</button>
             </div>
             <div className="flex flex-col md:flex-row justify-between items-start mb-8 border-b border-slate-100 pb-6 gap-4">
-                <div><h2 className="text-2xl md:text-3xl font-bold text-slate-900">INVOICE</h2><p className="text-slate-500">LeanAxis Agency</p></div>
+                <div>
+                    <img src="./logo.png" alt="LeanAxis" className="h-12 object-contain mb-2" onError={(e)=>e.target.style.display='none'}/>
+                    <h2 className="text-2xl md:text-3xl font-bold text-slate-900 hidden">INVOICE</h2>
+                    <p className="text-slate-500 text-sm">Creative Agency</p>
+                </div>
                 <div className="text-left md:text-right"><div className="bg-indigo-600 text-white font-bold py-1 px-3 rounded text-sm mb-2 inline-block">DRAFT</div><p className="text-slate-400 text-sm">Date: {invoiceData.date}</p></div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-8">
@@ -744,14 +773,20 @@ function App() {
       
       {/* MOBILE HEADER */}
       <div className="md:hidden fixed top-0 w-full bg-slate-900 border-b border-slate-800 p-4 z-50 flex justify-between items-center shadow-lg">
-        <div className="flex items-center gap-3 text-white font-bold"><div className="bg-indigo-500 p-1.5 rounded-lg">LA</div> LeanAxis</div>
+        <div className="flex items-center gap-3 text-white font-bold"><img src="./logo.png" alt="LA" className="h-8 object-contain" onError={(e)=>{e.target.style.display='none'; e.target.nextSibling.style.display='block'}}/><span className="hidden">LeanAxis</span></div>
         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-slate-300 hover:text-white"><Menu size={24}/></button>
       </div>
 
       {/* SIDEBAR */}
       <aside className={`fixed inset-y-0 left-0 z-40 w-72 bg-slate-900 border-r border-slate-800 flex flex-col transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 shadow-2xl`}>
         <div className="p-8 border-b border-slate-800 hidden md:block">
-            <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-3"><div className="bg-gradient-to-r from-indigo-500 to-cyan-500 p-2 rounded-lg">LA</div> LeanAxis</h1>
+            <div className="flex items-center gap-3">
+                <img src="./logo.png" alt="LeanAxis" className="h-10 object-contain" onError={(e)=>{e.target.style.display='none'; e.target.nextSibling.style.display='flex'}} />
+                <div className="hidden flex-col">
+                    <span className="text-xl font-bold text-white tracking-tight">LEANAXIS</span>
+                    <span className="text-xs text-slate-500 uppercase tracking-widest">Creative Agency</span>
+                </div>
+            </div>
         </div>
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           <NavButton id="dashboard" icon={LayoutDashboard} label="Dashboard" />
