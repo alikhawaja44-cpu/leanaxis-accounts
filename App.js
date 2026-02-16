@@ -199,21 +199,39 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
 
     const { subtotal, tax, total } = calculateTax(invoiceData.items.reduce((acc, item) => acc + (item.qty * item.rate), 0), invoiceData.taxRate);
 
-    // AUTO-FILL LOGIC
+    // AUTO-FILL LOGIC (FIXED)
     useEffect(() => {
-        if (invoiceData.client && viewMode === 'create' && (!invoiceData.items[0].desc || invoiceData.items.length === 1)) {
+        if (invoiceData.client && viewMode === 'create') {
             const client = clients.find(c => c.name === invoiceData.client);
             if (client) {
-                const newItems = [];
-                if (Number(client.retainerAmount) > 0) {
-                    newItems.push({ desc: 'Monthly Retainer Service', qty: 1, rate: Number(client.retainerAmount) });
-                }
-                const balance = Number(client.projectTotal) - Number(client.advanceReceived);
-                if (balance > 0 && Number(client.retainerAmount) === 0) {
-                    newItems.push({ desc: `Balance Payment for ${client.projectName || 'Project'}`, qty: 1, rate: balance });
-                }
-                if (newItems.length > 0) {
-                    setInvoiceData(prev => ({ ...prev, items: newItems }));
+                // Determine if we should replace items
+                // Only replace if items is empty OR has just 1 default empty item
+                const isDefaultItem = invoiceData.items.length === 1 && !invoiceData.items[0].desc && invoiceData.items[0].rate === 0;
+                
+                if (isDefaultItem) {
+                    const newItems = [];
+                    const retainer = Number(client.retainerAmount);
+                    
+                    if (retainer > 0) {
+                        newItems.push({ desc: 'Monthly Retainer Service', qty: 1, rate: retainer });
+                    } else {
+                        // Project based: Calculate balance
+                        const total = Number(client.projectTotal) || 0;
+                        const advance = Number(client.advanceReceived) || 0;
+                        const balance = total - advance;
+                        
+                        if (balance > 0) {
+                            newItems.push({ 
+                                desc: `Balance Payment for ${client.projectName || 'Project'}`, 
+                                qty: 1, 
+                                rate: balance 
+                            });
+                        }
+                    }
+
+                    if (newItems.length > 0) {
+                        setInvoiceData(prev => ({ ...prev, items: newItems }));
+                    }
                 }
             }
         }
@@ -504,7 +522,7 @@ function App() {
   if (!isAuthenticated) return <LoginView onLogin={handleLogin} error={authError} />;
 
   return (
-    <div className="min-h-[100dvh] bg-slate-50 font-sans overflow-x-hidden text-slate-900">
+    <div className="min-h-screen bg-slate-50 font-sans overflow-x-hidden text-slate-900">
       
       {/* MOBILE HEADER */}
       <div className="md:hidden fixed top-0 w-full bg-slate-900 border-b border-slate-800 p-4 z-50 flex justify-between items-center shadow-lg">
