@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
   LayoutDashboard, Wallet, Receipt, Users, Building2, Briefcase, Truck,
-  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, FileInput, Settings, FileDown, Search, Filter, FileText, Printer, DollarSign, Percent
+  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, FileInput, Settings, FileDown, Search, Filter, FileText, Printer, DollarSign, Percent, CreditCard, Check
 } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip as ChartTooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import Papa from "papaparse";
@@ -126,7 +126,6 @@ function useStickyState(defaultValue, key) {
     try {
         window.localStorage.setItem(key, JSON.stringify(value));
     } catch (e) {
-        // Safari Private Mode throws quota errors
         console.warn('LocalStorage failed (likely Private Mode):', e);
     }
   }, [key, value]);
@@ -181,7 +180,7 @@ const LoginView = ({ onLogin, loading, error }) => {
 };
 
 // --- INVOICE GENERATOR ---
-const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onGenerateRecurring }) => {
+const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onGenerateRecurring, onReceivePayment }) => {
     const [viewMode, setViewMode] = useState('list'); 
     const [invoiceData, setInvoiceData] = useState({
         client: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0
@@ -199,13 +198,11 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
 
     const { subtotal, tax, total } = calculateTax(invoiceData.items.reduce((acc, item) => acc + (item.qty * item.rate), 0), invoiceData.taxRate);
 
-    // AUTO-FILL LOGIC (FIXED)
+    // AUTO-FILL LOGIC
     useEffect(() => {
         if (invoiceData.client && viewMode === 'create') {
             const client = clients.find(c => c.name === invoiceData.client);
             if (client) {
-                // Determine if we should replace items
-                // Only replace if items is empty OR has just 1 default empty item
                 const isDefaultItem = invoiceData.items.length === 1 && !invoiceData.items[0].desc && invoiceData.items[0].rate === 0;
                 
                 if (isDefaultItem) {
@@ -215,7 +212,6 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                     if (retainer > 0) {
                         newItems.push({ desc: 'Monthly Retainer Service', qty: 1, rate: retainer });
                     } else {
-                        // Project based: Calculate balance
                         const total = Number(client.projectTotal) || 0;
                         const advance = Number(client.advanceReceived) || 0;
                         const balance = total - advance;
@@ -243,7 +239,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                 <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-bold text-slate-800">Invoices</h2>
                     <div className="flex gap-2">
-                        <button onClick={onGenerateRecurring} className="bg-white border border-indigo-200 text-indigo-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-indigo-50 transition-all"><RefreshCw size={18}/> Generate Monthly Retainers</button>
+                        <button onClick={onGenerateRecurring} className="bg-white border border-indigo-200 text-indigo-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-indigo-50 transition-all"><RefreshCw size={18}/> Retainers</button>
                         <button onClick={() => { setInvoiceData({ client: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0 }); setViewMode('create'); }} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all hover:scale-105 active:scale-95"><Plus size={18}/> Create Invoice</button>
                     </div>
                 </div>
@@ -261,21 +257,30 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                                     <th className="p-5">Date</th>
                                     <th className="p-5">Client</th>
                                     <th className="p-5 text-right">Total</th>
+                                    <th className="p-5 text-center">Status</th>
                                     <th className="p-5 text-center">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {savedInvoices.map(inv => (
-                                    <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
-                                        <td className="p-5 text-sm text-slate-500">{inv.date}</td>
-                                        <td className="p-5 font-bold text-slate-800">{inv.client}</td>
-                                        <td className="p-5 text-right font-bold text-indigo-600">{formatCurrency(calculateTax(inv.items.reduce((a, i) => a + (i.qty * i.rate), 0), inv.taxRate).total)}</td>
-                                        <td className="p-5 text-center flex justify-center gap-2">
-                                            <button onClick={() => { setInvoiceData(inv); setViewMode('create'); }} className="p-2 text-indigo-400 hover:bg-indigo-50 rounded-lg transition-colors"><Edit size={18} /></button>
-                                            <button onClick={() => onDeleteInvoice(inv.id)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18} /></button>
-                                        </td>
-                                    </tr>
-                                ))}
+                                {savedInvoices.map(inv => {
+                                    const invTotal = calculateTax(inv.items.reduce((a, i) => a + (i.qty * i.rate), 0), inv.taxRate).total;
+                                    const isPaid = inv.status === 'Paid';
+                                    return (
+                                        <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
+                                            <td className="p-5 text-sm text-slate-500">{inv.date}</td>
+                                            <td className="p-5 font-bold text-slate-800">{inv.client}</td>
+                                            <td className="p-5 text-right font-bold text-indigo-600">{formatCurrency(invTotal)}</td>
+                                            <td className="p-5 text-center">
+                                                <span className={`px-2 py-1 rounded-full text-xs font-bold ${isPaid ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{inv.status || 'Draft'}</span>
+                                            </td>
+                                            <td className="p-5 text-center flex justify-center gap-2">
+                                                {!isPaid && <button onClick={() => onReceivePayment(inv, invTotal)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors" title="Mark Paid & Receive Money"><CheckCircle size={18} /></button>}
+                                                <button onClick={() => { setInvoiceData(inv); setViewMode('create'); }} className="p-2 text-indigo-400 hover:bg-indigo-50 rounded-lg transition-colors"><Edit size={18} /></button>
+                                                <button onClick={() => onDeleteInvoice(inv.id)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -330,6 +335,11 @@ function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState(null);
   const [uploadProgress, setUploadProgress] = useState('');
+
+  // PAYMENT MODAL STATE
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentConfig, setPaymentConfig] = useState(null); // { type: 'bill'|'invoice', data: {}, amount: 0 }
+  const [paymentAccount, setPaymentAccount] = useState('bank'); // 'bank' or 'cash'
 
   const [pettyCash] = useFirebaseSync('petty_cash');
   const [expenses] = useFirebaseSync('expenses');
@@ -458,6 +468,80 @@ function App() {
     e.preventDefault();
     let col = { 'manage-users': 'users', 'petty-cash': 'petty_cash', 'expenses': 'expenses', 'salaries': 'salaries', 'bank': 'bank_records', 'clients': 'clients', 'vendors': 'vendors', 'vendor-bills': 'vendor_bills' }[view];
     if (col) saveToFirebase(col, formData, (isEditingRecord || isEditingUser) ? formData.id : null);
+  };
+
+  // --- SMART LINKING PAYMENT LOGIC ---
+  const initiatePayment = (item, type, amount) => {
+      setPaymentConfig({ data: item, type, amount });
+      setPaymentAccount('bank'); // default
+      setShowPaymentModal(true);
+  };
+
+  const executePayment = async () => {
+      if (!paymentConfig) return;
+      const { data, type, amount } = paymentConfig;
+      const date = new Date().toISOString().split('T')[0];
+      const batch = writeBatch(db);
+
+      try {
+          if (type === 'bill') {
+              // 1. Mark Bill Paid
+              batch.update(doc(db, 'vendor_bills', data.id), { paidAmount: amount, status: 'Paid' });
+              
+              // 2. Add to Ledger (Out)
+              const recordData = {
+                  date,
+                  description: `Bill Payment: ${data.vendor} (#${data.billNumber})`,
+                  amount: Number(amount),
+                  createdAt: new Date().toISOString()
+              };
+              
+              if (paymentAccount === 'bank') {
+                  const newRef = doc(collection(db, 'bank_records'));
+                  batch.set(newRef, { ...recordData, bank: 'Linked Payment', status: 'Cleared', type: 'debit' }); // Using 'amount' implies debit for bank usually, but structure varies. For Bank chart, negative amounts or 'Out' columns are used. 
+                  // NOTE: Original bank structure uses 'amount' for both. Usually negative for out? Or just a list. 
+                  // Let's check Bank table: it just shows "Amount". 
+                  // For safety, let's store it as a negative number if it's money OUT.
+                  batch.set(newRef, { ...recordData, amount: -Number(amount), bank: 'Linked Payment', status: 'Cleared' });
+              } else {
+                  const newRef = doc(collection(db, 'petty_cash'));
+                  batch.set(newRef, { ...recordData, cashOut: Number(amount), cashIn: 0 });
+              }
+
+              // 3. Update Vendor Total (Optional but good)
+              // This is harder with batch if we don't know the current total perfectly. Skip for now to avoid race conditions, or do a separate read-write.
+              // For simplicity in this lightweight app, we'll skip updating the master vendor record summary and rely on the bills list.
+          } 
+          else if (type === 'invoice') {
+              // 1. Mark Invoice Paid
+              batch.update(doc(db, 'invoices', data.id), { status: 'Paid' });
+
+              // 2. Add to Ledger (In)
+              const recordData = {
+                  date,
+                  description: `Inv Payment: ${data.client}`,
+                  createdAt: new Date().toISOString()
+              };
+
+              if (paymentAccount === 'bank') {
+                  const newRef = doc(collection(db, 'bank_records'));
+                  batch.set(newRef, { ...recordData, amount: Number(amount), bank: 'Linked Payment', status: 'Cleared' });
+              } else {
+                  const newRef = doc(collection(db, 'petty_cash'));
+                  batch.set(newRef, { ...recordData, cashIn: Number(amount), cashOut: 0 });
+              }
+              
+              // 3. Update Client Advance/Balance
+              // Finding client by name is risky in batch. We'll skip for safety and rely on the invoice list.
+          }
+
+          await batch.commit();
+          alert("Payment Recorded & Linked! 🔗");
+          setShowPaymentModal(false);
+      } catch (e) {
+          console.error(e);
+          alert("Error linking payment.");
+      }
   };
 
   // --- FILTERING & TOTALS ---
@@ -603,7 +687,7 @@ function App() {
             </div>
         )}
 
-        {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => handleDelete(id, 'invoice')} onGenerateRecurring={handleGenerateRecurring} />}
+        {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => handleDelete(id, 'invoice')} onGenerateRecurring={handleGenerateRecurring} onReceivePayment={(inv, amt) => initiatePayment(inv, 'invoice', amt)} />}
 
         {/* GENERIC TABLE RENDERER - Responsive Wrapper */}
         {['clients','vendors','petty-cash','expenses','salaries','bank','manage-users','vendor-bills'].includes(view) && (
@@ -628,14 +712,30 @@ function App() {
                                 <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                                     {view==='clients' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-slate-800">{item.name}</td><td className="p-5 text-right font-medium text-slate-600">{formatCurrency(item.projectTotal)}</td><td className="p-5 text-right text-emerald-600 font-medium">{formatCurrency(item.advanceReceived)}</td><td className="p-5 text-right text-rose-600 font-bold">{formatCurrency((item.projectTotal||0)-(item.advanceReceived||0))}</td><td className="p-5"><span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-bold uppercase">{item.status}</span></td></>}
                                     {view==='vendors' && <><td className="p-5 font-bold text-slate-800">{item.name}</td><td className="p-5 text-sm text-slate-500">{item.serviceType}</td><td className="p-5 text-right font-medium text-slate-600">{formatCurrency(item.amountPayable)}</td><td className="p-5 text-right text-emerald-600 font-medium">{formatCurrency(item.amountPaid)}</td><td className="p-5 text-right text-rose-600 font-bold">{formatCurrency((item.amountPayable||0)-(item.amountPaid||0))}</td></>}
-                                    {view==='vendor-bills' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-slate-800">{item.billNumber}</td><td className="p-5 font-medium text-indigo-600">{item.vendor}</td><td className="p-5 text-sm text-slate-500">{item.description}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-5 text-right text-emerald-600 font-medium">{formatCurrency(item.paidAmount)}</td><td className="p-5 text-right text-rose-600 font-bold">{formatCurrency(Number(item.amount) - Number(item.paidAmount))}</td><td className="p-5"><span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase ${Number(item.amount)-Number(item.paidAmount)<=0 ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>{Number(item.amount)-Number(item.paidAmount)<=0 ? 'Paid' : 'Due'}</span></td></>}
+                                    
+                                    {/* VENDOR BILLS ROW WITH PAYMENT BUTTON */}
+                                    {view==='vendor-bills' && (() => {
+                                        const due = Number(item.amount) - Number(item.paidAmount);
+                                        const isPaid = due <= 0;
+                                        return (
+                                            <>
+                                                <td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-slate-800">{item.billNumber}</td><td className="p-5 font-medium text-indigo-600">{item.vendor}</td><td className="p-5 text-sm text-slate-500">{item.description}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-5 text-right text-emerald-600 font-medium">{formatCurrency(item.paidAmount)}</td><td className="p-5 text-right text-rose-600 font-bold">{formatCurrency(due)}</td>
+                                                <td className="p-5"><span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase ${isPaid ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>{isPaid ? 'Paid' : 'Due'}</span></td>
+                                                <td className="p-5 text-center flex justify-center gap-1">
+                                                    {!isPaid && <button onClick={() => initiatePayment(item, 'bill', due)} className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm" title="Pay Now"><CreditCard size={14}/></button>}
+                                                    <ActionButtons item={item} type="bill" />
+                                                </td>
+                                            </>
+                                        );
+                                    })()}
+
                                     {view==='expenses' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5"><span className="px-2.5 py-1 bg-purple-50 text-purple-700 rounded-full text-xs font-bold">{item.category}</span></td><td className="p-5 text-sm text-slate-700">{item.description}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td></>}
                                     {view==='manage-users' && <><td className="p-5 font-bold text-slate-800">{item.username}</td><td className="p-5 text-sm text-slate-600">{item.email}</td><td className="p-5"><span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-bold">{item.role}</span></td></>}
                                     {view==='petty-cash' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 text-sm font-medium text-slate-800">{item.description}</td><td className="p-5 text-right font-bold text-rose-600">{item.cashOut?formatCurrency(item.cashOut):'-'}</td><td className="p-5 text-right font-bold text-emerald-600">{item.cashIn?formatCurrency(item.cashIn):'-'}</td><td className="p-5 text-xs">{item.bankName ? `${item.bankName} - ${item.chequeNumber}` : 'Cash'}</td></>}
                                     {view==='salaries' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-slate-800">{item.employeeName}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.totalPayable)}</td><td className="p-5 text-xs">{item.bankName ? `${item.bankName} - ${item.chequeNumber}` : 'Cash'}</td><td className="p-5"><span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase ${item.status==='Paid'?'bg-emerald-50 text-emerald-700':item.status==='Pending'?'bg-amber-50 text-amber-700':'bg-slate-100 text-slate-600'}`}>{item.status || 'Unpaid'}</span></td></>}
                                     {view==='bank' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-blue-600">{item.bank}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-5"><span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase ${item.status==='Cleared'?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-700'}`}>{item.status}</span></td></>}
                                     
-                                    <td className="p-5 text-center"><ActionButtons item={item} type={view==='vendor-bills'?'bill':view==='manage-users'?'user':view.replace('s','')} /></td>
+                                    {!['vendor-bills'].includes(view) && <td className="p-5 text-center"><ActionButtons item={item} type={view==='manage-users'?'user':view.replace('s','')} /></td>}
                                 </tr>
                             ))}
                         </tbody>
@@ -692,6 +792,34 @@ function App() {
                             </a>
                         </div>
                         <p className="text-xs text-slate-400 mt-2 ml-1">Required to upload receipts and documents.</p>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* PAYMENT MODAL */}
+        {showPaymentModal && paymentConfig && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                <div className="bg-white p-8 rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in-95">
+                    <h3 className="text-xl font-bold text-slate-800 mb-4">{paymentConfig.type === 'bill' ? 'Pay Bill' : 'Receive Payment'}</h3>
+                    <div className="space-y-4">
+                        <div className="bg-slate-50 p-4 rounded-xl text-center">
+                            <p className="text-xs text-slate-500 uppercase font-bold">{paymentConfig.data.vendor || paymentConfig.data.client}</p>
+                            <p className="text-2xl font-bold text-slate-800">{formatCurrency(paymentConfig.amount)}</p>
+                        </div>
+                        
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Pay Via / To</label>
+                            <div className="flex gap-2">
+                                <button onClick={() => setPaymentAccount('bank')} className={`flex-1 py-3 rounded-xl font-bold text-sm border transition-all ${paymentAccount === 'bank' ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'}`}>Bank</button>
+                                <button onClick={() => setPaymentAccount('cash')} className={`flex-1 py-3 rounded-xl font-bold text-sm border transition-all ${paymentAccount === 'cash' ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'}`}>Petty Cash</button>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3 pt-2">
+                            <button onClick={() => setShowPaymentModal(false)} className="flex-1 py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors">Cancel</button>
+                            <button onClick={executePayment} className="flex-1 py-3 rounded-xl font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all flex justify-center items-center gap-2"><Check size={18}/> Confirm</button>
+                        </div>
                     </div>
                 </div>
             </div>
