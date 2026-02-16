@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
   LayoutDashboard, Wallet, Receipt, Users, Building2, Briefcase, Truck,
-  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, FileInput, Settings, FileDown, Search, Filter, FileText, Printer, DollarSign, Percent, CreditCard, Check, Share2, Database
+  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, FileInput, Settings, FileDown, Search, Filter, FileText, Printer, DollarSign, Percent, CreditCard, Check, Share2, Database, BookOpen, FileCheck
 } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip as ChartTooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import Papa from "papaparse";
@@ -141,7 +141,6 @@ const LoginView = ({ onLogin, loading, error }) => {
       {/* Dynamic Background */}
       <div className="absolute top-[-20%] left-[-10%] w-[800px] h-[800px] bg-violet-600/20 rounded-full blur-[120px] animate-pulse"></div>
       <div className="absolute bottom-[-20%] right-[-10%] w-[600px] h-[600px] bg-fuchsia-600/20 rounded-full blur-[100px] animate-pulse delay-700"></div>
-      
       <div className="bg-slate-900/40 backdrop-blur-2xl p-10 rounded-3xl shadow-2xl w-full max-w-md border border-white/10 relative z-10">
         <div className="flex flex-col items-center mb-10">
            <img src="./logo.png" alt="LeanAxis" className="h-20 object-contain mb-4 drop-shadow-[0_0_15px_rgba(139,92,246,0.5)]" onError={(e)=>{e.target.style.display='none'; e.target.nextSibling.style.display='block'}}/>
@@ -171,6 +170,103 @@ const LoginView = ({ onLogin, loading, error }) => {
       </div>
     </div>
   );
+};
+
+// --- QUOTATION GENERATOR ---
+const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotation, onConvertToInvoice }) => {
+    const [viewMode, setViewMode] = useState('list'); 
+    const [quoteData, setQuoteData] = useState({ client: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0, status: 'Pending' });
+    const addItem = () => setQuoteData({...quoteData, items: [...quoteData.items, { desc: '', qty: 1, rate: 0 }]});
+    const updateItem = (index, field, val) => { const newItems = [...quoteData.items]; newItems[index][field] = val; setQuoteData({...quoteData, items: newItems}); };
+    const removeItem = (index) => { if(quoteData.items.length > 1) setQuoteData({...quoteData, items: quoteData.items.filter((_, i) => i !== index)}); };
+    const { subtotal, tax, total } = calculateTax(quoteData.items.reduce((acc, item) => acc + (item.qty * item.rate), 0), quoteData.taxRate);
+
+    const handleShareWhatsApp = () => {
+        if (!quoteData.client || total === 0) return alert("Please select a client and add items first.");
+        const message = `*QUOTATION* from LeanAxis Agency%0A` + `To: ${quoteData.client}%0A` + `Date: ${quoteData.date}%0A%0A` + quoteData.items.map(item => `- ${item.desc}: Rs ${item.rate * item.qty}`).join('%0A') + `%0A%0A*Total Estimate: ${formatCurrency(total)}*`;
+        window.open(`https://wa.me/?text=${message}`, '_blank');
+    };
+
+    if (viewMode === 'list') {
+        return (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Quotations</h2>
+                    <div className="flex gap-2 w-full sm:w-auto">
+                        <button onClick={() => { setQuoteData({ client: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0, status: 'Pending' }); setViewMode('create'); }} className="flex-1 sm:flex-none bg-amber-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-amber-600 shadow-lg shadow-amber-200 transition-all hover:scale-105 active:scale-95"><Plus size={18}/> New Quote</button>
+                    </div>
+                </div>
+                {savedQuotations.length === 0 ? (
+                    <div className="bg-white p-16 rounded-3xl shadow-sm border border-slate-100 text-center">
+                        <div className="bg-amber-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"><FileCheck className="text-amber-300" size={40} /></div>
+                        <h3 className="text-lg font-bold text-slate-800 mb-1">No quotations yet</h3>
+                        <p className="text-slate-500 text-sm">Create an estimate for your clients.</p>
+                    </div>
+                ) : (
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-50/50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                <tr><th className="p-6">Date</th><th className="p-6">Client</th><th className="p-6 text-right">Total</th><th className="p-6 text-center">Status</th><th className="p-6 text-center">Actions</th></tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {savedQuotations.map(q => {
+                                    const qTotal = calculateTax(q.items.reduce((a, i) => a + (i.qty * i.rate), 0), q.taxRate).total;
+                                    return (
+                                        <tr key={q.id} className="hover:bg-slate-50/50 transition-colors group">
+                                            <td className="p-6 text-sm text-slate-500 font-medium">{q.date}</td>
+                                            <td className="p-6 font-bold text-slate-800 text-base">{q.client}</td>
+                                            <td className="p-6 text-right font-bold text-amber-600 text-base">{formatCurrency(qTotal)}</td>
+                                            <td className="p-6 text-center"><span className={`px-3 py-1.5 rounded-full text-xs font-bold shadow-sm ${q.status === 'Converted' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{q.status}</span></td>
+                                            <td className="p-6 text-center flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {q.status !== 'Converted' && <button onClick={() => onConvertToInvoice(q)} className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors" title="Convert to Invoice"><CheckCircle size={18} /></button>}
+                                                <button onClick={() => { setQuoteData(q); setViewMode('create'); }} className="p-2 text-amber-500 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors"><Edit size={18} /></button>
+                                                <button onClick={() => onDeleteQuotation(q.id)} className="p-2 text-rose-400 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+        );
+    }
+    return (
+        <div className="bg-white p-8 md:p-12 rounded-3xl shadow-xl border border-slate-100 max-w-5xl mx-auto animate-in fade-in zoom-in-95 duration-300">
+            <div className="flex justify-between items-center mb-8">
+                <button onClick={() => setViewMode('list')} className="text-slate-400 hover:text-amber-600 flex items-center gap-2 text-sm font-bold transition-colors group"><ArrowDownLeft className="rotate-90 group-hover:-translate-x-1 transition-transform" size={16}/> Back to List</button>
+            </div>
+            <div className="flex flex-col md:flex-row justify-between items-start mb-10 border-b border-slate-100 pb-8 gap-6">
+                <div>
+                    <img src="./logo.png" alt="LeanAxis" className="h-14 object-contain mb-4" onError={(e)=>{e.target.style.display='none'}}/>
+                    <h2 className="text-4xl font-bold text-slate-900 hidden">QUOTATION</h2>
+                    <p className="text-slate-500 font-medium">Creative Agency & Solutions</p>
+                </div>
+                <div className="text-left md:text-right">
+                    <div className="bg-amber-100 text-amber-700 font-bold py-1.5 px-4 rounded-lg text-sm mb-3 inline-block shadow-sm">QUOTATION</div>
+                    <p className="text-slate-400 font-medium">Date: {quoteData.date}</p>
+                </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10 bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Quotation For</label><select className="w-full border-none bg-white p-4 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-amber-500 outline-none" value={quoteData.client} onChange={e => setQuoteData({...quoteData, client: e.target.value})}><option value="">Select Client</option>{clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select></div>
+                <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Details</label><div className="flex gap-3"><input type="date" className="w-full border-none bg-white p-4 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-amber-500 outline-none text-slate-600" value={quoteData.date} onChange={e => setQuoteData({...quoteData, date: e.target.value})} /><input type="number" placeholder="Tax %" className="w-32 border-none bg-white p-4 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-amber-500 outline-none" value={quoteData.taxRate} onChange={e => setQuoteData({...quoteData, taxRate: e.target.value})} /></div></div>
+            </div>
+            <div className="overflow-x-auto mb-8">
+                <table className="w-full min-w-[600px]">
+                    <thead><tr className="border-b border-slate-200"><th className="pb-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-left pl-4">Description</th><th className="pb-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-24 text-center">Qty</th><th className="pb-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-36 text-right">Rate</th><th className="pb-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-40 text-right pr-4">Amount</th><th className="w-10"></th></tr></thead>
+                    <tbody className="divide-y divide-slate-100">{quoteData.items.map((item, i) => (<tr key={i} className="group"><td className="py-4 pl-4"><input className="w-full bg-transparent outline-none font-medium text-slate-700 placeholder-slate-300" placeholder="Item description" value={item.desc} onChange={e => updateItem(i, 'desc', e.target.value)} /></td><td className="py-4 text-center"><input type="number" className="w-full bg-transparent outline-none text-slate-600 text-center" value={item.qty} onChange={e => updateItem(i, 'qty', Number(e.target.value))} /></td><td className="py-4 text-right"><input type="number" className="w-full bg-transparent outline-none text-slate-600 text-right" value={item.rate} onChange={e => updateItem(i, 'rate', Number(e.target.value))} /></td><td className="py-4 text-right pr-4 font-bold text-slate-800">{formatCurrency(item.qty * item.rate)}</td><td className="py-4 text-center"><button onClick={() => removeItem(i)} className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={16}/></button></td></tr>))}</tbody>
+                </table>
+            </div>
+            <button onClick={addItem} className="flex items-center gap-2 text-sm font-bold text-amber-600 hover:text-amber-800 mb-10 px-4 py-2 hover:bg-amber-50 rounded-lg transition-colors w-max"><Plus size={16}/> Add Line Item</button>
+            <div className="flex justify-end mb-10"><div className="w-full md:w-80 space-y-4 bg-slate-50 p-6 rounded-2xl border border-slate-100"><div className="flex justify-between text-sm text-slate-500 font-medium"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div><div className="flex justify-between text-sm text-slate-500 font-medium"><span>Tax ({quoteData.taxRate}%)</span><span>{formatCurrency(tax)}</span></div><div className="flex justify-between text-2xl font-bold text-slate-800 border-t border-slate-200 pt-4 mt-2"><span>Estimate Total</span><span className="text-amber-600">{formatCurrency(total)}</span></div></div></div>
+            <div className="flex flex-col md:flex-row gap-4 print:hidden">
+                <button onClick={() => window.print()} className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 py-4 rounded-xl font-bold hover:bg-slate-50 transition-colors"><Printer size={18}/> Print / PDF</button>
+                <button onClick={handleShareWhatsApp} className="flex-1 flex items-center justify-center gap-2 bg-[#25D366] text-white py-4 rounded-xl font-bold hover:bg-[#20bd5a] transition-colors shadow-lg shadow-green-200"><Share2 size={18}/> WhatsApp</button>
+                <button onClick={() => { onSave(quoteData); setViewMode('list'); }} className="flex-1 flex items-center justify-center gap-2 bg-amber-500 text-white py-4 rounded-xl font-bold hover:bg-amber-600 transition-colors shadow-lg shadow-amber-200"><CheckCircle size={18}/> Save Quote</button>
+            </div>
+        </div>
+    );
 };
 
 // --- INVOICE GENERATOR ---
@@ -301,6 +397,140 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
     );
 };
 
+// --- CLIENT STATEMENT COMPONENT ---
+const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
+    const [selectedClient, setSelectedClient] = useState('');
+    const [statementData, setStatementData] = useState([]);
+
+    useEffect(() => {
+        if (!selectedClient) {
+            setStatementData([]);
+            return;
+        }
+
+        // 1. Get Invoices (Debits)
+        const clientInvoices = invoices.filter(inv => inv.client === selectedClient).map(inv => ({
+            id: inv.id,
+            date: inv.date,
+            description: `Invoice Service`,
+            type: 'Invoice',
+            debit: calculateTax(inv.items.reduce((a, i) => a + (i.qty * i.rate), 0), inv.taxRate).total,
+            credit: 0,
+            rawDate: new Date(inv.date)
+        }));
+
+        // 2. Get Payments (Credits) - Bank
+        const clientBank = bankRecords.filter(r => r.description && r.description.toLowerCase().includes(selectedClient.toLowerCase()) && r.amount > 0).map(r => ({
+            id: r.id,
+            date: r.date,
+            description: r.description,
+            type: 'Payment (Bank)',
+            debit: 0,
+            credit: Number(r.amount),
+            rawDate: new Date(r.date)
+        }));
+
+        // 3. Get Payments (Credits) - Petty Cash
+        const clientCash = pettyCash.filter(r => r.description && r.description.toLowerCase().includes(selectedClient.toLowerCase()) && Number(r.cashIn) > 0).map(r => ({
+            id: r.id,
+            date: r.date,
+            description: r.description,
+            type: 'Payment (Cash)',
+            debit: 0,
+            credit: Number(r.cashIn),
+            rawDate: new Date(r.date)
+        }));
+
+        // 4. Merge and Sort
+        const allTrans = [...clientInvoices, ...clientBank, ...clientCash].sort((a, b) => a.rawDate - b.rawDate);
+
+        // 5. Calculate Running Balance
+        let balance = 0;
+        const finalData = allTrans.map(t => {
+            balance += t.debit - t.credit;
+            return { ...t, balance };
+        });
+
+        setStatementData(finalData);
+
+    }, [selectedClient, invoices, bankRecords, pettyCash]);
+
+    const totalDebit = statementData.reduce((a, b) => a + b.debit, 0);
+    const totalCredit = statementData.reduce((a, b) => a + b.credit, 0);
+    const balanceDue = totalDebit - totalCredit;
+
+    return (
+        <div className="bg-white p-8 md:p-12 rounded-3xl shadow-xl border border-slate-100 max-w-5xl mx-auto animate-in fade-in zoom-in-95 duration-300">
+            <div className="flex flex-col md:flex-row justify-between items-start mb-10 border-b border-slate-100 pb-8 gap-6">
+                <div>
+                    <h2 className="text-3xl font-bold text-slate-900 mb-2">Account Statement</h2>
+                    <p className="text-slate-500 font-medium">Client Ledger & History</p>
+                </div>
+                <div className="w-full md:w-64">
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Select Client</label>
+                    <select className="w-full border border-slate-200 p-3 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-violet-500 outline-none bg-slate-50" value={selectedClient} onChange={e => setSelectedClient(e.target.value)}>
+                        <option value="">Choose a Client...</option>
+                        {clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                    </select>
+                </div>
+            </div>
+
+            {selectedClient && (
+                <>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                        <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Total Billed</p>
+                            <p className="text-2xl font-extrabold text-slate-800">{formatCurrency(totalDebit)}</p>
+                        </div>
+                        <div className="bg-emerald-50 p-6 rounded-2xl border border-emerald-100">
+                            <p className="text-xs font-bold text-emerald-600 uppercase tracking-widest mb-1">Total Paid</p>
+                            <p className="text-2xl font-extrabold text-emerald-800">{formatCurrency(totalCredit)}</p>
+                        </div>
+                        <div className="bg-violet-50 p-6 rounded-2xl border border-violet-100">
+                            <p className="text-xs font-bold text-violet-600 uppercase tracking-widest mb-1">Balance Due</p>
+                            <p className="text-2xl font-extrabold text-violet-800">{formatCurrency(balanceDue)}</p>
+                        </div>
+                    </div>
+
+                    <div className="overflow-x-auto mb-8 bg-white rounded-2xl border border-slate-100">
+                        <table className="w-full min-w-[600px] text-left">
+                            <thead className="bg-slate-50 border-b border-slate-100">
+                                <tr>
+                                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th>
+                                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Description</th>
+                                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Debit</th>
+                                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Credit</th>
+                                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Balance</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {statementData.map((item, i) => (
+                                    <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                                        <td className="p-4 text-sm text-slate-500">{item.date}</td>
+                                        <td className="p-4 text-sm font-medium text-slate-800">
+                                            {item.description}
+                                            <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${item.type.includes('Invoice') ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>{item.type}</span>
+                                        </td>
+                                        <td className="p-4 text-sm text-right font-medium text-slate-600">{item.debit > 0 ? formatCurrency(item.debit) : '-'}</td>
+                                        <td className="p-4 text-sm text-right font-medium text-emerald-600">{item.credit > 0 ? formatCurrency(item.credit) : '-'}</td>
+                                        <td className="p-4 text-sm text-right font-bold text-violet-700">{formatCurrency(item.balance)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="flex justify-end print:hidden">
+                        <button onClick={() => window.print()} className="bg-violet-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-violet-700 transition-colors shadow-lg shadow-violet-200">
+                            <Printer size={18}/> Print Statement
+                        </button>
+                    </div>
+                </>
+            )}
+        </div>
+    );
+};
+
 // --- MAIN APP COMPONENT ---
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useStickyState(false, 'leanaxis_auth');
@@ -329,6 +559,7 @@ function App() {
   const [clients] = useFirebaseSync('clients');
   const [vendors] = useFirebaseSync('vendors');
   const [invoices] = useFirebaseSync('invoices');
+  const [quotations] = useFirebaseSync('quotations');
   const [vendorBills] = useFirebaseSync('vendor_bills');
   const [users, usersLoading] = useFirebaseSync('users');
   const [expenseCategories, setExpenseCategories] = useExpenseCategories();
@@ -361,14 +592,14 @@ function App() {
   const deleteRecord = async (collectionName, id) => { if(confirm('Are you sure you want to delete this record?')) await deleteDoc(doc(db, collectionName, id)); };
   const handleDelete = (id, type) => {
     if (currentUser.role !== 'Admin') return alert('Access Denied');
-    const map = { 'petty': 'petty_cash', 'expense': 'expenses', 'salary': 'salaries', 'bank': 'bank_records', 'client': 'clients', 'vendor': 'vendors', 'user': 'users', 'invoice': 'invoices', 'bill': 'vendor_bills' };
+    const map = { 'petty': 'petty_cash', 'expense': 'expenses', 'salary': 'salaries', 'bank': 'bank_records', 'client': 'clients', 'vendor': 'vendors', 'user': 'users', 'invoice': 'invoices', 'bill': 'vendor_bills', 'quotation': 'quotations' };
     if (map[type]) deleteRecord(map[type], id);
   };
   const handleEdit = (item) => { if (currentUser.role !== 'Admin') return alert('Access Denied'); setFormData({ ...item }); setIsEditingRecord(true); setShowForm(true); };
   const handleDuplicate = (item) => { const { id, createdAt, lastEditedAt, ...dataToCopy } = item; setFormData({ ...dataToCopy, date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); };
   
   const handleMasterExport = () => {
-    const dataToExport = { clients, vendors, pettyCash, expenses, salaries, bankRecords, invoices, vendorBills, users };
+    const dataToExport = { clients, vendors, pettyCash, expenses, salaries, bankRecords, invoices, quotations, vendorBills, users };
     const jsonString = JSON.stringify(dataToExport, null, 2);
     const blob = new Blob([jsonString], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -381,7 +612,7 @@ function App() {
     reader.onload = async (e) => {
         try {
             const importedData = JSON.parse(e.target.result); const batch = writeBatch(db); let count = 0;
-            const collections = { 'clients': 'clients', 'vendors': 'vendors', 'pettyCash': 'petty_cash', 'expenses': 'expenses', 'salaries': 'salaries', 'bankRecords': 'bank_records', 'invoices': 'invoices', 'vendorBills': 'vendor_bills' };
+            const collections = { 'clients': 'clients', 'vendors': 'vendors', 'pettyCash': 'petty_cash', 'expenses': 'expenses', 'salaries': 'salaries', 'bankRecords': 'bank_records', 'invoices': 'invoices', 'quotations': 'quotations', 'vendorBills': 'vendor_bills' };
             for (const [key, colName] of Object.entries(collections)) {
                 if (importedData[key]) importedData[key].forEach(item => { const { id, ...data } = item; const ref = doc(collection(db, colName)); batch.set(ref, data); count++; });
             }
@@ -404,6 +635,23 @@ function App() {
       }
       alert(`Generated ${count} recurring invoices!`);
   };
+  
+  const handleConvertToInvoice = async (quote) => {
+      if(!confirm("Convert this quotation to a draft invoice?")) return;
+      try {
+          // 1. Create Invoice
+          const { id, status, createdAt, ...invoiceData } = quote;
+          await addDoc(collection(db, 'invoices'), { ...invoiceData, status: 'Draft', createdAt: new Date().toISOString() });
+          
+          // 2. Update Quote Status
+          await updateDoc(doc(db, 'quotations', quote.id), { status: 'Converted' });
+          alert("Converted to Invoice successfully!");
+      } catch (e) {
+          console.error(e);
+          alert("Error converting quotation.");
+      }
+  };
+
   const uploadFile = async (file) => {
       if (!file || !imgbbKey) return null; setUploadProgress('Uploading...');
       const fd = new FormData(); fd.append("image", file);
@@ -516,7 +764,9 @@ function App() {
         <nav className="flex-1 px-4 space-y-2 overflow-y-auto relative z-10 scrollbar-thin scrollbar-thumb-slate-700">
           <NavButton id="dashboard" icon={LayoutDashboard} label="Dashboard" />
           <NavButton id="reports" icon={FileText} label="Analytics & P&L" />
+          <NavButton id="statements" icon={BookOpen} label="Statements (Ledger)" />
           <div className="pt-6 pb-2 px-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Operations</div>
+          <NavButton id="quotations" icon={FileCheck} label="Quotations" />
           <NavButton id="invoices" icon={FileText} label="Invoices" />
           <NavButton id="clients" icon={Briefcase} label="Clients" />
           <NavButton id="petty-cash" icon={Wallet} label="Petty Cash" />
@@ -570,7 +820,7 @@ function App() {
                         <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={selectedYear} onChange={e=>setSelectedYear(e.target.value)}><option value="All">All Years</option><option>2024</option><option>2025</option><option>2026</option></select>
                     </div>
                 )}
-                {!['dashboard','reports','invoices','settings'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
+                {!['dashboard','reports','invoices','settings','statements','quotations'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
             </div>
         </header>
 
@@ -619,6 +869,10 @@ function App() {
                 </div>
             </div>
         )}
+
+        {view === 'statements' && <ClientStatement clients={clients} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} />}
+
+        {view === 'quotations' && <QuotationGenerator clients={clients} onSave={(q) => saveToFirebase('quotations', q, q.id)} savedQuotations={quotations} onDeleteQuotation={(id) => handleDelete(id, 'quotation')} onConvertToInvoice={handleConvertToInvoice} />}
 
         {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => handleDelete(id, 'invoice')} onGenerateRecurring={handleGenerateRecurring} onReceivePayment={(inv, amt) => initiatePayment(inv, 'invoice', amt)} />}
 
