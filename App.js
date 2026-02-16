@@ -905,7 +905,23 @@ function App() {
                                     {view==='salaries' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-slate-800">{item.employeeName}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.totalPayable)}</td><td className="p-5 text-xs">{item.bankName ? `${item.bankName} - ${item.chequeNumber}` : 'Cash'}</td><td className="p-5"><span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase ${item.status==='Paid'?'bg-emerald-50 text-emerald-700':item.status==='Pending'?'bg-amber-50 text-amber-700':'bg-slate-100 text-slate-600'}`}>{item.status || 'Unpaid'}</span></td></>}
                                     {view==='bank' && <><td className="p-5 text-sm text-slate-500">{item.date}</td><td className="p-5 font-bold text-blue-600">{item.bank}</td><td className="p-5 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-5"><span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase ${item.status==='Cleared'?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-700'}`}>{item.status}</span></td></>}
                                     
-                                    {!['vendor-bills'].includes(view) && <td className="p-5 text-center"><ActionButtons item={item} type={view==='manage-users'?'user':view.replace('s','')} /></td>}
+                                    {!['vendor-bills'].includes(view) && (
+                                        <td className="p-5 text-center">
+                                            <ActionButtons 
+                                                item={item} 
+                                                type={
+                                                    view === 'manage-users' ? 'user' :
+                                                    view === 'salaries' ? 'salary' :
+                                                    view === 'expenses' ? 'expense' :
+                                                    view === 'clients' ? 'client' :
+                                                    view === 'vendors' ? 'vendor' :
+                                                    view === 'petty-cash' ? 'petty' :
+                                                    view === 'bank' ? 'bank' :
+                                                    view.replace('s', '')
+                                                } 
+                                            />
+                                        </td>
+                                    )}
                                 </tr>
                             ))}
                         </tbody>
