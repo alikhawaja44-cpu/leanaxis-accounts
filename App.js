@@ -79,14 +79,28 @@ const calculateTax = (amount, taxRate = 0) => {
 };
 
 const exportToCSV = (data, filename) => {
-  if (!data.length) return;
-  const headers = Object.keys(data[0]).join(',');
-  const rows = data.map(row => Object.values(row).map(v => `"${v}"`).join(',')).join('\n');
-  const csvContent = "data:text/csv;charset=utf-8," + headers + '\n' + rows;
-  const encodedUri = encodeURI(csvContent);
+  if (!data || !data.length) {
+      alert("No data to export!");
+      return;
+  }
+  
+  // Clean data for CSV (remove complex objects, ensure strings)
+  const cleanData = data.map(item => {
+      const row = { ...item };
+      // Remove internal fields if desired, or keep all
+      // Flatten nested objects if any (like items in invoice)
+      if (row.items && Array.isArray(row.items)) {
+          row.items = row.items.map(i => `${i.desc} (${i.qty}x${i.rate})`).join('; ');
+      }
+      return row;
+  });
+
+  const csv = Papa.unparse(cleanData);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  link.setAttribute("href", encodedUri);
-  link.setAttribute("download", filename);
+  link.setAttribute("href", url);
+  link.setAttribute("download", `${filename}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -252,6 +266,32 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                 <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-bold text-slate-800">Invoices</h2>
                     <div className="flex gap-2">
+                        {/* IMPORT/EXPORT BUTTONS INLINE */}
+                        <label className="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 transition-all cursor-pointer">
+                            <Upload size={18}/> Import <input type="file" className="hidden" accept=".csv" onChange={(e) => {
+                                const file = e.target.files[0];
+                                if(file) {
+                                    Papa.parse(file, {
+                                        header: true,
+                                        complete: async (results) => {
+                                            const batch = writeBatch(db);
+                                            results.data.forEach(row => {
+                                                if(row.client) { // Basic validation
+                                                    const ref = doc(collection(db, 'invoices'));
+                                                    batch.set(ref, { ...row, createdAt: new Date().toISOString() });
+                                                }
+                                            });
+                                            await batch.commit();
+                                            alert(`Imported ${results.data.length} invoices!`);
+                                        }
+                                    });
+                                }
+                            }}/>
+                        </label>
+                        <button onClick={() => exportToCSV(savedInvoices, 'Invoices_Export')} className="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 transition-all"><Download size={18}/> Export Excel</button>
+                        
+                        <div className="w-px bg-slate-300 mx-1"></div>
+
                         <button onClick={onGenerateRecurring} className="bg-white border border-indigo-200 text-indigo-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-indigo-50 transition-all"><RefreshCw size={18}/> Retainers</button>
                         <button onClick={() => { setInvoiceData({ client: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0 }); setViewMode('create'); }} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all hover:scale-105 active:scale-95"><Plus size={18}/> Create Invoice</button>
                     </div>
@@ -568,7 +608,7 @@ function App() {
               
               if (paymentAccount === 'bank') {
                   const newRef = doc(collection(db, 'bank_records'));
-                  batch.set(newRef, { ...recordData, bank: 'Linked Payment', status: 'Cleared', type: 'debit' }); // Using 'amount' implies debit for bank usually, but structure varies. For Bank chart, negative amounts or 'Out' columns are used. 
+                  batch.set(newRef, { ...recordData, bank: 'Linked Payment', status: 'Cleared', type: 'debit' });
                   // NOTE: Original bank structure uses 'amount' for both. Usually negative for out? Or just a list. 
                   // Let's check Bank table: it just shows "Amount". 
                   // For safety, let's store it as a negative number if it's money OUT.
@@ -673,6 +713,30 @@ function App() {
       </div>
   );
 
+  // --- GENERIC IMPORT HANDLER (CSV) ---
+  const handleGenericImport = (event, collectionName) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      
+      Papa.parse(file, {
+          header: true,
+          complete: async (results) => {
+              if (results.data.length === 0) return alert("File appears empty!");
+              if (!confirm(`Import ${results.data.length} records into ${collectionName.replace('_', ' ')}?`)) return;
+              
+              const batch = writeBatch(db);
+              results.data.forEach(row => {
+                  if (Object.values(row).some(v => v)) { // Skip empty rows
+                      const ref = doc(collection(db, collectionName));
+                      batch.set(ref, { ...row, createdAt: new Date().toISOString() });
+                  }
+              });
+              await batch.commit();
+              alert("Import successful! 📥");
+          }
+      });
+  };
+
   if (!isAuthenticated) return <LoginView onLogin={handleLogin} error={authError} />;
 
   return (
@@ -724,6 +788,33 @@ function App() {
             <div><h2 className="text-3xl font-bold text-slate-900 capitalize tracking-tight">{view.replace('-', ' ')}</h2></div>
             <div className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto">
                 {view !== 'dashboard' && <div className="relative flex-1 sm:w-64"><Search className="absolute left-3 top-3 text-slate-400" size={18}/><input className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Search entries..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
+                
+                {/* NEW: IMPORT/EXPORT BUTTONS IN HEADER */}
+                {['clients','expenses','petty-cash','salaries','bank','vendor-bills','vendors'].includes(view) && (
+                    <div className="flex gap-2">
+                        <label className="bg-white border border-slate-200 text-slate-600 px-3 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 transition-all cursor-pointer" title="Import CSV">
+                            <Upload size={18}/> 
+                            <span className="hidden sm:inline">Import</span>
+                            <input type="file" className="hidden" accept=".csv" onChange={(e) => handleGenericImport(e, view === 'petty-cash' ? 'petty_cash' : view === 'vendor-bills' ? 'vendor_bills' : view)}/>
+                        </label>
+                        <button onClick={() => {
+                            const dataMap = {
+                                'clients': filteredClients,
+                                'vendors': filteredVendors,
+                                'petty-cash': filteredPetty,
+                                'expenses': filteredExp,
+                                'salaries': filteredSal,
+                                'bank': bankRecords,
+                                'vendor-bills': filteredBills
+                            };
+                            exportToCSV(dataMap[view], `${view}_Export`);
+                        }} className="bg-white border border-slate-200 text-slate-600 px-3 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 transition-all" title="Export Excel">
+                            <Download size={18}/>
+                            <span className="hidden sm:inline">Export</span>
+                        </button>
+                    </div>
+                )}
+
                 {['clients','expenses','petty-cash','salaries','bank','vendor-bills'].includes(view) && (
                     <div className="flex gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
                         <select className="bg-transparent text-sm font-medium outline-none cursor-pointer" value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}><option value="All">All Months</option>{['January','February','March','April','May','June','July','August','September','October','November','December'].map(m=><option key={m}>{m}</option>)}</select>
@@ -881,7 +972,7 @@ function App() {
                                  <Download size={18} /> Export All Data (Backup)
                              </button>
                              <label className="w-full bg-slate-100 text-slate-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-slate-200 transition-colors cursor-pointer">
-                                 <Upload size={18} /> Import Data
+                                 <Upload size={18} /> Import Data (Backup)
                                  <input type="file" accept=".json" onChange={handleImport} className="hidden" />
                              </label>
                          </div>
