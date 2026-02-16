@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
   LayoutDashboard, Wallet, Receipt, Users, Building2, Briefcase, Truck,
-  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, FileInput, Settings, FileDown, Search, Filter, FileText, Printer, DollarSign, Percent, CreditCard, Check
+  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, FileInput, Settings, FileDown, Search, Filter, FileText, Printer, DollarSign, Percent, CreditCard, Check, Share2
 } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip as ChartTooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import Papa from "papaparse";
@@ -233,6 +233,19 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
         }
     }, [invoiceData.client, clients, viewMode]);
 
+    // WHATSAPP SHARE
+    const handleShareWhatsApp = () => {
+        if (!invoiceData.client || total === 0) return alert("Please select a client and add items first.");
+        
+        const message = `*INVOICE* from LeanAxis Agency%0A` +
+            `To: ${invoiceData.client}%0A` +
+            `Date: ${invoiceData.date}%0A%0A` +
+            invoiceData.items.map(item => `- ${item.desc}: Rs ${item.rate * item.qty}`).join('%0A') +
+            `%0A%0A*Total: ${formatCurrency(total)}*`;
+            
+        window.open(`https://wa.me/?text=${message}`, '_blank');
+    };
+
     if (viewMode === 'list') {
         return (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -310,7 +323,11 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
             </div>
             <button onClick={addItem} className="flex items-center gap-2 text-sm font-bold text-indigo-600 hover:text-indigo-800 mb-8"><Plus size={16}/> Add Line Item</button>
             <div className="flex justify-end mb-8"><div className="w-full md:w-64 space-y-3"><div className="flex justify-between text-sm text-slate-500"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div><div className="flex justify-between text-sm text-slate-500"><span>Tax ({invoiceData.taxRate}%)</span><span>{formatCurrency(tax)}</span></div><div className="flex justify-between text-xl font-bold text-slate-800 border-t border-slate-200 pt-3"><span>Total</span><span>{formatCurrency(total)}</span></div></div></div>
-            <div className="flex flex-col md:flex-row gap-4 print:hidden"><button onClick={() => window.print()} className="flex-1 flex items-center justify-center gap-2 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-200 transition-colors"><Printer size={18}/> Print / PDF</button><button onClick={() => { onSave(invoiceData); setViewMode('list'); }} className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"><CheckCircle size={18}/> Save Invoice</button></div>
+            <div className="flex flex-col md:flex-row gap-4 print:hidden">
+                <button onClick={() => window.print()} className="flex-1 flex items-center justify-center gap-2 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-200 transition-colors"><Printer size={18}/> Print / PDF</button>
+                <button onClick={handleShareWhatsApp} className="flex-1 flex items-center justify-center gap-2 bg-green-500 text-white py-3 rounded-xl font-bold hover:bg-green-600 transition-colors"><Share2 size={18}/> Share WhatsApp</button>
+                <button onClick={() => { onSave(invoiceData); setViewMode('list'); }} className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"><CheckCircle size={18}/> Save Invoice</button>
+            </div>
         </div>
     );
 };
