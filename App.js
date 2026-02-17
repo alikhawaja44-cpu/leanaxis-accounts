@@ -397,7 +397,6 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
     );
 };
 
-
 // --- SALARY SLIP COMPONENT ---
 const SalarySlip = ({ data, onClose }) => {
     if (!data) return null;
@@ -413,10 +412,33 @@ const SalarySlip = ({ data, onClose }) => {
 
     return (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:p-0 print:bg-white print:fixed print:inset-0 print:z-[1000] print:flex print:items-center print:justify-center">
-            {/* Added style to hide body content when printing */}
-            <style>{`@media print { body > *:not(#salary-slip-root) { display: none !important; } #salary-slip-root { display: block !important; width: 100%; height: 100%; position: absolute; top: 0; left: 0; background: white; z-index: 9999; } }`}</style>
+            {/* FORCE PRINT VISIBILITY - AGGRESSIVE FIX */}
+            <style>{`
+                @media print {
+                    body * {
+                        visibility: hidden;
+                    }
+                    #salary-slip-content, #salary-slip-content * {
+                        visibility: visible;
+                    }
+                    #salary-slip-content {
+                        position: absolute;
+                        left: 0;
+                        top: 0;
+                        width: 100%;
+                        margin: 0;
+                        padding: 20px;
+                        background: white;
+                        box-shadow: none !important;
+                    }
+                    /* Hide buttons when printing */
+                    .print\\:hidden {
+                        display: none !important;
+                    }
+                }
+            `}</style>
             
-            <div id="salary-slip-root" className="bg-white p-12 rounded-3xl w-full max-w-2xl shadow-2xl relative print:shadow-none print:w-full print:max-w-none animate-in zoom-in-95 duration-200">
+            <div id="salary-slip-content" className="bg-white p-12 rounded-3xl w-full max-w-2xl shadow-2xl relative animate-in zoom-in-95 duration-200">
                 <button onClick={onClose} className="absolute top-6 right-6 p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors print:hidden"><X size={20}/></button>
                 
                 <div className="text-center border-b border-slate-100 pb-8 mb-8">
