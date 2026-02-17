@@ -410,36 +410,50 @@ const SalarySlip = ({ data, onClose }) => {
         window.open(`https://wa.me/?text=${message}`, '_blank');
     };
 
+    const handlePrint = () => {
+        // Create a dedicated print window
+        const printWindow = window.open('', '', 'height=800,width=800');
+        printWindow.document.write('<html><head><title>Salary Slip</title>');
+        printWindow.document.write('<script src="https://cdn.tailwindcss.com"></script>'); // Load Tailwind for styling
+        printWindow.document.write('</head><body class="p-8 font-sans">');
+        
+        // Construct the slip HTML manually for the print window to ensure perfect rendering
+        printWindow.document.write(`
+            <div class="max-w-2xl mx-auto border border-gray-200 p-8 rounded-xl">
+                <div class="text-center border-b border-gray-200 pb-6 mb-6">
+                    <h1 class="text-3xl font-bold text-gray-800">LEANAXIS</h1>
+                    <p class="text-gray-500 uppercase tracking-widest text-sm">Creative Agency</p>
+                    <h2 class="text-2xl font-bold text-gray-900 mt-6 uppercase">Payslip</h2>
+                    <p class="text-gray-500">Period: ${new Date(data.date).toLocaleString('default', { month: 'long', year: 'numeric' })}</p>
+                </div>
+                <div class="grid grid-cols-2 gap-8 mb-6">
+                    <div><p class="text-xs font-bold text-gray-400 uppercase">Employee</p><p class="text-xl font-bold text-gray-800">${data.employeeName}</p></div>
+                    <div class="text-right"><p class="text-xs font-bold text-gray-400 uppercase">Date</p><p class="text-xl font-bold text-gray-800">${data.date}</p></div>
+                </div>
+                <div class="bg-gray-50 p-6 rounded-xl border border-gray-100 mb-6">
+                    <div class="flex justify-between mb-4"><span class="text-gray-600">Basic Salary & Allowances</span><span class="font-bold">${formatCurrency(data.totalPayable)}</span></div>
+                    <div class="flex justify-between text-sm text-gray-500 mb-4"><span>Payment Method</span><span>${data.bankName || 'Cash'} ${data.chequeNumber ? '#' + data.chequeNumber : ''}</span></div>
+                    <div class="border-t border-gray-200 pt-4 flex justify-between"><span class="text-xl font-bold">Net Pay</span><span class="text-2xl font-extrabold text-emerald-600">${formatCurrency(data.totalPayable)}</span></div>
+                </div>
+                <div class="text-center text-xs text-gray-400 mt-8"><p>Computer-generated document.</p></div>
+            </div>
+        `);
+        
+        printWindow.document.write('</body></html>');
+        printWindow.document.close();
+        printWindow.focus();
+        
+        // Wait for Tailwind to load before printing
+        setTimeout(() => {
+            printWindow.print();
+            printWindow.close();
+        }, 1000);
+    };
+
     return (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:p-0 print:bg-white print:fixed print:inset-0 print:z-[1000] print:flex print:items-center print:justify-center">
-            {/* FORCE PRINT VISIBILITY - AGGRESSIVE FIX */}
-            <style>{`
-                @media print {
-                    body * {
-                        visibility: hidden;
-                    }
-                    #salary-slip-content, #salary-slip-content * {
-                        visibility: visible;
-                    }
-                    #salary-slip-content {
-                        position: absolute;
-                        left: 0;
-                        top: 0;
-                        width: 100%;
-                        margin: 0;
-                        padding: 20px;
-                        background: white;
-                        box-shadow: none !important;
-                    }
-                    /* Hide buttons when printing */
-                    .print\\:hidden {
-                        display: none !important;
-                    }
-                }
-            `}</style>
-            
-            <div id="salary-slip-content" className="bg-white p-12 rounded-3xl w-full max-w-2xl shadow-2xl relative animate-in zoom-in-95 duration-200">
-                <button onClick={onClose} className="absolute top-6 right-6 p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors print:hidden"><X size={20}/></button>
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white p-12 rounded-3xl w-full max-w-2xl shadow-2xl relative animate-in zoom-in-95 duration-200">
+                <button onClick={onClose} className="absolute top-6 right-6 p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"><X size={20}/></button>
                 
                 <div className="text-center border-b border-slate-100 pb-8 mb-8">
                     <div className="flex justify-center mb-4"><Logo /></div>
@@ -480,8 +494,8 @@ const SalarySlip = ({ data, onClose }) => {
                     <p className="text-slate-900 font-bold mt-2">LeanAxis Creative Agency</p>
                 </div>
 
-                <div className="mt-8 flex gap-4 print:hidden">
-                    <button onClick={() => window.print()} className="flex-1 bg-white border border-slate-200 text-slate-700 py-4 rounded-xl font-bold hover:bg-slate-50 transition-colors flex justify-center items-center gap-2"><Printer size={20}/> Print PDF</button>
+                <div className="mt-8 flex gap-4">
+                    <button onClick={handlePrint} className="flex-1 bg-white border border-slate-200 text-slate-700 py-4 rounded-xl font-bold hover:bg-slate-50 transition-colors flex justify-center items-center gap-2"><Printer size={20}/> Print PDF</button>
                     <button onClick={handleWhatsApp} className="flex-1 bg-[#25D366] text-white py-4 rounded-xl font-bold hover:bg-[#20bd5a] transition-colors shadow-lg shadow-green-200 flex justify-center items-center gap-2"><Share2 size={20}/> Send via WhatsApp</button>
                 </div>
             </div>
