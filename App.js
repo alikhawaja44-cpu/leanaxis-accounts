@@ -397,6 +397,61 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
     );
 };
 
+// --- SALARY SLIP COMPONENT ---
+const SalarySlip = ({ data, onClose }) => {
+    if (!data) return null;
+    return (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:p-0 print:bg-white print:static">
+            <div className="bg-white p-12 rounded-3xl w-full max-w-2xl shadow-2xl relative print:shadow-none print:w-full print:max-w-none animate-in zoom-in-95 duration-200">
+                <button onClick={onClose} className="absolute top-6 right-6 p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors print:hidden"><X size={20}/></button>
+                
+                <div className="text-center border-b border-slate-100 pb-8 mb-8">
+                    <div className="flex justify-center mb-4"><Logo /></div>
+                    <h2 className="text-2xl font-bold text-slate-900 uppercase tracking-widest">Payslip</h2>
+                    <p className="text-slate-400 text-sm font-medium">Period: {new Date(data.date).toLocaleString('default', { month: 'long', year: 'numeric' })}</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-8 mb-8">
+                    <div>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Employee</p>
+                        <p className="text-xl font-bold text-slate-800">{data.employeeName}</p>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Payment Date</p>
+                        <p className="text-xl font-bold text-slate-800">{data.date}</p>
+                    </div>
+                </div>
+
+                <div className="bg-slate-50 p-8 rounded-2xl border border-slate-100 mb-8">
+                    <div className="flex justify-between items-center mb-4">
+                        <span className="text-slate-600 font-medium">Basic Salary & Allowances</span>
+                        <span className="text-slate-900 font-bold text-lg">{formatCurrency(data.totalPayable)}</span>
+                    </div>
+                    {data.bankName && (
+                        <div className="flex justify-between items-center text-sm text-slate-500 mb-4">
+                            <span>Payment Method</span>
+                            <span className="font-medium">{data.bankName} {data.chequeNumber ? `(#${data.chequeNumber})` : ''}</span>
+                        </div>
+                    )}
+                    <div className="border-t-2 border-slate-200 mt-4 pt-4 flex justify-between items-center">
+                        <span className="text-xl font-bold text-slate-800">Net Pay</span>
+                        <span className="text-3xl font-extrabold text-emerald-600">{formatCurrency(data.totalPayable)}</span>
+                    </div>
+                </div>
+
+                <div className="text-center pt-8 mt-8 border-t border-slate-100">
+                    <p className="text-slate-400 text-xs italic">This is a computer-generated document.</p>
+                    <p className="text-slate-900 font-bold mt-2">LeanAxis Creative Agency</p>
+                </div>
+
+                <div className="mt-8 flex gap-4 print:hidden">
+                    <button onClick={() => window.print()} className="flex-1 bg-violet-600 text-white py-4 rounded-xl font-bold hover:bg-violet-700 transition-colors shadow-lg shadow-violet-200 flex justify-center items-center gap-2"><Printer size={20}/> Print Slip</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- CLIENT STATEMENT COMPONENT ---
 const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
     const [selectedClient, setSelectedClient] = useState('');
@@ -407,6 +462,18 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
             setStatementData([]);
             return;
         }
+
+        // 0. Get Client Record Data (Manual Sync)
+        const clientRecord = clients.find(c => c.name === selectedClient);
+        const manualAdvance = clientRecord && Number(clientRecord.advanceReceived) > 0 ? [{
+            id: 'manual-adv',
+            date: clientRecord.date || new Date().toISOString().split('T')[0],
+            description: 'Opening Advance (from Client Record)',
+            type: 'Opening Credit',
+            debit: 0,
+            credit: Number(clientRecord.advanceReceived),
+            rawDate: new Date(clientRecord.date || 0) // Default to old date to appear first
+        }] : [];
 
         // 1. Get Invoices (Debits)
         const clientInvoices = invoices.filter(inv => inv.client === selectedClient).map(inv => ({
@@ -442,7 +509,7 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
         }));
 
         // 4. Merge and Sort
-        const allTrans = [...clientInvoices, ...clientBank, ...clientCash].sort((a, b) => a.rawDate - b.rawDate);
+        const allTrans = [...manualAdvance, ...clientInvoices, ...clientBank, ...clientCash].sort((a, b) => a.rawDate - b.rawDate);
 
         // 5. Calculate Running Balance
         let balance = 0;
@@ -453,7 +520,7 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
 
         setStatementData(finalData);
 
-    }, [selectedClient, invoices, bankRecords, pettyCash]);
+    }, [selectedClient, clients, invoices, bankRecords, pettyCash]);
 
     const totalDebit = statementData.reduce((a, b) => a + b.debit, 0);
     const totalCredit = statementData.reduce((a, b) => a + b.credit, 0);
@@ -552,6 +619,8 @@ function App() {
   const [paymentConfig, setPaymentConfig] = useState(null);
   const [paymentAccount, setPaymentAccount] = useState('bank');
   
+  const [showSalarySlip, setShowSalarySlip] = useState(false);
+
   const [pettyCash] = useFirebaseSync('petty_cash');
   const [expenses] = useFirebaseSync('expenses');
   const [salaries] = useFirebaseSync('salaries');
@@ -906,7 +975,16 @@ function App() {
                                     {view==='salaries' && <><td className="p-6 text-sm text-slate-500">{item.date}</td><td className="p-6 font-bold text-slate-800">{item.employeeName}</td><td className="p-6 text-right font-bold text-slate-800">{formatCurrency(item.totalPayable)}</td><td className="p-6 text-xs font-medium text-slate-500">{item.bankName ? `${item.bankName} - ${item.chequeNumber}` : 'Cash'}</td><td className="p-6"><span className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase ${item.status==='Paid'?'bg-emerald-100 text-emerald-700':item.status==='Pending'?'bg-amber-100 text-amber-700':'bg-slate-100 text-slate-600'}`}>{item.status || 'Unpaid'}</span></td></>}
                                     {view==='bank' && <><td className="p-6 text-sm text-slate-500">{item.date}</td><td className="p-6 font-bold text-blue-600">{item.bank}</td><td className="p-6 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-6"><span className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase ${item.status==='Cleared'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'}`}>{item.status}</span></td></>}
                                     
-                                    {!['vendor-bills'].includes(view) && <td className="p-6 text-center opacity-0 group-hover:opacity-100 transition-opacity"><ActionButtons item={item} type={view === 'manage-users' ? 'user' : view === 'salaries' ? 'salary' : view === 'expenses' ? 'expense' : view === 'clients' ? 'client' : view === 'vendors' ? 'vendor' : view === 'petty-cash' ? 'petty' : view === 'bank' ? 'bank' : view.replace('s', '')} /></td>}
+                                    {!['vendor-bills'].includes(view) && (
+                                        <td className="p-6 text-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                            {view === 'salaries' && (
+                                                <button onClick={() => { setFormData(item); setShowSalarySlip(true); }} className="p-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors mr-1" title="Print Slip">
+                                                    <Printer size={16}/>
+                                                </button>
+                                            )}
+                                            <ActionButtons item={item} type={view === 'manage-users' ? 'user' : view === 'salaries' ? 'salary' : view === 'expenses' ? 'expense' : view === 'clients' ? 'client' : view === 'vendors' ? 'vendor' : view === 'petty-cash' ? 'petty' : view === 'bank' ? 'bank' : view.replace('s', '')} />
+                                        </td>
+                                    )}
                                 </tr>
                             ))}
                         </tbody>
@@ -977,6 +1055,9 @@ function App() {
                 </div>
             </div>
         )}
+
+        {/* SALARY SLIP MODAL */}
+        {showSalarySlip && formData && <SalarySlip data={formData} onClose={() => setShowSalarySlip(false)} />}
       </main>
     </div>
   );
