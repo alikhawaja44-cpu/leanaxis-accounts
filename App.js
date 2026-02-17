@@ -400,6 +400,16 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
 // --- SALARY SLIP COMPONENT ---
 const SalarySlip = ({ data, onClose }) => {
     if (!data) return null;
+
+    const handleWhatsApp = () => {
+        const message = `*SALARY SLIP* %0A` +
+            `Period: ${new Date(data.date).toLocaleString('default', { month: 'long', year: 'numeric' })}%0A` +
+            `Employee: ${data.employeeName}%0A` +
+            `Net Pay: ${formatCurrency(data.totalPayable)}%0A` +
+            `Status: Paid via ${data.bankName || 'Cash'}`;
+        window.open(`https://wa.me/?text=${message}`, '_blank');
+    };
+
     return (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:p-0 print:bg-white print:static">
             <div className="bg-white p-12 rounded-3xl w-full max-w-2xl shadow-2xl relative print:shadow-none print:w-full print:max-w-none animate-in zoom-in-95 duration-200">
@@ -445,7 +455,8 @@ const SalarySlip = ({ data, onClose }) => {
                 </div>
 
                 <div className="mt-8 flex gap-4 print:hidden">
-                    <button onClick={() => window.print()} className="flex-1 bg-violet-600 text-white py-4 rounded-xl font-bold hover:bg-violet-700 transition-colors shadow-lg shadow-violet-200 flex justify-center items-center gap-2"><Printer size={20}/> Print Slip</button>
+                    <button onClick={() => window.print()} className="flex-1 bg-white border border-slate-200 text-slate-700 py-4 rounded-xl font-bold hover:bg-slate-50 transition-colors flex justify-center items-center gap-2"><Printer size={20}/> Print PDF</button>
+                    <button onClick={handleWhatsApp} className="flex-1 bg-[#25D366] text-white py-4 rounded-xl font-bold hover:bg-[#20bd5a] transition-colors shadow-lg shadow-green-200 flex justify-center items-center gap-2"><Share2 size={20}/> Send via WhatsApp</button>
                 </div>
             </div>
         </div>
@@ -463,6 +474,9 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
             return;
         }
 
+        const cleanName = (name) => name ? name.toLowerCase().trim() : '';
+        const target = cleanName(selectedClient);
+
         // 0. Get Client Record Data (Manual Sync)
         const clientRecord = clients.find(c => c.name === selectedClient);
         const manualAdvance = clientRecord && Number(clientRecord.advanceReceived) > 0 ? [{
@@ -472,11 +486,11 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
             type: 'Opening Credit',
             debit: 0,
             credit: Number(clientRecord.advanceReceived),
-            rawDate: new Date(clientRecord.date || 0) // Default to old date to appear first
+            rawDate: new Date(clientRecord.date || 0) 
         }] : [];
 
         // 1. Get Invoices (Debits)
-        const clientInvoices = invoices.filter(inv => inv.client === selectedClient).map(inv => ({
+        const clientInvoices = invoices.filter(inv => cleanName(inv.client) === target).map(inv => ({
             id: inv.id,
             date: inv.date,
             description: `Invoice Service`,
@@ -487,7 +501,8 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
         }));
 
         // 2. Get Payments (Credits) - Bank
-        const clientBank = bankRecords.filter(r => r.description && r.description.toLowerCase().includes(selectedClient.toLowerCase()) && r.amount > 0).map(r => ({
+        // Improved matching: Checks if description contains client name
+        const clientBank = bankRecords.filter(r => cleanName(r.description).includes(target) && r.amount > 0).map(r => ({
             id: r.id,
             date: r.date,
             description: r.description,
@@ -498,7 +513,7 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
         }));
 
         // 3. Get Payments (Credits) - Petty Cash
-        const clientCash = pettyCash.filter(r => r.description && r.description.toLowerCase().includes(selectedClient.toLowerCase()) && Number(r.cashIn) > 0).map(r => ({
+        const clientCash = pettyCash.filter(r => cleanName(r.description).includes(target) && Number(r.cashIn) > 0).map(r => ({
             id: r.id,
             date: r.date,
             description: r.description,
