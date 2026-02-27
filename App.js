@@ -661,7 +661,7 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
 };
 
 // --- TAX REPORT COMPONENT ---
-const TaxReport = ({ invoices, salaries, expenses, month, year }) => {
+const TaxReport = ({ invoices, salaries, expenses, vendorBills, month, year }) => {
     const [filterMonth, setFilterMonth] = useState('All');
     const [filterYear, setFilterYear] = useState('All');
 
@@ -688,14 +688,26 @@ const TaxReport = ({ invoices, salaries, expenses, month, year }) => {
         return acc + tax;
     }, 0);
 
-    // 2. Withholding Tax (Liability) - From Salaries
+    // 2. Withholding Tax (Liability) - From Salaries & Vendor Bills
     const salaryWHT = filteredSalaries.reduce((acc, sal) => acc + (Number(sal.taxDeduction) || 0), 0);
+    const vendorWHT = (items) => items.reduce((acc, bill) => acc + (Number(bill.taxDeduction) || 0), 0);
+    
+    // Filter vendor bills for report
+    const filteredBills = (bills) => {
+        return bills.filter(i => {
+            const d = new Date(i.date || i.createdAt);
+            return (filterMonth === 'All' || d.toLocaleString('default',{month:'long'}) === filterMonth) && 
+                   (filterYear === 'All' || d.getFullYear().toString() === filterYear);
+        });
+    };
+    const currentVendorBills = filteredBills(vendorBills);
+    const totalWHT = salaryWHT + vendorWHT(currentVendorBills);
 
     // 3. Input Tax (Credit) - From Expenses
     const expenseTax = filteredExpenses.reduce((acc, exp) => acc + (Number(exp.taxAmount) || 0), 0);
 
     // Total Liability Calculation
-    const totalLiability = (outputTax + salaryWHT) - expenseTax;
+    const totalLiability = (outputTax + totalWHT) - expenseTax;
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -718,8 +730,8 @@ const TaxReport = ({ invoices, salaries, expenses, month, year }) => {
                     <div className="w-full h-1 bg-indigo-100 mt-3 rounded-full"><div className="h-full bg-indigo-500 rounded-full" style={{width: '100%'}}></div></div>
                 </div>
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 relative overflow-hidden group">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Salary WHT (Liability)</p>
-                    <h3 className="text-2xl font-extrabold text-rose-600">{formatCurrency(salaryWHT)}</h3>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Total WHT (Liability)</p>
+                    <h3 className="text-2xl font-extrabold text-rose-600">{formatCurrency(totalWHT)}</h3>
                     <div className="w-full h-1 bg-rose-100 mt-3 rounded-full"><div className="h-full bg-rose-500 rounded-full" style={{width: '100%'}}></div></div>
                 </div>
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 relative overflow-hidden group">
@@ -753,15 +765,20 @@ const TaxReport = ({ invoices, salaries, expenses, month, year }) => {
 
                 <div className="space-y-8">
                     <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                        <div className="p-6 border-b border-slate-100"><h3 className="font-bold text-slate-800">Tax Withheld (Salaries)</h3></div>
+                        <div className="p-6 border-b border-slate-100"><h3 className="font-bold text-slate-800">WHT (Salaries & Vendors)</h3></div>
                         <div className="overflow-x-auto max-h-60 overflow-y-auto">
                             <table className="w-full text-left">
-                                <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider sticky top-0"><tr><th className="p-4">Employee</th><th className="p-4 text-right">Tax</th></tr></thead>
+                                <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider sticky top-0"><tr><th className="p-4">Name</th><th className="p-4 text-right">Tax Withheld</th></tr></thead>
                                 <tbody className="divide-y divide-slate-50">
                                     {filteredSalaries.map(sal => {
                                         const tax = Number(sal.taxDeduction) || 0;
                                         if(tax === 0) return null;
-                                        return <tr key={sal.id} className="hover:bg-slate-50/50"><td className="p-4 text-sm font-bold text-slate-700">{sal.employeeName}</td><td className="p-4 text-sm text-right font-bold text-rose-600">{formatCurrency(tax)}</td></tr>;
+                                        return <tr key={sal.id} className="hover:bg-slate-50/50"><td className="p-4 text-sm font-bold text-slate-700">{sal.employeeName} <span className="text-xs text-slate-400 font-normal">(Salary)</span></td><td className="p-4 text-sm text-right font-bold text-rose-600">{formatCurrency(tax)}</td></tr>;
+                                    })}
+                                    {currentVendorBills.map(bill => {
+                                        const tax = Number(bill.taxDeduction) || 0;
+                                        if(tax === 0) return null;
+                                        return <tr key={bill.id} className="hover:bg-slate-50/50"><td className="p-4 text-sm font-bold text-slate-700">{bill.vendor} <span className="text-xs text-slate-400 font-normal">(Bill #{bill.billNumber})</span></td><td className="p-4 text-sm text-right font-bold text-rose-600">{formatCurrency(tax)}</td></tr>;
                                     })}
                                 </tbody>
                             </table>
@@ -1114,7 +1131,7 @@ function App() {
             </div>
         )}
 
-        {view === 'tax-report' && <TaxReport invoices={invoices} salaries={salaries} expenses={expenses} month={selectedMonth} year={selectedYear} />}
+        {view === 'tax-report' && <TaxReport invoices={invoices} salaries={salaries} expenses={expenses} vendorBills={vendorBills} month={selectedMonth} year={selectedYear} />}
 
         {view === 'reports' && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -1267,7 +1284,37 @@ function App() {
                                 <select className="form-select mt-2" value={formData.status||'Unpaid'} onChange={e=>setFormData({...formData,status:e.target.value})}><option>Unpaid</option><option>Paid</option><option>Pending</option></select>
                             </>
                         )}
-                        {view === 'vendor-bills' && <><input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})} /><select className="form-select" value={formData.vendor||''} onChange={e=>setFormData({...formData,vendor:e.target.value})}><option value="">Select Vendor</option>{vendors.map(v=><option key={v.id} value={v.name}>{v.name}</option>)}</select><input placeholder="Bill # / Ref" className="form-input" value={formData.billNumber||''} onChange={e=>setFormData({...formData,billNumber:e.target.value})} /><input placeholder="Description" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})} /><div className="grid grid-cols-2 gap-4"><input type="number" placeholder="Total" className="form-input" value={formData.amount||''} onChange={e=>setFormData({...formData,amount:e.target.value})} /><input type="number" placeholder="Paid" className="form-input" value={formData.paidAmount||''} onChange={e=>setFormData({...formData,paidAmount:e.target.value})} /></div></>}
+                        {view === 'vendor-bills' && (
+                            <>
+                                <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})} />
+                                <select className="form-select" value={formData.vendor||''} onChange={e=>setFormData({...formData,vendor:e.target.value})}><option value="">Select Vendor</option>{vendors.map(v=><option key={v.id} value={v.name}>{v.name}</option>)}</select>
+                                <input placeholder="Bill # / Ref" className="form-input" value={formData.billNumber||''} onChange={e=>setFormData({...formData,billNumber:e.target.value})} />
+                                <input placeholder="Description" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})} />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Total Bill Amount</label>
+                                        <input type="number" placeholder="0" className="form-input" value={formData.billAmount||''} onChange={e=> {
+                                            const amt = Number(e.target.value);
+                                            const tax = Number(formData.taxDeduction || 0);
+                                            setFormData({...formData, billAmount: amt, amount: amt - tax});
+                                        }} />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Tax Deducted (WHT)</label>
+                                        <input type="number" placeholder="0" className="form-input text-rose-600" value={formData.taxDeduction||''} onChange={e=> {
+                                            const tax = Number(e.target.value);
+                                            const amt = Number(formData.billAmount || 0);
+                                            setFormData({...formData, taxDeduction: tax, amount: amt - tax});
+                                        }} />
+                                    </div>
+                                </div>
+                                <div className="bg-slate-50 p-4 rounded-xl flex justify-between items-center border border-slate-200 mt-2">
+                                    <span className="text-sm font-bold text-slate-600">Net Payable:</span>
+                                    <span className="text-xl font-bold text-indigo-600">{formatCurrency(formData.amount || 0)}</span>
+                                </div>
+                                <input type="number" placeholder="Paid So Far" className="form-input mt-2" value={formData.paidAmount||''} onChange={e=>setFormData({...formData,paidAmount:e.target.value})} />
+                            </>
+                        )}
                         {view === 'expenses' && (
                             <>
                                 <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})} />
