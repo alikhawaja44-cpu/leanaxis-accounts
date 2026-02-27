@@ -703,11 +703,13 @@ const TaxReport = ({ invoices, salaries, expenses, vendorBills, month, year }) =
     const currentVendorBills = filteredBills(vendorBills);
     const totalWHT = salaryWHT + vendorWHT(currentVendorBills);
 
-    // 3. Input Tax (Credit) - From Expenses
+    // 3. Input Tax (Credit) - From Expenses & Client Payments
     const expenseTax = filteredExpenses.reduce((acc, exp) => acc + (Number(exp.taxAmount) || 0), 0);
+    const clientWHT = filteredInvoices.reduce((acc, inv) => acc + (Number(inv.whtDeducted) || 0), 0);
+    const totalInput = expenseTax + clientWHT;
 
     // Total Liability Calculation
-    const totalLiability = (outputTax + totalWHT) - expenseTax;
+    const totalLiability = (outputTax + totalWHT) - totalInput;
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -735,8 +737,8 @@ const TaxReport = ({ invoices, salaries, expenses, vendorBills, month, year }) =
                     <div className="w-full h-1 bg-rose-100 mt-3 rounded-full"><div className="h-full bg-rose-500 rounded-full" style={{width: '100%'}}></div></div>
                 </div>
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 relative overflow-hidden group">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Expense Tax (Input)</p>
-                    <h3 className="text-2xl font-extrabold text-emerald-600">-{formatCurrency(expenseTax)}</h3>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Total Input (Credit)</p>
+                    <h3 className="text-2xl font-extrabold text-emerald-600">-{formatCurrency(totalInput)}</h3>
                     <div className="w-full h-1 bg-emerald-100 mt-3 rounded-full"><div className="h-full bg-emerald-500 rounded-full" style={{width: '100%'}}></div></div>
                 </div>
                 <div className="bg-slate-900 p-6 rounded-3xl shadow-lg shadow-slate-200 relative overflow-hidden text-white">
@@ -786,7 +788,7 @@ const TaxReport = ({ invoices, salaries, expenses, vendorBills, month, year }) =
                     </div>
 
                     <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                        <div className="p-6 border-b border-slate-100"><h3 className="font-bold text-slate-800">Input Tax (Expenses)</h3></div>
+                        <div className="p-6 border-b border-slate-100"><h3 className="font-bold text-slate-800">Input Tax (Expenses & Client WHT)</h3></div>
                         <div className="overflow-x-auto max-h-60 overflow-y-auto">
                             <table className="w-full text-left">
                                 <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider sticky top-0"><tr><th className="p-4">Description</th><th className="p-4 text-right">Tax Paid</th></tr></thead>
@@ -795,6 +797,11 @@ const TaxReport = ({ invoices, salaries, expenses, vendorBills, month, year }) =
                                         const tax = Number(exp.taxAmount) || 0;
                                         if(tax === 0) return null;
                                         return <tr key={exp.id} className="hover:bg-slate-50/50"><td className="p-4 text-sm font-medium text-slate-700">{exp.description} <span className="text-xs text-slate-400">({exp.category})</span></td><td className="p-4 text-sm text-right font-bold text-emerald-600">{formatCurrency(tax)}</td></tr>;
+                                    })}
+                                    {filteredInvoices.map(inv => {
+                                        const tax = Number(inv.whtDeducted) || 0;
+                                        if(tax === 0) return null;
+                                        return <tr key={inv.id} className="hover:bg-slate-50/50"><td className="p-4 text-sm font-medium text-slate-700">Client WHT: {inv.client} <span className="text-xs text-slate-400">(Invoice)</span></td><td className="p-4 text-sm text-right font-bold text-emerald-600">{formatCurrency(tax)}</td></tr>;
                                     })}
                                 </tbody>
                             </table>
@@ -826,6 +833,7 @@ function App() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentConfig, setPaymentConfig] = useState(null);
   const [paymentAccount, setPaymentAccount] = useState('bank');
+  const [clientWHT, setClientWHT] = useState(''); // New state for client WHT
   
   const [showSalarySlip, setShowSalarySlip] = useState(false);
 
@@ -951,7 +959,7 @@ function App() {
     let col = { 'manage-users': 'users', 'petty-cash': 'petty_cash', 'expenses': 'expenses', 'salaries': 'salaries', 'bank': 'bank_records', 'clients': 'clients', 'vendors': 'vendors', 'vendor-bills': 'vendor_bills' }[view];
     if (col) saveToFirebase(col, formData, (isEditingRecord || isEditingUser) ? formData.id : null);
   };
-  const initiatePayment = (item, type, amount) => { setPaymentConfig({ data: item, type, amount }); setPaymentAccount('bank'); setShowPaymentModal(true); };
+  const initiatePayment = (item, type, amount) => { setPaymentConfig({ data: item, type, amount }); setPaymentAccount('bank'); setClientWHT(''); setShowPaymentModal(true); };
   const executePayment = async () => {
       if (!paymentConfig) return;
       const { data, type, amount } = paymentConfig; const date = new Date().toISOString().split('T')[0]; const batch = writeBatch(db);
@@ -962,10 +970,14 @@ function App() {
               if (paymentAccount === 'bank') batch.set(doc(collection(db, 'bank_records')), { ...recordData, amount: -Number(amount), bank: 'Linked Payment', status: 'Cleared' });
               else batch.set(doc(collection(db, 'petty_cash')), { ...recordData, cashOut: Number(amount), cashIn: 0 });
           } else if (type === 'invoice') {
-              batch.update(doc(db, 'invoices', data.id), { status: 'Paid' });
+              const wht = Number(clientWHT) || 0;
+              const netReceived = amount - wht;
+              
+              batch.update(doc(db, 'invoices', data.id), { status: 'Paid', whtDeducted: wht, amountReceived: netReceived });
               const recordData = { date, description: `Inv Payment: ${data.client}`, createdAt: new Date().toISOString() };
-              if (paymentAccount === 'bank') batch.set(doc(collection(db, 'bank_records')), { ...recordData, amount: Number(amount), bank: 'Linked Payment', status: 'Cleared' });
-              else batch.set(doc(collection(db, 'petty_cash')), { ...recordData, cashIn: Number(amount), cashOut: 0 });
+              
+              if (paymentAccount === 'bank') batch.set(doc(collection(db, 'bank_records')), { ...recordData, amount: netReceived, bank: 'Linked Payment', status: 'Cleared' });
+              else batch.set(doc(collection(db, 'petty_cash')), { ...recordData, cashIn: netReceived, cashOut: 0 });
           }
           await batch.commit(); setShowPaymentModal(false);
       } catch (e) { console.error(e); alert("Error linking payment."); }
@@ -1239,6 +1251,16 @@ function App() {
                         <p className="text-4xl font-extrabold text-slate-800">{formatCurrency(paymentConfig.amount)}</p>
                     </div>
                     <div className="space-y-6">
+                        {paymentConfig.type === 'invoice' && (
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tax Deducted by Client (WHT)</label>
+                                <input type="number" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold text-rose-600 outline-none focus:ring-2 focus:ring-rose-500" placeholder="0" value={clientWHT} onChange={e => setClientWHT(e.target.value)} />
+                                <div className="flex justify-between mt-2 px-1 text-sm font-medium">
+                                    <span className="text-slate-500">Net Receiving:</span>
+                                    <span className="text-emerald-600 font-bold">{formatCurrency(paymentConfig.amount - (Number(clientWHT) || 0))}</span>
+                                </div>
+                            </div>
+                        )}
                         <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Method</label><div className="flex gap-3"><button onClick={() => setPaymentAccount('bank')} className={`flex-1 py-4 rounded-xl font-bold text-sm border-2 transition-all ${paymentAccount === 'bank' ? 'bg-violet-50 border-violet-500 text-violet-700' : 'bg-white border-slate-100 text-slate-500 hover:border-slate-200'}`}>Bank Transfer</button><button onClick={() => setPaymentAccount('cash')} className={`flex-1 py-4 rounded-xl font-bold text-sm border-2 transition-all ${paymentAccount === 'cash' ? 'bg-violet-50 border-violet-500 text-violet-700' : 'bg-white border-slate-100 text-slate-500 hover:border-slate-200'}`}>Petty Cash</button></div></div>
                         <div className="flex gap-4 pt-4"><button onClick={() => setShowPaymentModal(false)} className="flex-1 py-4 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition-colors">Cancel</button><button onClick={executePayment} className="flex-1 py-4 rounded-xl font-bold bg-violet-600 text-white hover:bg-violet-700 shadow-lg shadow-violet-200 transition-all flex justify-center items-center gap-2">Confirm</button></div>
                     </div>
