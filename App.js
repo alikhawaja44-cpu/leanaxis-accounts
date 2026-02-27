@@ -431,8 +431,9 @@ const SalarySlip = ({ data, onClose }) => {
                     <div class="text-right"><p class="text-xs font-bold text-gray-400 uppercase">Date</p><p class="text-xl font-bold text-gray-800">${data.date}</p></div>
                 </div>
                 <div class="bg-gray-50 p-6 rounded-xl border border-gray-100 mb-6">
-                    <div class="flex justify-between mb-4"><span class="text-gray-600">Basic Salary & Allowances</span><span class="font-bold">${formatCurrency(data.totalPayable)}</span></div>
-                    <div class="flex justify-between text-sm text-gray-500 mb-4"><span>Payment Method</span><span>${data.bankName || 'Cash'} ${data.chequeNumber ? '#' + data.chequeNumber : ''}</span></div>
+                    <div class="flex justify-between mb-2"><span class="text-gray-600">Basic Salary</span><span class="font-bold">${formatCurrency(data.basicSalary || data.totalPayable)}</span></div>
+                    ${data.taxDeduction > 0 ? `<div class="flex justify-between mb-4"><span class="text-rose-600">Tax Deducted</span><span class="font-bold text-rose-600">-${formatCurrency(data.taxDeduction)}</span></div>` : ''}
+                    <div class="flex justify-between text-sm text-gray-500 mb-4 pt-2 border-t border-gray-200"><span>Payment Method</span><span>${data.bankName || 'Cash'} ${data.chequeNumber ? '#' + data.chequeNumber : ''}</span></div>
                     <div class="border-t border-gray-200 pt-4 flex justify-between"><span class="text-xl font-bold">Net Pay</span><span class="text-2xl font-extrabold text-emerald-600">${formatCurrency(data.totalPayable)}</span></div>
                 </div>
                 <div class="text-center text-xs text-gray-400 mt-8"><p>Computer-generated document.</p></div>
@@ -473,12 +474,18 @@ const SalarySlip = ({ data, onClose }) => {
                 </div>
 
                 <div className="bg-slate-50 p-8 rounded-2xl border border-slate-100 mb-8">
-                    <div className="flex justify-between items-center mb-4">
-                        <span className="text-slate-600 font-medium">Basic Salary & Allowances</span>
-                        <span className="text-slate-900 font-bold text-lg">{formatCurrency(data.totalPayable)}</span>
+                    <div className="flex justify-between items-center mb-2">
+                        <span className="text-slate-600 font-medium">Basic Salary</span>
+                        <span className="text-slate-900 font-bold text-lg">{formatCurrency(data.basicSalary || data.totalPayable)}</span>
                     </div>
+                    {data.taxDeduction > 0 && (
+                        <div className="flex justify-between items-center mb-4">
+                            <span className="text-rose-600 font-medium">Tax Deducted</span>
+                            <span className="text-rose-600 font-bold text-lg">-{formatCurrency(data.taxDeduction)}</span>
+                        </div>
+                    )}
                     {data.bankName && (
-                        <div className="flex justify-between items-center text-sm text-slate-500 mb-4">
+                        <div className="flex justify-between items-center text-sm text-slate-500 mb-4 pt-4 border-t border-slate-200">
                             <span>Payment Method</span>
                             <span className="font-medium">{data.bankName} {data.chequeNumber ? `(#${data.chequeNumber})` : ''}</span>
                         </div>
