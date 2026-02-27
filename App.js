@@ -661,7 +661,7 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
 };
 
 // --- TAX REPORT COMPONENT ---
-const TaxReport = ({ invoices, salaries, month, year }) => {
+const TaxReport = ({ invoices, salaries, expenses, month, year }) => {
     const [filterMonth, setFilterMonth] = useState('All');
     const [filterYear, setFilterYear] = useState('All');
 
@@ -680,26 +680,29 @@ const TaxReport = ({ invoices, salaries, month, year }) => {
 
     const filteredInvoices = filter(invoices);
     const filteredSalaries = filter(salaries);
+    const filteredExpenses = filter(expenses);
 
-    const totalSales = filteredInvoices.reduce((acc, inv) => {
-        const { subtotal } = calculateTax(inv.items.reduce((a, i) => a + (i.qty * i.rate), 0), inv.taxRate);
-        return acc + subtotal;
-    }, 0);
-
+    // 1. Output Tax (Liability) - From Invoices
     const outputTax = filteredInvoices.reduce((acc, inv) => {
         const { tax } = calculateTax(inv.items.reduce((a, i) => a + (i.qty * i.rate), 0), inv.taxRate);
         return acc + tax;
     }, 0);
 
-    const withholdingTax = filteredSalaries.reduce((acc, sal) => acc + (Number(sal.taxDeduction) || 0), 0);
-    const totalLiability = outputTax + withholdingTax;
+    // 2. Withholding Tax (Liability) - From Salaries
+    const salaryWHT = filteredSalaries.reduce((acc, sal) => acc + (Number(sal.taxDeduction) || 0), 0);
+
+    // 3. Input Tax (Credit) - From Expenses
+    const expenseTax = filteredExpenses.reduce((acc, exp) => acc + (Number(exp.taxAmount) || 0), 0);
+
+    // Total Liability Calculation
+    const totalLiability = (outputTax + salaryWHT) - expenseTax;
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h2 className="text-3xl font-bold text-slate-900 tracking-tight">Tax Liability Report</h2>
-                    <p className="text-slate-500 font-medium">Government Tax Obligations Analysis</p>
+                    <p className="text-slate-500 font-medium">Net Tax Position (Output + WHT - Input)</p>
                 </div>
                 <div className="flex gap-3 bg-white p-1.5 rounded-2xl shadow-sm ring-1 ring-slate-200">
                     <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={filterMonth} onChange={e=>setFilterMonth(e.target.value)}><option value="All">All Months</option>{['January','February','March','April','May','June','July','August','September','October','November','December'].map(m=><option key={m}>{m}</option>)}</select>
@@ -708,82 +711,77 @@ const TaxReport = ({ invoices, salaries, month, year }) => {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 relative z-10">Sales Tax Collected</p>
-                    <h3 className="text-3xl font-extrabold text-indigo-600 relative z-10">{formatCurrency(outputTax)}</h3>
-                    <p className="text-xs text-slate-400 mt-2 relative z-10">From {filteredInvoices.length} Invoices</p>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Sales Tax (Output)</p>
+                    <h3 className="text-2xl font-extrabold text-indigo-600">{formatCurrency(outputTax)}</h3>
+                    <div className="w-full h-1 bg-indigo-100 mt-3 rounded-full"><div className="h-full bg-indigo-500 rounded-full" style={{width: '100%'}}></div></div>
                 </div>
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-rose-50 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 relative z-10">WHT Deducted</p>
-                    <h3 className="text-3xl font-extrabold text-rose-600 relative z-10">{formatCurrency(withholdingTax)}</h3>
-                    <p className="text-xs text-slate-400 mt-2 relative z-10">From {filteredSalaries.length} Salary Payments</p>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Salary WHT (Liability)</p>
+                    <h3 className="text-2xl font-extrabold text-rose-600">{formatCurrency(salaryWHT)}</h3>
+                    <div className="w-full h-1 bg-rose-100 mt-3 rounded-full"><div className="h-full bg-rose-500 rounded-full" style={{width: '100%'}}></div></div>
+                </div>
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 relative overflow-hidden group">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Expense Tax (Input)</p>
+                    <h3 className="text-2xl font-extrabold text-emerald-600">-{formatCurrency(expenseTax)}</h3>
+                    <div className="w-full h-1 bg-emerald-100 mt-3 rounded-full"><div className="h-full bg-emerald-500 rounded-full" style={{width: '100%'}}></div></div>
                 </div>
                 <div className="bg-slate-900 p-6 rounded-3xl shadow-lg shadow-slate-200 relative overflow-hidden text-white">
-                    <div className="absolute top-0 right-0 w-48 h-48 bg-violet-500/20 rounded-full blur-2xl -mr-10 -mt-10"></div>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 relative z-10">Total Payable to Govt</p>
-                    <h3 className="text-4xl font-extrabold text-white relative z-10">{formatCurrency(totalLiability)}</h3>
-                    <p className="text-xs text-slate-400 mt-2 relative z-10">Net Liability Period Total</p>
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-violet-500/20 rounded-full blur-2xl -mr-10 -mt-10"></div>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 relative z-10">Net Payable</p>
+                    <h3 className="text-3xl font-extrabold text-white relative z-10">{formatCurrency(totalLiability)}</h3>
                 </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                        <h3 className="font-bold text-slate-800">Invoice Tax Breakdown</h3>
-                        <span className="text-xs font-bold bg-indigo-50 text-indigo-600 px-2 py-1 rounded-lg">Output Tax</span>
-                    </div>
-                    <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                    <div className="p-6 border-b border-slate-100"><h3 className="font-bold text-slate-800">Tax Collected (Invoices)</h3></div>
+                    <div className="overflow-x-auto max-h-80 overflow-y-auto">
                         <table className="w-full text-left">
-                            <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider sticky top-0">
-                                <tr><th className="p-4">Date</th><th className="p-4">Client</th><th className="p-4 text-right">Taxable</th><th className="p-4 text-right">Tax</th></tr>
-                            </thead>
+                            <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider sticky top-0"><tr><th className="p-4">Client</th><th className="p-4 text-right">Taxable</th><th className="p-4 text-right">Tax</th></tr></thead>
                             <tbody className="divide-y divide-slate-50">
                                 {filteredInvoices.map(inv => {
                                     const { subtotal, tax } = calculateTax(inv.items.reduce((a, i) => a + (i.qty * i.rate), 0), inv.taxRate);
                                     if(tax === 0) return null;
-                                    return (
-                                        <tr key={inv.id} className="hover:bg-slate-50/50">
-                                            <td className="p-4 text-sm text-slate-500">{inv.date}</td>
-                                            <td className="p-4 text-sm font-bold text-slate-700">{inv.client}</td>
-                                            <td className="p-4 text-sm text-right text-slate-500">{formatCurrency(subtotal)}</td>
-                                            <td className="p-4 text-sm text-right font-bold text-indigo-600">{formatCurrency(tax)} <span className="text-[10px] text-slate-400 font-normal">({inv.taxRate}%)</span></td>
-                                        </tr>
-                                    );
+                                    return <tr key={inv.id} className="hover:bg-slate-50/50"><td className="p-4 text-sm font-bold text-slate-700">{inv.client}</td><td className="p-4 text-sm text-right text-slate-500">{formatCurrency(subtotal)}</td><td className="p-4 text-sm text-right font-bold text-indigo-600">{formatCurrency(tax)}</td></tr>;
                                 })}
                             </tbody>
                         </table>
                     </div>
                 </div>
 
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                        <h3 className="font-bold text-slate-800">Salary Tax Withholding</h3>
-                        <span className="text-xs font-bold bg-rose-50 text-rose-600 px-2 py-1 rounded-lg">Input Tax</span>
+                <div className="space-y-8">
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="p-6 border-b border-slate-100"><h3 className="font-bold text-slate-800">Tax Withheld (Salaries)</h3></div>
+                        <div className="overflow-x-auto max-h-60 overflow-y-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider sticky top-0"><tr><th className="p-4">Employee</th><th className="p-4 text-right">Tax</th></tr></thead>
+                                <tbody className="divide-y divide-slate-50">
+                                    {filteredSalaries.map(sal => {
+                                        const tax = Number(sal.taxDeduction) || 0;
+                                        if(tax === 0) return null;
+                                        return <tr key={sal.id} className="hover:bg-slate-50/50"><td className="p-4 text-sm font-bold text-slate-700">{sal.employeeName}</td><td className="p-4 text-sm text-right font-bold text-rose-600">{formatCurrency(tax)}</td></tr>;
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                    <div className="overflow-x-auto max-h-96 overflow-y-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider sticky top-0">
-                                <tr><th className="p-4">Date</th><th className="p-4">Employee</th><th className="p-4 text-right">Gross Pay</th><th className="p-4 text-right">Tax Deducted</th></tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-50">
-                                {filteredSalaries.map(sal => {
-                                    const tax = Number(sal.taxDeduction) || 0;
-                                    const basic = Number(sal.basicSalary) || Number(sal.totalPayable);
-                                    if(tax === 0) return null;
-                                    return (
-                                        <tr key={sal.id} className="hover:bg-slate-50/50">
-                                            <td className="p-4 text-sm text-slate-500">{sal.date}</td>
-                                            <td className="p-4 text-sm font-bold text-slate-700">{sal.employeeName}</td>
-                                            <td className="p-4 text-sm text-right text-slate-500">{formatCurrency(basic)}</td>
-                                            <td className="p-4 text-sm text-right font-bold text-rose-600">{formatCurrency(tax)}</td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
+
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="p-6 border-b border-slate-100"><h3 className="font-bold text-slate-800">Input Tax (Expenses)</h3></div>
+                        <div className="overflow-x-auto max-h-60 overflow-y-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider sticky top-0"><tr><th className="p-4">Description</th><th className="p-4 text-right">Tax Paid</th></tr></thead>
+                                <tbody className="divide-y divide-slate-50">
+                                    {filteredExpenses.map(exp => {
+                                        const tax = Number(exp.taxAmount) || 0;
+                                        if(tax === 0) return null;
+                                        return <tr key={exp.id} className="hover:bg-slate-50/50"><td className="p-4 text-sm font-medium text-slate-700">{exp.description} <span className="text-xs text-slate-400">({exp.category})</span></td><td className="p-4 text-sm text-right font-bold text-emerald-600">{formatCurrency(tax)}</td></tr>;
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1116,7 +1114,7 @@ function App() {
             </div>
         )}
 
-        {view === 'tax-report' && <TaxReport invoices={invoices} salaries={salaries} month={selectedMonth} year={selectedYear} />}
+        {view === 'tax-report' && <TaxReport invoices={invoices} salaries={salaries} expenses={expenses} month={selectedMonth} year={selectedYear} />}
 
         {view === 'reports' && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -1270,7 +1268,23 @@ function App() {
                             </>
                         )}
                         {view === 'vendor-bills' && <><input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})} /><select className="form-select" value={formData.vendor||''} onChange={e=>setFormData({...formData,vendor:e.target.value})}><option value="">Select Vendor</option>{vendors.map(v=><option key={v.id} value={v.name}>{v.name}</option>)}</select><input placeholder="Bill # / Ref" className="form-input" value={formData.billNumber||''} onChange={e=>setFormData({...formData,billNumber:e.target.value})} /><input placeholder="Description" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})} /><div className="grid grid-cols-2 gap-4"><input type="number" placeholder="Total" className="form-input" value={formData.amount||''} onChange={e=>setFormData({...formData,amount:e.target.value})} /><input type="number" placeholder="Paid" className="form-input" value={formData.paidAmount||''} onChange={e=>setFormData({...formData,paidAmount:e.target.value})} /></div></>}
-                        {view === 'expenses' && <select className="form-select" value={formData.category||'General'} onChange={e=>setFormData({...formData,category:e.target.value})}>{expenseCategories.map(c=><option key={c} value={c}>{c}</option>)}</select>}
+                        {view === 'expenses' && (
+                            <>
+                                <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})} />
+                                <select className="form-select" value={formData.category||'General'} onChange={e=>setFormData({...formData,category:e.target.value})}>{expenseCategories.map(c=><option key={c} value={c}>{c}</option>)}</select>
+                                <input placeholder="Description (e.g. Office Rent)" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})} />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Total Amount</label>
+                                        <input type="number" placeholder="0" className="form-input" value={formData.amount||''} onChange={e=>setFormData({...formData,amount:e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Tax Included (Credit)</label>
+                                        <input type="number" placeholder="0" className="form-input text-emerald-600" value={formData.taxAmount||''} onChange={e=>setFormData({...formData,taxAmount:e.target.value})} />
+                                    </div>
+                                </div>
+                            </>
+                        )}
                         {(view==='salaries'||view==='petty-cash'||view==='expenses') && <div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Payment Details (Optional)</label><div className="grid grid-cols-2 gap-4"><input placeholder="Bank Name" className="form-input bg-white" value={formData.bankName||''} onChange={e=>setFormData({...formData,bankName:e.target.value})} /><input placeholder="Cheque #" className="form-input bg-white" value={formData.chequeNumber||''} onChange={e=>setFormData({...formData,chequeNumber:e.target.value})} /></div></div>}
                         <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-5 rounded-2xl hover:bg-violet-50 transition-colors border-2 border-dashed border-slate-200 hover:border-violet-300 group"><div className="p-2 bg-white rounded-full text-slate-400 group-hover:text-violet-500 shadow-sm"><Upload size={20}/></div><span className="text-sm font-bold text-slate-500 group-hover:text-violet-600">{fileToUpload?fileToUpload.name:"Attach Receipt / Proof"}</span><input type="file" className="hidden" onChange={e=>setFileToUpload(e.target.files[0])}/></label>
                         <button disabled={isSubmitting} className="w-full bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white py-4 rounded-2xl font-bold hover:shadow-lg hover:shadow-violet-200 transition-all transform hover:scale-[1.01] active:scale-95 flex justify-center items-center gap-2">{isSubmitting?<RefreshCw className="animate-spin" size={20}/>:<CheckCircle size={20}/>} {isSubmitting?'Saving...':'Save Record'}</button>
