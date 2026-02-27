@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
   LayoutDashboard, Wallet, Receipt, Users, Building2, Briefcase, Truck,
-  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, FileInput, Settings, FileDown, Search, Filter, FileText, Printer, DollarSign, Percent, CreditCard, Check, Share2, Database, BookOpen, FileCheck
+  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, FileInput, Settings, FileDown, Search, Filter, FileText, Printer, DollarSign, Percent, CreditCard, Check, Share2, Database, BookOpen, FileCheck, Landmark
 } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip as ChartTooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import Papa from "papaparse";
@@ -660,6 +660,137 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
     );
 };
 
+// --- TAX REPORT COMPONENT ---
+const TaxReport = ({ invoices, salaries, month, year }) => {
+    const [filterMonth, setFilterMonth] = useState('All');
+    const [filterYear, setFilterYear] = useState('All');
+
+    useEffect(() => {
+        if (month) setFilterMonth(month);
+        if (year) setFilterYear(year);
+    }, [month, year]);
+
+    const filter = (items) => {
+        return items.filter(i => {
+            const d = new Date(i.date || i.createdAt);
+            return (filterMonth === 'All' || d.toLocaleString('default',{month:'long'}) === filterMonth) && 
+                   (filterYear === 'All' || d.getFullYear().toString() === filterYear);
+        });
+    };
+
+    const filteredInvoices = filter(invoices);
+    const filteredSalaries = filter(salaries);
+
+    const totalSales = filteredInvoices.reduce((acc, inv) => {
+        const { subtotal } = calculateTax(inv.items.reduce((a, i) => a + (i.qty * i.rate), 0), inv.taxRate);
+        return acc + subtotal;
+    }, 0);
+
+    const outputTax = filteredInvoices.reduce((acc, inv) => {
+        const { tax } = calculateTax(inv.items.reduce((a, i) => a + (i.qty * i.rate), 0), inv.taxRate);
+        return acc + tax;
+    }, 0);
+
+    const withholdingTax = filteredSalaries.reduce((acc, sal) => acc + (Number(sal.taxDeduction) || 0), 0);
+    const totalLiability = outputTax + withholdingTax;
+
+    return (
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <h2 className="text-3xl font-bold text-slate-900 tracking-tight">Tax Liability Report</h2>
+                    <p className="text-slate-500 font-medium">Government Tax Obligations Analysis</p>
+                </div>
+                <div className="flex gap-3 bg-white p-1.5 rounded-2xl shadow-sm ring-1 ring-slate-200">
+                    <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={filterMonth} onChange={e=>setFilterMonth(e.target.value)}><option value="All">All Months</option>{['January','February','March','April','May','June','July','August','September','October','November','December'].map(m=><option key={m}>{m}</option>)}</select>
+                    <div className="w-px bg-slate-200 my-1"></div>
+                    <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={filterYear} onChange={e=>setFilterYear(e.target.value)}><option value="All">All Years</option><option>2024</option><option>2025</option><option>2026</option></select>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 relative z-10">Sales Tax Collected</p>
+                    <h3 className="text-3xl font-extrabold text-indigo-600 relative z-10">{formatCurrency(outputTax)}</h3>
+                    <p className="text-xs text-slate-400 mt-2 relative z-10">From {filteredInvoices.length} Invoices</p>
+                </div>
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-rose-50 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 relative z-10">WHT Deducted</p>
+                    <h3 className="text-3xl font-extrabold text-rose-600 relative z-10">{formatCurrency(withholdingTax)}</h3>
+                    <p className="text-xs text-slate-400 mt-2 relative z-10">From {filteredSalaries.length} Salary Payments</p>
+                </div>
+                <div className="bg-slate-900 p-6 rounded-3xl shadow-lg shadow-slate-200 relative overflow-hidden text-white">
+                    <div className="absolute top-0 right-0 w-48 h-48 bg-violet-500/20 rounded-full blur-2xl -mr-10 -mt-10"></div>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 relative z-10">Total Payable to Govt</p>
+                    <h3 className="text-4xl font-extrabold text-white relative z-10">{formatCurrency(totalLiability)}</h3>
+                    <p className="text-xs text-slate-400 mt-2 relative z-10">Net Liability Period Total</p>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                        <h3 className="font-bold text-slate-800">Invoice Tax Breakdown</h3>
+                        <span className="text-xs font-bold bg-indigo-50 text-indigo-600 px-2 py-1 rounded-lg">Output Tax</span>
+                    </div>
+                    <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider sticky top-0">
+                                <tr><th className="p-4">Date</th><th className="p-4">Client</th><th className="p-4 text-right">Taxable</th><th className="p-4 text-right">Tax</th></tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {filteredInvoices.map(inv => {
+                                    const { subtotal, tax } = calculateTax(inv.items.reduce((a, i) => a + (i.qty * i.rate), 0), inv.taxRate);
+                                    if(tax === 0) return null;
+                                    return (
+                                        <tr key={inv.id} className="hover:bg-slate-50/50">
+                                            <td className="p-4 text-sm text-slate-500">{inv.date}</td>
+                                            <td className="p-4 text-sm font-bold text-slate-700">{inv.client}</td>
+                                            <td className="p-4 text-sm text-right text-slate-500">{formatCurrency(subtotal)}</td>
+                                            <td className="p-4 text-sm text-right font-bold text-indigo-600">{formatCurrency(tax)} <span className="text-[10px] text-slate-400 font-normal">({inv.taxRate}%)</span></td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                        <h3 className="font-bold text-slate-800">Salary Tax Withholding</h3>
+                        <span className="text-xs font-bold bg-rose-50 text-rose-600 px-2 py-1 rounded-lg">Input Tax</span>
+                    </div>
+                    <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider sticky top-0">
+                                <tr><th className="p-4">Date</th><th className="p-4">Employee</th><th className="p-4 text-right">Gross Pay</th><th className="p-4 text-right">Tax Deducted</th></tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {filteredSalaries.map(sal => {
+                                    const tax = Number(sal.taxDeduction) || 0;
+                                    const basic = Number(sal.basicSalary) || Number(sal.totalPayable);
+                                    if(tax === 0) return null;
+                                    return (
+                                        <tr key={sal.id} className="hover:bg-slate-50/50">
+                                            <td className="p-4 text-sm text-slate-500">{sal.date}</td>
+                                            <td className="p-4 text-sm font-bold text-slate-700">{sal.employeeName}</td>
+                                            <td className="p-4 text-sm text-right text-slate-500">{formatCurrency(basic)}</td>
+                                            <td className="p-4 text-sm text-right font-bold text-rose-600">{formatCurrency(tax)}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- MAIN APP COMPONENT ---
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useStickyState(false, 'leanaxis_auth');
@@ -895,6 +1026,7 @@ function App() {
         <nav className="flex-1 px-4 space-y-2 overflow-y-auto relative z-10 scrollbar-thin scrollbar-thumb-slate-700">
           <NavButton id="dashboard" icon={LayoutDashboard} label="Dashboard" />
           <NavButton id="reports" icon={FileText} label="Analytics & P&L" />
+          <NavButton id="tax-report" icon={Landmark} label="Tax Liability" />
           <NavButton id="statements" icon={BookOpen} label="Statements (Ledger)" />
           <div className="pt-6 pb-2 px-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Operations</div>
           <NavButton id="quotations" icon={FileCheck} label="Quotations" />
@@ -983,6 +1115,8 @@ function App() {
                 </div>
             </div>
         )}
+
+        {view === 'tax-report' && <TaxReport invoices={invoices} salaries={salaries} month={selectedMonth} year={selectedYear} />}
 
         {view === 'reports' && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
