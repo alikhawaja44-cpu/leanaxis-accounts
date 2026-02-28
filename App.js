@@ -103,6 +103,18 @@ const exportToCSV = (data, filename) => {
   document.body.removeChild(link);
 };
 
+// Helper to ensure html2pdf is loaded
+const loadPdfLibrary = () => {
+  return new Promise((resolve, reject) => {
+    if (window.html2pdf) return resolve(window.html2pdf);
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+    script.onload = () => resolve(window.html2pdf);
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+};
+
 // --- HOOKS ---
 function useFirebaseSync(collectionName, defaultValue = []) {
     const [data, setData] = useState(defaultValue);
@@ -299,21 +311,21 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
         }
     }, [invoiceData.client, clients, viewMode]);
 
-    const handleDownloadPDF = () => {
-        const element = document.getElementById('invoice-content');
-        if (!element) return;
-        const opt = {
-            margin: 0.5,
-            filename: `Invoice_${invoiceData.client}_${invoiceData.date}.pdf`,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2 },
-            jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
-        };
-        // @ts-ignore
-        if (window.html2pdf) {
+    const handleDownloadPDF = async () => {
+        try {
+            await loadPdfLibrary();
+            const element = document.getElementById('invoice-content');
+            if (!element) return;
+            const opt = {
+                margin: 0.5,
+                filename: `Invoice_${invoiceData.client}_${invoiceData.date}.pdf`,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2 },
+                jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+            };
             window.html2pdf().set(opt).from(element).save();
-        } else {
-            alert('PDF library loading... please try again in a moment.');
+        } catch (e) {
+            alert('PDF library failed to load. Please check internet connection.');
         }
     };
 
@@ -424,21 +436,21 @@ const SalarySlip = ({ data, onClose }) => {
         window.open(`https://wa.me/?text=${message}`, '_blank');
     };
 
-    const handlePrint = () => {
-        const element = document.getElementById('salary-slip-content');
-        if (!element) return;
-        const opt = {
-            margin: 0.5,
-            filename: `Salary_Slip_${data.employeeName}_${data.date}.pdf`,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2 },
-            jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
-        };
-        // @ts-ignore
-        if (window.html2pdf) {
+    const handlePrint = async () => {
+        try {
+            await loadPdfLibrary();
+            const element = document.getElementById('salary-slip-content');
+            if (!element) return;
+            const opt = {
+                margin: 0.5,
+                filename: `Salary_Slip_${data.employeeName}_${data.date}.pdf`,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2 },
+                jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+            };
             window.html2pdf().set(opt).from(element).save();
-        } else {
-            alert('PDF library loading... please try again in a moment.');
+        } catch (e) {
+            alert('PDF library failed to load. Please check internet connection.');
         }
     };
 
