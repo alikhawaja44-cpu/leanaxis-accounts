@@ -411,98 +411,79 @@ const SalarySlip = ({ data, onClose }) => {
     };
 
     const handlePrint = () => {
-        // Create a dedicated print window
-        const printWindow = window.open('', '', 'height=800,width=800');
-        printWindow.document.write('<html><head><title>Salary Slip</title>');
-        printWindow.document.write('<script src="https://cdn.tailwindcss.com"></script>'); // Load Tailwind for styling
-        printWindow.document.write('</head><body class="p-8 font-sans">');
-        
-        // Construct the slip HTML manually for the print window to ensure perfect rendering
-        printWindow.document.write(`
-            <div class="max-w-2xl mx-auto border border-gray-200 p-8 rounded-xl">
-                <div class="text-center border-b border-gray-200 pb-6 mb-6">
-                    <h1 class="text-3xl font-bold text-gray-800">LEANAXIS</h1>
-                    <p class="text-gray-500 uppercase tracking-widest text-sm">Creative Agency</p>
-                    <h2 class="text-2xl font-bold text-gray-900 mt-6 uppercase">Payslip</h2>
-                    <p class="text-gray-500">Period: ${new Date(data.date).toLocaleString('default', { month: 'long', year: 'numeric' })}</p>
-                </div>
-                <div class="grid grid-cols-2 gap-8 mb-6">
-                    <div><p class="text-xs font-bold text-gray-400 uppercase">Employee</p><p class="text-xl font-bold text-gray-800">${data.employeeName}</p></div>
-                    <div class="text-right"><p class="text-xs font-bold text-gray-400 uppercase">Date</p><p class="text-xl font-bold text-gray-800">${data.date}</p></div>
-                </div>
-                <div class="bg-gray-50 p-6 rounded-xl border border-gray-100 mb-6">
-                    <div class="flex justify-between mb-2"><span class="text-gray-600">Basic Salary</span><span class="font-bold">${formatCurrency(data.basicSalary || data.totalPayable)}</span></div>
-                    ${data.taxDeduction > 0 ? `<div class="flex justify-between mb-4"><span class="text-rose-600">Tax Deducted</span><span class="font-bold text-rose-600">-${formatCurrency(data.taxDeduction)}</span></div>` : ''}
-                    <div class="flex justify-between text-sm text-gray-500 mb-4 pt-2 border-t border-gray-200"><span>Payment Method</span><span>${data.bankName || 'Cash'} ${data.chequeNumber ? '#' + data.chequeNumber : ''}</span></div>
-                    <div class="border-t border-gray-200 pt-4 flex justify-between"><span class="text-xl font-bold">Net Pay</span><span class="text-2xl font-extrabold text-emerald-600">${formatCurrency(data.totalPayable)}</span></div>
-                </div>
-                <div class="text-center text-xs text-gray-400 mt-8"><p>Computer-generated document.</p></div>
-            </div>
-        `);
-        
-        printWindow.document.write('</body></html>');
-        printWindow.document.close();
-        printWindow.focus();
-        
-        // Wait for Tailwind to load before printing
-        setTimeout(() => {
-            printWindow.print();
-            printWindow.close();
-        }, 1000);
+        const element = document.getElementById('salary-slip-content');
+        if (!element) return;
+        const opt = {
+            margin: 0.5,
+            filename: `Salary_Slip_${data.employeeName}_${data.date}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+        };
+        // @ts-ignore
+        if (window.html2pdf) {
+            window.html2pdf().set(opt).from(element).save();
+        } else {
+            alert('PDF library loading... please try again in a moment.');
+        }
     };
 
     return (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white p-12 rounded-3xl w-full max-w-2xl shadow-2xl relative animate-in zoom-in-95 duration-200">
-                <button onClick={onClose} className="absolute top-6 right-6 p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"><X size={20}/></button>
+            <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl relative animate-in zoom-in-95 duration-200 overflow-hidden flex flex-col max-h-[90vh]">
+                <div className="flex justify-end p-4 bg-slate-50 border-b border-slate-100">
+                    <button onClick={onClose} className="p-2 bg-white rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors shadow-sm"><X size={20}/></button>
+                </div>
                 
-                <div className="text-center border-b border-slate-100 pb-8 mb-8">
-                    <div className="flex justify-center mb-4"><Logo /></div>
-                    <h2 className="text-2xl font-bold text-slate-900 uppercase tracking-widest">Payslip</h2>
-                    <p className="text-slate-400 text-sm font-medium">Period: {new Date(data.date).toLocaleString('default', { month: 'long', year: 'numeric' })}</p>
-                </div>
+                <div className="overflow-y-auto p-8 md:p-12" id="salary-slip-content">
+                    <div className="text-center border-b border-slate-100 pb-8 mb-8">
+                        <div className="flex justify-center mb-4"><Logo /></div>
+                        <h2 className="text-2xl font-bold text-slate-900 uppercase tracking-widest">Payslip</h2>
+                        <p className="text-slate-400 text-sm font-medium">Period: {new Date(data.date).toLocaleString('default', { month: 'long', year: 'numeric' })}</p>
+                    </div>
 
-                <div className="grid grid-cols-2 gap-8 mb-8">
-                    <div>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Employee</p>
-                        <p className="text-xl font-bold text-slate-800">{data.employeeName}</p>
-                    </div>
-                    <div className="text-right">
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Payment Date</p>
-                        <p className="text-xl font-bold text-slate-800">{data.date}</p>
-                    </div>
-                </div>
-
-                <div className="bg-slate-50 p-8 rounded-2xl border border-slate-100 mb-8">
-                    <div className="flex justify-between items-center mb-2">
-                        <span className="text-slate-600 font-medium">Basic Salary</span>
-                        <span className="text-slate-900 font-bold text-lg">{formatCurrency(data.basicSalary || data.totalPayable)}</span>
-                    </div>
-                    {data.taxDeduction > 0 && (
-                        <div className="flex justify-between items-center mb-4">
-                            <span className="text-rose-600 font-medium">Tax Deducted</span>
-                            <span className="text-rose-600 font-bold text-lg">-{formatCurrency(data.taxDeduction)}</span>
+                    <div className="grid grid-cols-2 gap-8 mb-8">
+                        <div>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Employee</p>
+                            <p className="text-xl font-bold text-slate-800">{data.employeeName}</p>
                         </div>
-                    )}
-                    {data.bankName && (
-                        <div className="flex justify-between items-center text-sm text-slate-500 mb-4 pt-4 border-t border-slate-200">
-                            <span>Payment Method</span>
-                            <span className="font-medium">{data.bankName} {data.chequeNumber ? `(#${data.chequeNumber})` : ''}</span>
+                        <div className="text-right">
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Payment Date</p>
+                            <p className="text-xl font-bold text-slate-800">{data.date}</p>
                         </div>
-                    )}
-                    <div className="border-t-2 border-slate-200 mt-4 pt-4 flex justify-between items-center">
-                        <span className="text-xl font-bold text-slate-800">Net Pay</span>
-                        <span className="text-3xl font-extrabold text-emerald-600">{formatCurrency(data.totalPayable)}</span>
+                    </div>
+
+                    <div className="bg-slate-50 p-8 rounded-2xl border border-slate-100 mb-8">
+                        <div className="flex justify-between items-center mb-2">
+                            <span className="text-slate-600 font-medium">Basic Salary</span>
+                            <span className="text-slate-900 font-bold text-lg">{formatCurrency(data.basicSalary || data.totalPayable)}</span>
+                        </div>
+                        {data.taxDeduction > 0 && (
+                            <div className="flex justify-between items-center mb-4">
+                                <span className="text-rose-600 font-medium">Tax Deducted</span>
+                                <span className="text-rose-600 font-bold text-lg">-{formatCurrency(data.taxDeduction)}</span>
+                            </div>
+                        )}
+                        {data.bankName && (
+                            <div className="flex justify-between items-center text-sm text-slate-500 mb-4 pt-4 border-t border-slate-200">
+                                <span>Payment Method</span>
+                                <span className="font-medium">{data.bankName} {data.chequeNumber ? `(#${data.chequeNumber})` : ''}</span>
+                            </div>
+                        )}
+                        <div className="border-t-2 border-slate-200 mt-4 pt-4 flex justify-between items-center">
+                            <span className="text-xl font-bold text-slate-800">Net Pay</span>
+                            <span className="text-3xl font-extrabold text-emerald-600">{formatCurrency(data.totalPayable)}</span>
+                        </div>
+                    </div>
+
+                    <div className="text-center pt-8 mt-8 border-t border-slate-100">
+                        <p className="text-slate-400 text-xs italic">This is a computer-generated document.</p>
+                        <p className="text-slate-900 font-bold mt-2">LeanAxis Creative Agency</p>
                     </div>
                 </div>
 
-                <div className="text-center pt-8 mt-8 border-t border-slate-100">
-                    <p className="text-slate-400 text-xs italic">This is a computer-generated document.</p>
-                    <p className="text-slate-900 font-bold mt-2">LeanAxis Creative Agency</p>
-                </div>
-
-                <div className="mt-8 flex gap-4">
-                    <button onClick={handlePrint} className="flex-1 bg-white border border-slate-200 text-slate-700 py-4 rounded-xl font-bold hover:bg-slate-50 transition-colors flex justify-center items-center gap-2"><Printer size={20}/> Print PDF</button>
+                <div className="p-6 border-t border-slate-100 bg-slate-50 flex gap-4">
+                    <button onClick={handlePrint} className="flex-1 bg-white border border-slate-200 text-slate-700 py-4 rounded-xl font-bold hover:bg-slate-50 transition-colors flex justify-center items-center gap-2 shadow-sm"><Printer size={20}/> Download PDF</button>
                     <button onClick={handleWhatsApp} className="flex-1 bg-[#25D366] text-white py-4 rounded-xl font-bold hover:bg-[#20bd5a] transition-colors shadow-lg shadow-green-200 flex justify-center items-center gap-2"><Share2 size={20}/> Send via WhatsApp</button>
                 </div>
             </div>
