@@ -299,10 +299,22 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
         }
     }, [invoiceData.client, clients, viewMode]);
 
-    const handleShareWhatsApp = () => {
-        if (!invoiceData.client || total === 0) return alert("Please select a client and add items first.");
-        const message = `*INVOICE* from LeanAxis Agency%0A` + `To: ${invoiceData.client}%0A` + `Date: ${invoiceData.date}%0A%0A` + invoiceData.items.map(item => `- ${item.desc}: Rs ${item.rate * item.qty}`).join('%0A') + `%0A%0A*Total: ${formatCurrency(total)}*`;
-        window.open(`https://wa.me/?text=${message}`, '_blank');
+    const handleDownloadPDF = () => {
+        const element = document.getElementById('invoice-content');
+        if (!element) return;
+        const opt = {
+            margin: 0.5,
+            filename: `Invoice_${invoiceData.client}_${invoiceData.date}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+        };
+        // @ts-ignore
+        if (window.html2pdf) {
+            window.html2pdf().set(opt).from(element).save();
+        } else {
+            alert('PDF library loading... please try again in a moment.');
+        }
     };
 
     if (viewMode === 'list') {
@@ -365,31 +377,33 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
             <div className="flex justify-between items-center mb-8">
                 <button onClick={() => setViewMode('list')} className="text-slate-400 hover:text-violet-600 flex items-center gap-2 text-sm font-bold transition-colors group"><ArrowDownLeft className="rotate-90 group-hover:-translate-x-1 transition-transform" size={16}/> Back to List</button>
             </div>
-            <div className="flex flex-col md:flex-row justify-between items-start mb-10 border-b border-slate-100 pb-8 gap-6">
-                <div>
-                    <img src="./logo.png" alt="LeanAxis" className="h-14 object-contain mb-4" onError={(e)=>{e.target.style.display='none'}}/>
-                    <h2 className="text-4xl font-bold text-slate-900 hidden">INVOICE</h2>
-                    <p className="text-slate-500 font-medium">Creative Agency & Solutions</p>
+            <div id="invoice-content" className="p-4">
+                <div className="flex flex-col md:flex-row justify-between items-start mb-10 border-b border-slate-100 pb-8 gap-6">
+                    <div>
+                        <img src="./logo.png" alt="LeanAxis" className="h-14 object-contain mb-4" onError={(e)=>{e.target.style.display='none'}}/>
+                        <h2 className="text-4xl font-bold text-slate-900 hidden">INVOICE</h2>
+                        <p className="text-slate-500 font-medium">Creative Agency & Solutions</p>
+                    </div>
+                    <div className="text-left md:text-right">
+                        <div className="bg-violet-100 text-violet-700 font-bold py-1.5 px-4 rounded-lg text-sm mb-3 inline-block shadow-sm">DRAFT INVOICE</div>
+                        <p className="text-slate-400 font-medium">Date: {invoiceData.date}</p>
+                    </div>
                 </div>
-                <div className="text-left md:text-right">
-                    <div className="bg-violet-100 text-violet-700 font-bold py-1.5 px-4 rounded-lg text-sm mb-3 inline-block shadow-sm">DRAFT INVOICE</div>
-                    <p className="text-slate-400 font-medium">Date: {invoiceData.date}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10 bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                    <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Bill To</label><select className="w-full border-none bg-white p-4 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-violet-500 outline-none" value={invoiceData.client} onChange={e => setInvoiceData({...invoiceData, client: e.target.value})}><option value="">Select Client</option>{clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select></div>
+                    <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Details</label><div className="flex gap-3"><input type="date" className="w-full border-none bg-white p-4 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-violet-500 outline-none text-slate-600" value={invoiceData.date} onChange={e => setInvoiceData({...invoiceData, date: e.target.value})} /><input type="number" placeholder="Tax %" className="w-32 border-none bg-white p-4 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-violet-500 outline-none" value={invoiceData.taxRate} onChange={e => setInvoiceData({...invoiceData, taxRate: e.target.value})} /></div></div>
                 </div>
+                <div className="overflow-x-auto mb-8">
+                    <table className="w-full min-w-[600px]">
+                        <thead><tr className="border-b border-slate-200"><th className="pb-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-left pl-4">Description</th><th className="pb-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-24 text-center">Qty</th><th className="pb-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-36 text-right">Rate</th><th className="pb-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-40 text-right pr-4">Amount</th><th className="w-10"></th></tr></thead>
+                        <tbody className="divide-y divide-slate-100">{invoiceData.items.map((item, i) => (<tr key={i} className="group"><td className="py-4 pl-4"><input className="w-full bg-transparent outline-none font-medium text-slate-700 placeholder-slate-300" placeholder="Item description" value={item.desc} onChange={e => updateItem(i, 'desc', e.target.value)} /></td><td className="py-4 text-center"><input type="number" className="w-full bg-transparent outline-none text-slate-600 text-center" value={item.qty} onChange={e => updateItem(i, 'qty', Number(e.target.value))} /></td><td className="py-4 text-right"><input type="number" className="w-full bg-transparent outline-none text-slate-600 text-right" value={item.rate} onChange={e => updateItem(i, 'rate', Number(e.target.value))} /></td><td className="py-4 text-right pr-4 font-bold text-slate-800">{formatCurrency(item.qty * item.rate)}</td><td className="py-4 text-center"><button onClick={() => removeItem(i)} className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={16}/></button></td></tr>))}</tbody>
+                    </table>
+                </div>
+                <button onClick={addItem} className="flex items-center gap-2 text-sm font-bold text-violet-600 hover:text-violet-800 mb-10 px-4 py-2 hover:bg-violet-50 rounded-lg transition-colors w-max"><Plus size={16}/> Add Line Item</button>
+                <div className="flex justify-end mb-10"><div className="w-full md:w-80 space-y-4 bg-slate-50 p-6 rounded-2xl border border-slate-100"><div className="flex justify-between text-sm text-slate-500 font-medium"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div><div className="flex justify-between text-sm text-slate-500 font-medium"><span>Tax ({invoiceData.taxRate}%)</span><span>{formatCurrency(tax)}</span></div><div className="flex justify-between text-2xl font-bold text-slate-800 border-t border-slate-200 pt-4 mt-2"><span>Total</span><span className="text-violet-600">{formatCurrency(total)}</span></div></div></div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10 bg-slate-50 p-6 rounded-2xl border border-slate-100">
-                <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Bill To</label><select className="w-full border-none bg-white p-4 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-violet-500 outline-none" value={invoiceData.client} onChange={e => setInvoiceData({...invoiceData, client: e.target.value})}><option value="">Select Client</option>{clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select></div>
-                <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Details</label><div className="flex gap-3"><input type="date" className="w-full border-none bg-white p-4 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-violet-500 outline-none text-slate-600" value={invoiceData.date} onChange={e => setInvoiceData({...invoiceData, date: e.target.value})} /><input type="number" placeholder="Tax %" className="w-32 border-none bg-white p-4 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-violet-500 outline-none" value={invoiceData.taxRate} onChange={e => setInvoiceData({...invoiceData, taxRate: e.target.value})} /></div></div>
-            </div>
-            <div className="overflow-x-auto mb-8">
-                <table className="w-full min-w-[600px]">
-                    <thead><tr className="border-b border-slate-200"><th className="pb-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-left pl-4">Description</th><th className="pb-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-24 text-center">Qty</th><th className="pb-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-36 text-right">Rate</th><th className="pb-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-40 text-right pr-4">Amount</th><th className="w-10"></th></tr></thead>
-                    <tbody className="divide-y divide-slate-100">{invoiceData.items.map((item, i) => (<tr key={i} className="group"><td className="py-4 pl-4"><input className="w-full bg-transparent outline-none font-medium text-slate-700 placeholder-slate-300" placeholder="Item description" value={item.desc} onChange={e => updateItem(i, 'desc', e.target.value)} /></td><td className="py-4 text-center"><input type="number" className="w-full bg-transparent outline-none text-slate-600 text-center" value={item.qty} onChange={e => updateItem(i, 'qty', Number(e.target.value))} /></td><td className="py-4 text-right"><input type="number" className="w-full bg-transparent outline-none text-slate-600 text-right" value={item.rate} onChange={e => updateItem(i, 'rate', Number(e.target.value))} /></td><td className="py-4 text-right pr-4 font-bold text-slate-800">{formatCurrency(item.qty * item.rate)}</td><td className="py-4 text-center"><button onClick={() => removeItem(i)} className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={16}/></button></td></tr>))}</tbody>
-                </table>
-            </div>
-            <button onClick={addItem} className="flex items-center gap-2 text-sm font-bold text-violet-600 hover:text-violet-800 mb-10 px-4 py-2 hover:bg-violet-50 rounded-lg transition-colors w-max"><Plus size={16}/> Add Line Item</button>
-            <div className="flex justify-end mb-10"><div className="w-full md:w-80 space-y-4 bg-slate-50 p-6 rounded-2xl border border-slate-100"><div className="flex justify-between text-sm text-slate-500 font-medium"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div><div className="flex justify-between text-sm text-slate-500 font-medium"><span>Tax ({invoiceData.taxRate}%)</span><span>{formatCurrency(tax)}</span></div><div className="flex justify-between text-2xl font-bold text-slate-800 border-t border-slate-200 pt-4 mt-2"><span>Total</span><span className="text-violet-600">{formatCurrency(total)}</span></div></div></div>
             <div className="flex flex-col md:flex-row gap-4 print:hidden">
-                <button onClick={() => window.print()} className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 py-4 rounded-xl font-bold hover:bg-slate-50 transition-colors"><Printer size={18}/> Print / PDF</button>
+                <button onClick={handleDownloadPDF} className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 py-4 rounded-xl font-bold hover:bg-slate-50 transition-colors"><Printer size={18}/> Download PDF</button>
                 <button onClick={handleShareWhatsApp} className="flex-1 flex items-center justify-center gap-2 bg-[#25D366] text-white py-4 rounded-xl font-bold hover:bg-[#20bd5a] transition-colors shadow-lg shadow-green-200"><Share2 size={18}/> WhatsApp</button>
                 <button onClick={() => { onSave(invoiceData); setViewMode('list'); }} className="flex-1 flex items-center justify-center gap-2 bg-violet-600 text-white py-4 rounded-xl font-bold hover:bg-violet-700 transition-colors shadow-lg shadow-violet-200"><CheckCircle size={18}/> Save Invoice</button>
             </div>
