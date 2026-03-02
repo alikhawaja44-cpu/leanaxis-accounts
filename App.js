@@ -145,9 +145,17 @@ function useExpenseCategories() {
 }
 
 // --- LOGIN COMPONENT ---
-const LoginView = ({ onLogin, loading, error }) => {
+const LoginView = ({ onLogin, loading: externalLoading, error }) => {
   const [loginInput, setLoginInput] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    await onLogin(loginInput, password);
+    setIsLoading(false);
+  };
+  const loading = externalLoading || isLoading;
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0F172A] font-sans p-4 relative overflow-hidden">
       {/* Dynamic Background */}
@@ -159,7 +167,7 @@ const LoginView = ({ onLogin, loading, error }) => {
            <div className="hidden text-white font-bold text-5xl tracking-tight mb-2">LEAN<span className="text-violet-400">AXIS</span></div>
            <p className="text-slate-400 text-xs font-bold uppercase tracking-[0.3em]">Creative Agency</p>
         </div>
-        <form onSubmit={(e)=>{e.preventDefault(); onLogin(loginInput, password);}} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Username</label>
             <div className="relative group">
@@ -323,6 +331,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                 html2canvas: { scale: 2 },
                 jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
             };
+            // @ts-ignore
             window.html2pdf().set(opt).from(element).save();
         } catch (e) {
             alert('PDF library failed to load. Please check internet connection.');
@@ -450,6 +459,7 @@ const SalarySlip = ({ data, onClose }) => {
             };
             window.html2pdf().set(opt).from(element).save();
         } catch (e) {
+            console.error(e);
             alert('PDF library failed to load. Please check internet connection.');
         }
     };
@@ -843,6 +853,7 @@ function App() {
   const [clientWHT, setClientWHT] = useState(''); // New state for client WHT
   
   const [showSalarySlip, setShowSalarySlip] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
 
   const [pettyCash] = useFirebaseSync('petty_cash');
   const [expenses] = useFirebaseSync('expenses');
@@ -1095,7 +1106,7 @@ function App() {
       <main className="md:ml-80 min-h-screen pt-24 md:pt-10 p-6 md:p-10 transition-all duration-300">
         <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-10 gap-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
             <div>
-                <h2 className="text-4xl font-extrabold text-slate-900 capitalize tracking-tight mb-1">{view.replace('-', ' ')}</h2>
+                <h2 className="text-4xl font-extrabold text-slate-900 capitalize tracking-tight mb-1">{view.replace(/-/g, ' ')}</h2>
                 <p className="text-slate-500 font-medium">Overview & Management</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-4 w-full xl:w-auto">
@@ -1132,7 +1143,7 @@ function App() {
                     <div key={i} className="bg-white p-6 rounded-3xl shadow-sm hover:shadow-xl transition-all duration-300 border border-slate-100 group">
                         <div className="flex justify-between items-start mb-4">
                             <div className={`p-4 rounded-2xl ring-1 ${s.b} ${s.c} transition-transform group-hover:scale-110 duration-300`}><s.i size={28}/></div>
-                            <span className={`text-xs font-bold px-2 py-1 rounded-full ${s.profit>=0?'bg-emerald-100 text-emerald-700':'bg-slate-100 text-slate-500'}`}>YTD</span>
+                            <span className={`text-xs font-bold px-2 py-1 rounded-full ${totals.profit>=0?'bg-emerald-100 text-emerald-700':'bg-slate-100 text-slate-500'}`}>YTD</span>
                         </div>
                         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">{s.l}</p>
                         <h3 className="text-3xl font-extrabold text-slate-900 tracking-tight">{formatCurrency(s.v)}</h3>
@@ -1176,7 +1187,18 @@ function App() {
         {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => handleDelete(id, 'invoice')} onGenerateRecurring={handleGenerateRecurring} onReceivePayment={(inv, amt) => initiatePayment(inv, 'invoice', amt)} />}
 
         {/* GENERIC TABLE RENDERER */}
-        {['clients','vendors','petty-cash','expenses','salaries','bank','manage-users','vendor-bills'].includes(view) && (
+        {['clients','vendors','petty-cash','expenses','salaries','bank','manage-users','vendor-bills'].includes(view) && (() => {
+            const currentData = view==='clients'?filteredClients:view==='vendors'?filteredVendors:view==='vendor-bills'?filteredBills:view==='expenses'?filteredExp:view==='petty-cash'?filteredPetty:view==='salaries'?filteredSal:view==='bank'?bankRecords:users;
+            if (currentData.length === 0) {
+                return (
+                    <div className="bg-white p-16 rounded-3xl shadow-sm border border-slate-100 text-center animate-in fade-in zoom-in-95 duration-300">
+                        <div className="bg-slate-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"><FileText className="text-slate-300" size={40} /></div>
+                        <h3 className="text-lg font-bold text-slate-800 mb-1">No records found</h3>
+                        <p className="text-slate-500 text-sm">Click "New Entry" to add your first record.</p>
+                    </div>
+                );
+            }
+            return (
             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-300">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left min-w-[900px]">
@@ -1186,22 +1208,28 @@ function App() {
                                 {view==='vendors' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Vendor</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Type</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Total</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Paid</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Due</th></>}
                                 {view==='vendor-bills' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Bill #</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Vendor</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Desc</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Bill Total</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">WHT</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Net Payable</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Paid</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Due</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th></>}
                                 {view==='expenses' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Category</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Desc</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Amount</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Payment Details</th></>}
-                                {view==='manage-users' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Username</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Email</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Role</th></>}
-                                {view==='petty-cash' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Desc</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Out</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">In</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Details</th></>}
+                                {view==='petty-cash' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Description</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Cash Out</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Cash In</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Payment Details</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">Actions</th></>}
+                                {view==='salaries' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Employee</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Net Salary</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Tax Deducted</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Basic</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">Actions</th></>}
+                                {view==='bank' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Bank</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Amount</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">Actions</th></>}
+                                {view==='manage-users' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Username</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Email</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Role</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">Actions</th></>}
+                                {view==='petty-cash' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Desc</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Out</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">In</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Balance</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Details</th></>}
                                 {view==='salaries' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Employee</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Net Salary</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Tax Deducted</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Basic Salary</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th></>}
                                 {view==='bank' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Bank</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Amount</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th></>}
                                 <th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                            {(view==='clients'?filteredClients:view==='vendors'?filteredVendors:view==='vendor-bills'?filteredBills:view==='expenses'?filteredExp:view==='petty-cash'?filteredPetty:view==='salaries'?filteredSal:view==='bank'?bankRecords:users).map(item => (
+                            {(view==='clients'?filteredClients:view==='vendors'?filteredVendors:view==='vendor-bills'?filteredBills:view==='expenses'?filteredExp:view==='petty-cash'?filteredPetty:view==='salaries'?filteredSal:view==='bank'?bankRecords:users).map((item, idx, arr) => {
+                                // Calculate running balance for petty cash
+                                const pettyCashBalance = view === 'petty-cash' ? arr.slice(0, idx + 1).reduce((bal, r) => bal + (Number(r.cashIn)||0) - (Number(r.cashOut)||0), 0) : null;
+                                return (
                                 <tr key={item.id} className="hover:bg-slate-50/80 transition-colors group">
                                     {view==='clients' && <><td className="p-6 text-sm text-slate-500 font-medium">{item.date}</td><td className="p-6 font-bold text-slate-800 text-base">{item.name}</td><td className="p-6 text-right font-medium text-slate-600">{formatCurrency(item.projectTotal)}</td><td className="p-6 text-right text-emerald-600 font-bold">{formatCurrency(item.advanceReceived)}</td><td className="p-6 text-right text-rose-600 font-bold">{formatCurrency((item.projectTotal||0)-(item.advanceReceived||0))}</td><td className="p-6"><span className="px-3 py-1.5 bg-violet-100 text-violet-700 rounded-lg text-xs font-bold uppercase tracking-wide">{item.status}</span></td></>}
-                                    {view==='vendors' && <><td className="p-6 font-bold text-slate-800">{item.name}</td><td className="p-6 font-bold text-slate-800">{item.name}</td><td className="p-6 text-sm text-slate-500">{item.serviceType}</td><td className="p-6 text-right font-medium text-slate-600">{formatCurrency(item.amountPayable)}</td><td className="p-6 text-right text-emerald-600 font-medium">{formatCurrency(item.amountPaid)}</td><td className="p-6 text-right text-rose-600 font-bold">{formatCurrency((item.amountPayable||0)-(item.amountPaid||0))}</td></>}
+                                    {view==='vendors' && <><td className="p-6 font-bold text-slate-800">{item.name}</td><td className="p-6 text-sm text-slate-500">{item.serviceType}</td><td className="p-6 text-right font-medium text-slate-600">{formatCurrency(item.amountPayable)}</td><td className="p-6 text-right text-emerald-600 font-medium">{formatCurrency(item.amountPaid)}</td><td className="p-6 text-right text-rose-600 font-bold">{formatCurrency((item.amountPayable||0)-(item.amountPaid||0))}</td></>}
                                     {view==='vendor-bills' && (() => { const due = Number(item.amount) - Number(item.paidAmount); const isPaid = due <= 0; const wht = Number(item.taxDeduction) || 0; const gross = (Number(item.amount) + wht); return (<><td className="p-6 text-sm text-slate-500">{item.date}</td><td className="p-6 font-bold text-slate-800">{item.billNumber}</td><td className="p-6 font-bold text-violet-600">{item.vendor}</td><td className="p-6 text-sm text-slate-500">{item.description}</td><td className="p-6 text-right font-medium text-slate-600">{formatCurrency(gross)}</td><td className="p-6 text-right font-medium text-rose-600">{wht > 0 ? `-${formatCurrency(wht)}` : '-'}</td><td className="p-6 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-6 text-right text-emerald-600 font-medium">{formatCurrency(item.paidAmount)}</td><td className="p-6 text-right text-rose-600 font-bold">{formatCurrency(due)}</td><td className="p-6"><span className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase ${isPaid ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700'}`}>{isPaid ? 'Paid' : 'Due'}</span></td><td className="p-6 text-center flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">{!isPaid && <button onClick={() => initiatePayment(item, 'bill', due)} className="p-2 bg-violet-600 text-white rounded-xl hover:bg-violet-700 transition-colors shadow-sm" title="Pay Now"><CreditCard size={16}/></button>}<ActionButtons item={item} type="bill" /></td></>); })()}
                                     {view==='expenses' && <><td className="p-6 text-sm text-slate-500">{item.date}</td><td className="p-6"><span className="px-3 py-1.5 bg-fuchsia-50 text-fuchsia-700 rounded-lg text-xs font-bold tracking-wide">{item.category}</span></td><td className="p-6 text-sm font-medium text-slate-700">{item.description}</td><td className="p-6 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-6 text-xs text-slate-500 font-medium">{item.bankName ? <span className="flex items-center gap-1"><CreditCard size={12}/> {item.bankName} - {item.chequeNumber}</span> : 'Cash'}</td></>}
                                     {view==='manage-users' && <><td className="p-6 font-bold text-slate-800">{item.username}</td><td className="p-6 text-sm text-slate-600">{item.email}</td><td className="p-6"><span className="px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg text-xs font-bold">{item.role}</span></td></>}
-                                    {view==='petty-cash' && <><td className="p-6 text-sm text-slate-500">{item.date}</td><td className="p-6 text-sm font-bold text-slate-700">{item.description}</td><td className="p-6 text-right font-bold text-rose-600">{item.cashOut?formatCurrency(item.cashOut):'-'}</td><td className="p-6 text-right font-bold text-emerald-600">{item.cashIn?formatCurrency(item.cashIn):'-'}</td><td className="p-6 text-xs font-medium text-slate-500">{item.bankName ? `${item.bankName} - ${item.chequeNumber}` : 'Cash'}</td></>}
+                                    {view==='petty-cash' && <><td className="p-6 text-sm text-slate-500">{item.date}</td><td className="p-6 text-sm font-bold text-slate-700">{item.description}</td><td className="p-6 text-right font-bold text-rose-600">{item.cashOut?formatCurrency(item.cashOut):'-'}</td><td className="p-6 text-right font-bold text-emerald-600">{item.cashIn?formatCurrency(item.cashIn):'-'}</td><td className="p-6 text-right font-bold text-violet-600">{formatCurrency(pettyCashBalance)}</td><td className="p-6 text-xs font-medium text-slate-500">{item.bankName ? `${item.bankName} - ${item.chequeNumber}` : 'Cash'}</td></>}
                                     {view==='salaries' && <><td className="p-6 text-sm text-slate-500">{item.date}</td><td className="p-6 font-bold text-slate-800">{item.employeeName}</td><td className="p-6 text-right"><div className="font-bold text-slate-800">{formatCurrency(item.totalPayable)}</div><div className="text-xs text-slate-400">Net Salary</div></td><td className="p-6 text-right"><div className="font-medium text-rose-600">-{formatCurrency(item.taxDeduction || 0)}</div><div className="text-xs text-slate-400">Tax</div></td><td className="p-6 text-right"><div className="font-medium text-slate-600">{formatCurrency(item.basicSalary || item.totalPayable)}</div><div className="text-xs text-slate-400">Basic</div></td><td className="p-6"><span className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase ${item.status==='Paid'?'bg-emerald-100 text-emerald-700':item.status==='Pending'?'bg-amber-100 text-amber-700':'bg-slate-100 text-slate-600'}`}>{item.status || 'Unpaid'}</span></td></>}
                                     {view==='bank' && <><td className="p-6 text-sm text-slate-500">{item.date}</td><td className="p-6 font-bold text-blue-600">{item.bank}</td><td className="p-6 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-6"><span className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase ${item.status==='Cleared'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'}`}>{item.status}</span></td></>}
                                     
@@ -1216,14 +1244,15 @@ function App() {
                                         </td>
                                     )}
                                 </tr>
-                            ))}
+                            );
+                            })}
                         </tbody>
                     </table>
                 </div>
             </div>
-        )}
+            );
+        })()}
 
-        {/* SETTINGS VIEW */}
         {view === 'settings' && (
             <div className="bg-white p-10 rounded-3xl shadow-sm border border-slate-100 max-w-2xl mx-auto mt-10">
                 <h3 className="text-2xl font-bold mb-8 text-slate-800 flex items-center gap-3"><div className="p-3 bg-violet-100 rounded-xl text-violet-600"><Settings size={24}/></div> Configuration</h3>
@@ -1282,8 +1311,17 @@ function App() {
                     <form onSubmit={handleAddSubmit} className="space-y-6">
                          {/* DYNAMIC FORM FIELDS BASED ON VIEW - STYLED CONSISTENTLY */}
                         {view==='manage-users' && <><input required placeholder="Username" className="form-input" value={formData.username||''} onChange={e=>setFormData({...formData,username:e.target.value})}/><input type="email" required placeholder="Email" className="form-input" value={formData.email||''} onChange={e=>setFormData({...formData,email:e.target.value})}/><input type="password" placeholder="Password (leave blank to keep)" className="form-input" value={formData.password||''} onChange={e=>setFormData({...formData,password:e.target.value})}/><select className="form-select" value={formData.role||'Viewer'} onChange={e=>setFormData({...formData,role:e.target.value})}><option>Viewer</option><option>Editor</option><option>Admin</option></select></>}
-                        {view==='clients' && <><input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input required placeholder="Client Name" className="form-input" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/><input type="number" placeholder="Project Total" className="form-input" value={formData.projectTotal||''} onChange={e=>setFormData({...formData,projectTotal:e.target.value})}/><input type="number" placeholder="Advance Received" className="form-input" value={formData.advanceReceived||''} onChange={e=>setFormData({...formData,advanceReceived:e.target.value})}/><select className="form-select" value={formData.status||'Ongoing'} onChange={e=>setFormData({...formData,status:e.target.value})}><option>Ongoing</option><option>Completed</option></select></>}
-                        {!['manage-users','clients','vendor-bills','salaries'].includes(view) && <><input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input placeholder="Description/Name" className="form-input" value={formData.description||formData.name||''} onChange={e=>setFormData({...formData,[view==='vendors'?'name':'description']:e.target.value})}/><input type="number" placeholder="Amount" className="form-input" value={formData.amount||formData.cashOut||formData.amountPayable||''} onChange={e=>setFormData({...formData,[view==='petty-cash'?'cashOut':view==='vendors'?'amountPayable':'amount']:e.target.value})}/></>}
+                        {view==='clients' && <><input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input required placeholder="Client Name" className="form-input" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/><input placeholder="Project Name" className="form-input" value={formData.projectName||''} onChange={e=>setFormData({...formData,projectName:e.target.value})}/><input type="number" placeholder="Project Total" className="form-input" value={formData.projectTotal||''} onChange={e=>setFormData({...formData,projectTotal:e.target.value})}/><input type="number" placeholder="Advance Received" className="form-input" value={formData.advanceReceived||''} onChange={e=>setFormData({...formData,advanceReceived:e.target.value})}/><input type="number" placeholder="Monthly Retainer Amount (if any)" className="form-input" value={formData.retainerAmount||''} onChange={e=>setFormData({...formData,retainerAmount:e.target.value})}/><select className="form-select" value={formData.status||'Ongoing'} onChange={e=>setFormData({...formData,status:e.target.value})}><option>Ongoing</option><option>Completed</option></select></>}
+                        {!['manage-users','clients','vendor-bills','salaries','vendors','petty-cash'].includes(view) && <><input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input placeholder="Description/Name" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})}/><input type="number" placeholder="Amount" className="form-input" value={formData.amount||''} onChange={e=>setFormData({...formData,amount:e.target.value})}/></>}
+                        {view==='petty-cash' && <>
+                            <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/>
+                            <input placeholder="Description" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})}/>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Cash Out (Expense)</label><input type="number" placeholder="0" className="form-input text-rose-600" value={formData.cashOut||''} onChange={e=>setFormData({...formData,cashOut:e.target.value,cashIn:formData.cashIn||''})} /></div>
+                                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Cash In (Receipt)</label><input type="number" placeholder="0" className="form-input text-emerald-600" value={formData.cashIn||''} onChange={e=>setFormData({...formData,cashIn:e.target.value,cashOut:formData.cashOut||''})} /></div>
+                            </div>
+                        </>}
+                        {view==='vendors' && <><input required placeholder="Vendor / Supplier Name" className="form-input" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/><input placeholder="Service Type (e.g. Printing, Media)" className="form-input" value={formData.serviceType||''} onChange={e=>setFormData({...formData,serviceType:e.target.value})}/><input placeholder="Contact / Phone" className="form-input" value={formData.contact||''} onChange={e=>setFormData({...formData,contact:e.target.value})}/><input type="number" placeholder="Total Amount Payable" className="form-input" value={formData.amountPayable||''} onChange={e=>setFormData({...formData,amountPayable:e.target.value})}/><input type="number" placeholder="Amount Paid So Far" className="form-input" value={formData.amountPaid||''} onChange={e=>setFormData({...formData,amountPaid:e.target.value})}/></>}
                         {view === 'salaries' && (
                             <>
                                 <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})} />
