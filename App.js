@@ -103,6 +103,32 @@ const exportToCSV = (data, filename) => {
   document.body.removeChild(link);
 };
 
+// --- TOAST NOTIFICATION SYSTEM ---
+const ToastContext = React.createContext(null);
+const ToastProvider = ({ children }) => {
+    const [toasts, setToasts] = useState([]);
+    const addToast = (message, type = 'success') => {
+        const id = Date.now();
+        setToasts(prev => [...prev, { id, message, type }]);
+        setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+    };
+    const removeToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
+    return (
+        <ToastContext.Provider value={addToast}>
+            {children}
+            <div className="fixed bottom-6 right-6 z-[100] flex flex-col gap-3 pointer-events-none">
+                {toasts.map(toast => (
+                    <div key={toast.id} className={`pointer-events-auto flex items-center gap-4 px-5 py-4 rounded-2xl shadow-2xl text-white font-bold text-sm max-w-sm animate-in slide-in-from-right-4 duration-300 ${toast.type === 'success' ? 'bg-emerald-600' : toast.type === 'error' ? 'bg-rose-600' : toast.type === 'warning' ? 'bg-amber-500' : 'bg-slate-800'}`}>
+                        <span className="flex-1">{toast.message}</span>
+                        <button onClick={() => removeToast(toast.id)} className="opacity-70 hover:opacity-100 transition-opacity flex-shrink-0"><X size={16}/></button>
+                    </div>
+                ))}
+            </div>
+        </ToastContext.Provider>
+    );
+};
+const useToast = () => React.useContext(ToastContext);
+
 // Helper to ensure html2pdf is loaded
 const loadPdfLibrary = () => {
   return new Promise((resolve, reject) => {
@@ -291,12 +317,23 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
 
 // --- INVOICE GENERATOR ---
 const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onGenerateRecurring, onReceivePayment }) => {
+    const toast = useToast();
     const [viewMode, setViewMode] = useState('list'); 
-    const [invoiceData, setInvoiceData] = useState({ client: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0 });
+    const [invoiceData, setInvoiceData] = useState({ client: '', date: new Date().toISOString().split('T')[0], dueDate: '', items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0 });
+    const [invoiceNumber, setInvoiceNumber] = useState(() => `INV-${Date.now().toString().slice(-6)}`);
+    const [invSearch, setInvSearch] = useState('');
+    const [invStatusFilter, setInvStatusFilter] = useState('All');
+    const [invMonthFilter, setInvMonthFilter] = useState('All');
     const addItem = () => setInvoiceData({...invoiceData, items: [...invoiceData.items, { desc: '', qty: 1, rate: 0 }]});
     const updateItem = (index, field, val) => { const newItems = [...invoiceData.items]; newItems[index][field] = val; setInvoiceData({...invoiceData, items: newItems}); };
     const removeItem = (index) => { if(invoiceData.items.length > 1) setInvoiceData({...invoiceData, items: invoiceData.items.filter((_, i) => i !== index)}); };
     const { subtotal, tax, total } = calculateTax(invoiceData.items.reduce((acc, item) => acc + (item.qty * item.rate), 0), invoiceData.taxRate);
+
+    const handleShareWhatsApp = () => {
+        if (!invoiceData.client || total === 0) return toast('Please select a client and add items first.', 'warning');
+        const message = `*INVOICE* from LeanAxis Agency%0ATo: ${invoiceData.client}%0AInvoice #: ${invoiceNumber}%0ADate: ${invoiceData.date}%0A%0A` + invoiceData.items.map(item => `- ${item.desc}: Rs ${item.rate * item.qty}`).join('%0A') + `%0A%0ASubtotal: ${formatCurrency(subtotal)}%0ATax (${invoiceData.taxRate}%): ${formatCurrency(tax)}%0A*Total: ${formatCurrency(total)}*`;
+        window.open(`https://wa.me/?text=${message}`, '_blank');
+    };
 
     useEffect(() => {
         if (invoiceData.client && viewMode === 'create') {
@@ -308,9 +345,9 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                     const retainer = Number(client.retainerAmount);
                     if (retainer > 0) newItems.push({ desc: 'Monthly Retainer Service', qty: 1, rate: retainer });
                     else {
-                        const total = Number(client.projectTotal) || 0;
+                        const t = Number(client.projectTotal) || 0;
                         const advance = Number(client.advanceReceived) || 0;
-                        const balance = total - advance;
+                        const balance = t - advance;
                         if (balance > 0) newItems.push({ desc: `Balance Payment for ${client.projectName || 'Project'}`, qty: 1, rate: balance });
                     }
                     if (newItems.length > 0) setInvoiceData(prev => ({ ...prev, items: newItems }));
@@ -324,64 +361,91 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
             await loadPdfLibrary();
             const element = document.getElementById('invoice-content');
             if (!element) return;
-            const opt = {
-                margin: 0.5,
-                filename: `Invoice_${invoiceData.client}_${invoiceData.date}.pdf`,
-                image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2 },
-                jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
-            };
-            // @ts-ignore
+            const opt = { margin: 0.5, filename: `Invoice_${invoiceNumber}_${invoiceData.client}_${invoiceData.date}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' } };
             window.html2pdf().set(opt).from(element).save();
-        } catch (e) {
-            alert('PDF library failed to load. Please check internet connection.');
-        }
+            toast('PDF downloaded!', 'success');
+        } catch (e) { toast('PDF library failed to load.', 'error'); }
     };
+
+    const displayedInvoices = useMemo(() => {
+        return savedInvoices.filter(inv => {
+            const matchSearch = !invSearch || inv.client?.toLowerCase().includes(invSearch.toLowerCase()) || (inv.invoiceNumber || '').toLowerCase().includes(invSearch.toLowerCase());
+            const matchStatus = invStatusFilter === 'All' || (inv.status || 'Draft') === invStatusFilter;
+            const matchMonth = invMonthFilter === 'All' || new Date(inv.date).toLocaleString('default', { month: 'long' }) === invMonthFilter;
+            return matchSearch && matchStatus && matchMonth;
+        });
+    }, [savedInvoices, invSearch, invStatusFilter, invMonthFilter]);
+
+    const invStats = useMemo(() => {
+        const paid = savedInvoices.filter(i => i.status === 'Paid').reduce((a, inv) => a + calculateTax((inv.items || []).reduce((s, it) => s + (it.qty * it.rate), 0), inv.taxRate).total, 0);
+        const unpaid = savedInvoices.filter(i => i.status !== 'Paid').reduce((a, inv) => a + calculateTax((inv.items || []).reduce((s, it) => s + (it.qty * it.rate), 0), inv.taxRate).total, 0);
+        const today = new Date(); today.setHours(0,0,0,0);
+        const overdue = savedInvoices.filter(i => i.status !== 'Paid' && i.dueDate && new Date(i.dueDate) < today).length;
+        return { paid, unpaid, overdue };
+    }, [savedInvoices]);
 
     if (viewMode === 'list') {
         return (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Invoices</h2>
-                    <div className="flex gap-2 w-full sm:w-auto">
-                         <label className="flex-1 sm:flex-none bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-50 transition-all cursor-pointer shadow-sm hover:shadow">
-                            <Upload size={18}/> <span className="hidden sm:inline">Import</span> <input type="file" className="hidden" accept=".csv" onChange={(e) => {
-                                const file = e.target.files[0];
-                                if(file) Papa.parse(file, { header: true, complete: async (results) => { const batch = writeBatch(db); results.data.forEach(row => { if(row.client) { const ref = doc(collection(db, 'invoices')); batch.set(ref, { ...row, createdAt: new Date().toISOString() }); } }); await batch.commit(); alert(`Imported ${results.data.length} invoices!`); } });
-                            }}/>
+                    <div className="flex gap-2 w-full sm:w-auto flex-wrap">
+                        <label className="flex-1 sm:flex-none bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-50 transition-all cursor-pointer shadow-sm">
+                            <Upload size={18}/> <span className="hidden sm:inline">Import</span>
+                            <input type="file" className="hidden" accept=".csv" onChange={(e) => { const file = e.target.files[0]; if(file) Papa.parse(file, { header: true, complete: async (results) => { const batch = writeBatch(db); results.data.forEach(row => { if(row.client) { const ref = doc(collection(db, 'invoices')); batch.set(ref, { ...row, createdAt: new Date().toISOString() }); } }); await batch.commit(); toast(`Imported ${results.data.length} invoices!`, 'success'); } }); }}/>
                         </label>
-                        <button onClick={() => exportToCSV(savedInvoices, 'Invoices_Export')} className="flex-1 sm:flex-none bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-50 transition-all shadow-sm hover:shadow"><Download size={18}/> <span className="hidden sm:inline">Export</span></button>
-                        <div className="hidden sm:block w-px bg-slate-300 mx-1"></div>
-                        <button onClick={onGenerateRecurring} className="flex-1 sm:flex-none bg-white border border-violet-200 text-violet-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-violet-50 transition-all shadow-sm hover:shadow-violet-100"><RefreshCw size={18}/> Retainers</button>
-                        <button onClick={() => { setInvoiceData({ client: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0 }); setViewMode('create'); }} className="flex-1 sm:flex-none bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:shadow-lg hover:shadow-violet-200 transition-all hover:scale-105 active:scale-95"><Plus size={18}/> Create</button>
+                        <button onClick={() => exportToCSV(savedInvoices, 'Invoices_Export')} className="flex-1 sm:flex-none bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-50 transition-all shadow-sm"><Download size={18}/> <span className="hidden sm:inline">Export</span></button>
+                        <button onClick={onGenerateRecurring} className="flex-1 sm:flex-none bg-white border border-violet-200 text-violet-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-violet-50 transition-all shadow-sm"><RefreshCw size={18}/> Retainers</button>
+                        <button onClick={() => { setInvoiceData({ client: '', date: new Date().toISOString().split('T')[0], dueDate: '', items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0 }); setInvoiceNumber(`INV-${Date.now().toString().slice(-6)}`); setViewMode('create'); }} className="flex-1 sm:flex-none bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:shadow-lg hover:shadow-violet-200 transition-all hover:scale-105 active:scale-95"><Plus size={18}/> Create</button>
                     </div>
                 </div>
-                {savedInvoices.length === 0 ? (
+                <div className="grid grid-cols-3 gap-4">
+                    <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl"><p className="text-xs font-bold text-emerald-600 uppercase tracking-widest mb-1">Collected</p><p className="text-xl font-extrabold text-emerald-800">{formatCurrency(invStats.paid)}</p></div>
+                    <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl"><p className="text-xs font-bold text-amber-600 uppercase tracking-widest mb-1">Outstanding</p><p className="text-xl font-extrabold text-amber-800">{formatCurrency(invStats.unpaid)}</p></div>
+                    <div className={`${invStats.overdue > 0 ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-100'} border p-4 rounded-2xl`}><p className={`text-xs font-bold uppercase tracking-widest mb-1 ${invStats.overdue > 0 ? 'text-rose-600' : 'text-slate-400'}`}>Overdue</p><p className={`text-xl font-extrabold ${invStats.overdue > 0 ? 'text-rose-800' : 'text-slate-600'}`}>{invStats.overdue} invoice{invStats.overdue !== 1 ? 's' : ''}</p></div>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="relative flex-1"><Search className="absolute left-3 top-3 text-slate-400" size={18}/><input className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none" placeholder="Search by client or invoice #..." value={invSearch} onChange={e => setInvSearch(e.target.value)}/></div>
+                    <div className="flex gap-1 bg-white border border-slate-200 p-1 rounded-xl flex-shrink-0">
+                        {['All','Draft','Paid','Unpaid'].map(s => <button key={s} onClick={() => setInvStatusFilter(s)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${invStatusFilter===s ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-500 hover:text-violet-600'}`}>{s}</button>)}
+                    </div>
+                    <select className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-sm font-bold text-slate-600 outline-none flex-shrink-0" value={invMonthFilter} onChange={e => setInvMonthFilter(e.target.value)}>
+                        <option value="All">All Months</option>
+                        {['January','February','March','April','May','June','July','August','September','October','November','December'].map(m => <option key={m}>{m}</option>)}
+                    </select>
+                </div>
+                {displayedInvoices.length === 0 ? (
                     <div className="bg-white p-16 rounded-3xl shadow-sm border border-slate-100 text-center">
                         <div className="bg-slate-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"><FileText className="text-slate-300" size={40} /></div>
-                        <h3 className="text-lg font-bold text-slate-800 mb-1">No invoices yet</h3>
-                        <p className="text-slate-500 text-sm">Create your first invoice to get started.</p>
+                        <h3 className="text-lg font-bold text-slate-800 mb-1">{savedInvoices.length === 0 ? 'No invoices yet' : 'No matching invoices'}</h3>
+                        <p className="text-slate-500 text-sm">{savedInvoices.length === 0 ? 'Create your first invoice to get started.' : 'Try adjusting your search or filters.'}</p>
                     </div>
                 ) : (
                     <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
                         <table className="w-full text-left">
                             <thead className="bg-slate-50/50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider">
-                                <tr><th className="p-6">Date</th><th className="p-6">Client</th><th className="p-6 text-right">Total</th><th className="p-6 text-center">Status</th><th className="p-6 text-center">Actions</th></tr>
+                                <tr><th className="p-5">Inv #</th><th className="p-5">Date</th><th className="p-5">Due</th><th className="p-5">Client</th><th className="p-5 text-right">Total</th><th className="p-5 text-center">Status</th><th className="p-5 text-center">Actions</th></tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
-                                {savedInvoices.map(inv => {
-                                    const invTotal = calculateTax(inv.items.reduce((a, i) => a + (i.qty * i.rate), 0), inv.taxRate).total;
+                                {displayedInvoices.map(inv => {
+                                    const invTotal = calculateTax((inv.items || []).reduce((a, i) => a + (i.qty * i.rate), 0), inv.taxRate).total;
                                     const isPaid = inv.status === 'Paid';
+                                    const today = new Date(); today.setHours(0,0,0,0);
+                                    const isOverdue = !isPaid && inv.dueDate && new Date(inv.dueDate) < today;
                                     return (
-                                        <tr key={inv.id} className="hover:bg-slate-50/50 transition-colors group">
-                                            <td className="p-6 text-sm text-slate-500 font-medium">{inv.date}</td>
-                                            <td className="p-6 font-bold text-slate-800 text-base">{inv.client}</td>
-                                            <td className="p-6 text-right font-bold text-violet-600 text-base">{formatCurrency(invTotal)}</td>
-                                            <td className="p-6 text-center"><span className={`px-3 py-1.5 rounded-full text-xs font-bold shadow-sm ${isPaid ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{inv.status || 'Draft'}</span></td>
-                                            <td className="p-6 text-center flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                {!isPaid && <button onClick={() => onReceivePayment(inv, invTotal)} className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors" title="Mark Paid"><CheckCircle size={18} /></button>}
-                                                <button onClick={() => { setInvoiceData(inv); setViewMode('create'); }} className="p-2 text-violet-400 bg-violet-50 hover:bg-violet-100 rounded-lg transition-colors"><Edit size={18} /></button>
-                                                <button onClick={() => onDeleteInvoice(inv.id)} className="p-2 text-rose-400 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                                        <tr key={inv.id} className={`hover:bg-slate-50/50 transition-colors group ${isOverdue ? 'bg-rose-50/20' : ''}`}>
+                                            <td className="p-5 text-xs font-mono text-violet-600 font-bold">{inv.invoiceNumber || '—'}</td>
+                                            <td className="p-5 text-sm text-slate-500 font-medium">{inv.date}</td>
+                                            <td className="p-5 text-sm">{inv.dueDate ? <span className={isOverdue ? 'text-rose-600 font-bold' : 'text-slate-500'}>{isOverdue ? '⚠ ' : ''}{inv.dueDate}</span> : <span className="text-slate-300">—</span>}</td>
+                                            <td className="p-5 font-bold text-slate-800">{inv.client}</td>
+                                            <td className="p-5 text-right font-bold text-violet-600">{formatCurrency(invTotal)}</td>
+                                            <td className="p-5 text-center"><span className={`px-3 py-1.5 rounded-full text-xs font-bold ${isPaid ? 'bg-emerald-100 text-emerald-700' : isOverdue ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>{isPaid ? 'Paid' : isOverdue ? 'Overdue' : (inv.status || 'Draft')}</span></td>
+                                            <td className="p-5 text-center">
+                                                <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {!isPaid && <button onClick={() => onReceivePayment(inv, invTotal)} className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors" title="Mark Paid"><CheckCircle size={18}/></button>}
+                                                    <button onClick={() => { setInvoiceData(inv); setInvoiceNumber(inv.invoiceNumber || `INV-${Date.now().toString().slice(-6)}`); setViewMode('create'); }} className="p-2 text-violet-400 bg-violet-50 hover:bg-violet-100 rounded-lg transition-colors"><Edit size={18}/></button>
+                                                    <button onClick={() => onDeleteInvoice(inv.id)} className="p-2 text-rose-400 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"><Trash2 size={18}/></button>
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -402,17 +466,25 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                 <div className="flex flex-col md:flex-row justify-between items-start mb-10 border-b border-slate-100 pb-8 gap-6">
                     <div>
                         <img src="./logo.png" alt="LeanAxis" className="h-14 object-contain mb-4" onError={(e)=>{e.target.style.display='none'}}/>
-                        <h2 className="text-4xl font-bold text-slate-900 hidden">INVOICE</h2>
                         <p className="text-slate-500 font-medium">Creative Agency & Solutions</p>
                     </div>
                     <div className="text-left md:text-right">
-                        <div className="bg-violet-100 text-violet-700 font-bold py-1.5 px-4 rounded-lg text-sm mb-3 inline-block shadow-sm">DRAFT INVOICE</div>
-                        <p className="text-slate-400 font-medium">Date: {invoiceData.date}</p>
+                        <div className="bg-violet-100 text-violet-700 font-bold py-1.5 px-4 rounded-lg text-sm mb-2 inline-block shadow-sm">INVOICE</div>
+                        <p className="text-slate-700 font-bold text-lg">#{invoiceNumber}</p>
+                        <p className="text-slate-400 font-medium text-sm">Date: {invoiceData.date}</p>
+                        {invoiceData.dueDate && <p className="text-rose-500 font-medium text-sm">Due: {invoiceData.dueDate}</p>}
                     </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10 bg-slate-50 p-6 rounded-2xl border border-slate-100">
                     <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Bill To</label><select className="w-full border-none bg-white p-4 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-violet-500 outline-none" value={invoiceData.client} onChange={e => setInvoiceData({...invoiceData, client: e.target.value})}><option value="">Select Client</option>{clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select></div>
-                    <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Details</label><div className="flex gap-3"><input type="date" className="w-full border-none bg-white p-4 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-violet-500 outline-none text-slate-600" value={invoiceData.date} onChange={e => setInvoiceData({...invoiceData, date: e.target.value})} /><input type="number" placeholder="Tax %" className="w-32 border-none bg-white p-4 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-violet-500 outline-none" value={invoiceData.taxRate} onChange={e => setInvoiceData({...invoiceData, taxRate: e.target.value})} /></div></div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Dates & Tax</label>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div><label className="text-xs text-slate-400 mb-1 block">Invoice Date</label><input type="date" className="w-full border-none bg-white p-3 rounded-xl text-sm font-semibold shadow-sm focus:ring-2 focus:ring-violet-500 outline-none text-slate-600" value={invoiceData.date} onChange={e => setInvoiceData({...invoiceData, date: e.target.value})} /></div>
+                            <div><label className="text-xs text-slate-400 mb-1 block">Due Date</label><input type="date" className="w-full border-none bg-white p-3 rounded-xl text-sm font-semibold shadow-sm focus:ring-2 focus:ring-rose-400 outline-none text-slate-600" value={invoiceData.dueDate || ''} onChange={e => setInvoiceData({...invoiceData, dueDate: e.target.value})} /></div>
+                            <div className="col-span-2"><label className="text-xs text-slate-400 mb-1 block">Tax Rate (%)</label><input type="number" placeholder="0" className="w-full border-none bg-white p-3 rounded-xl text-sm font-semibold shadow-sm focus:ring-2 focus:ring-violet-500 outline-none" value={invoiceData.taxRate} onChange={e => setInvoiceData({...invoiceData, taxRate: e.target.value})} /></div>
+                        </div>
+                    </div>
                 </div>
                 <div className="overflow-x-auto mb-8">
                     <table className="w-full min-w-[600px]">
@@ -426,7 +498,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
             <div className="flex flex-col md:flex-row gap-4 print:hidden">
                 <button onClick={handleDownloadPDF} className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 py-4 rounded-xl font-bold hover:bg-slate-50 transition-colors"><Printer size={18}/> Download PDF</button>
                 <button onClick={handleShareWhatsApp} className="flex-1 flex items-center justify-center gap-2 bg-[#25D366] text-white py-4 rounded-xl font-bold hover:bg-[#20bd5a] transition-colors shadow-lg shadow-green-200"><Share2 size={18}/> WhatsApp</button>
-                <button onClick={() => { onSave(invoiceData); setViewMode('list'); }} className="flex-1 flex items-center justify-center gap-2 bg-violet-600 text-white py-4 rounded-xl font-bold hover:bg-violet-700 transition-colors shadow-lg shadow-violet-200"><CheckCircle size={18}/> Save Invoice</button>
+                <button onClick={() => { onSave({...invoiceData, invoiceNumber}); setViewMode('list'); }} className="flex-1 flex items-center justify-center gap-2 bg-violet-600 text-white py-4 rounded-xl font-bold hover:bg-violet-700 transition-colors shadow-lg shadow-violet-200"><CheckCircle size={18}/> Save Invoice</button>
             </div>
         </div>
     );
@@ -832,6 +904,7 @@ const TaxReport = ({ invoices, salaries, expenses, vendorBills, month, year }) =
 
 // --- MAIN APP COMPONENT ---
 function App() {
+  const toast = useToast();
   const [isAuthenticated, setIsAuthenticated] = useStickyState(false, 'leanaxis_auth');
   const [currentUser, setCurrentUser] = useStickyState(null, 'leanaxis_current_user');
   const [imgbbKey, setImgbbKey] = useStickyState('', 'leanaxis_imgbb_key'); 
@@ -878,27 +951,35 @@ function App() {
   }, [users, usersLoading]);
 
   const handleLogin = async (loginInput, password) => {
+      setAuthError(null);
+      setIsSubmitting(true);
       const inputHash = await hashPassword(password);
       const user = users.find(u => u.username === loginInput || u.email === loginInput);
       if (user) {
           if (user.password === password || user.password === inputHash) {
-              setIsAuthenticated(true); setCurrentUser(user); 
+              setIsAuthenticated(true); setCurrentUser(user); setIsSubmitting(false);
               if (user.password === password) updateDoc(doc(db, 'users', user.id), { password: inputHash });
               return;
           }
       }
-      if (users.length === 0 && loginInput === 'admin' && password === 'admin123') { setIsAuthenticated(true); setCurrentUser({ username: 'admin', role: 'Admin' }); return; }
+      if (users.length === 0 && loginInput === 'admin' && password === 'admin123') { setIsAuthenticated(true); setCurrentUser({ username: 'admin', role: 'Admin' }); setIsSubmitting(false); return; }
       setAuthError('Invalid credentials');
+      setIsSubmitting(false);
   };
 
   const handleLogout = () => { setIsAuthenticated(false); setCurrentUser(null); setView('dashboard'); };
-  const deleteRecord = async (collectionName, id) => { if(confirm('Are you sure you want to delete this record?')) await deleteDoc(doc(db, collectionName, id)); };
+  const deleteRecord = async (collectionName, id) => { 
+    if(confirm('Are you sure you want to delete this record? This cannot be undone.')) {
+      await deleteDoc(doc(db, collectionName, id));
+      toast('Record deleted.', 'info');
+    }
+  };
   const handleDelete = (id, type) => {
-    if (currentUser.role !== 'Admin') return alert('Access Denied');
+    if (currentUser.role !== 'Admin') return toast('Access denied. Admin role required.', 'error');
     const map = { 'petty': 'petty_cash', 'expense': 'expenses', 'salary': 'salaries', 'bank': 'bank_records', 'client': 'clients', 'vendor': 'vendors', 'user': 'users', 'invoice': 'invoices', 'bill': 'vendor_bills', 'quotation': 'quotations' };
     if (map[type]) deleteRecord(map[type], id);
   };
-  const handleEdit = (item) => { if (currentUser.role !== 'Admin') return alert('Access Denied'); setFormData({ ...item }); setIsEditingRecord(true); setShowForm(true); };
+  const handleEdit = (item) => { if (currentUser.role !== 'Admin') return toast('Access denied. Admin role required.', 'error'); setFormData({ ...item }); setIsEditingRecord(true); setShowForm(true); };
   const handleDuplicate = (item) => { const { id, createdAt, lastEditedAt, ...dataToCopy } = item; setFormData({ ...dataToCopy, date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); };
   
   const handleMasterExport = () => {
@@ -919,8 +1000,8 @@ function App() {
             for (const [key, colName] of Object.entries(collections)) {
                 if (importedData[key]) importedData[key].forEach(item => { const { id, ...data } = item; const ref = doc(collection(db, colName)); batch.set(ref, data); count++; });
             }
-            await batch.commit(); alert(`Successfully imported ${count} records!`); window.location.reload();
-        } catch (error) { console.error("Import failed:", error); alert("Failed to import data."); }
+            await batch.commit(); toast(`Successfully imported ${count} records!`, 'success'); window.location.reload();
+        } catch (error) { console.error("Import failed:", error); toast("Failed to import data. Check file format.", 'error'); }
     };
     reader.readAsText(file);
   };
@@ -936,7 +1017,7 @@ function App() {
               }
           }
       }
-      alert(`Generated ${count} recurring invoices!`);
+      toast(`Generated ${count} recurring invoice${count !== 1 ? 's' : ''}!`, count > 0 ? 'success' : 'info');
   };
   
   const handleConvertToInvoice = async (quote) => {
@@ -948,10 +1029,10 @@ function App() {
           
           // 2. Update Quote Status
           await updateDoc(doc(db, 'quotations', quote.id), { status: 'Converted' });
-          alert("Converted to Invoice successfully!");
+          toast('Quotation converted to Invoice!', 'success');
       } catch (e) {
           console.error(e);
-          alert("Error converting quotation.");
+          toast('Error converting quotation.', 'error');
       }
   };
 
@@ -970,7 +1051,8 @@ function App() {
           if (id) await updateDoc(doc(db, collectionName, id), { ...finalData, lastEditedBy: currentUser.username });
           else await addDoc(collection(db, collectionName), { ...finalData, addedBy: currentUser.username, createdAt: new Date().toISOString() });
           setShowForm(false); setFormData({}); setFileToUpload(null); setIsEditingRecord(false); setIsEditingUser(false);
-      } catch (e) { alert("Error saving"); console.error(e); } finally { setIsSubmitting(false); }
+          toast('Record saved successfully!', 'success');
+      } catch (e) { toast('Error saving record. Please try again.', 'error'); console.error(e); } finally { setIsSubmitting(false); }
   };
   const handleAddSubmit = (e) => {
     e.preventDefault();
@@ -997,8 +1079,8 @@ function App() {
               if (paymentAccount === 'bank') batch.set(doc(collection(db, 'bank_records')), { ...recordData, amount: netReceived, bank: 'Linked Payment', status: 'Cleared' });
               else batch.set(doc(collection(db, 'petty_cash')), { ...recordData, cashIn: netReceived, cashOut: 0 });
           }
-          await batch.commit(); setShowPaymentModal(false);
-      } catch (e) { console.error(e); alert("Error linking payment."); }
+          await batch.commit(); setShowPaymentModal(false); toast('Payment recorded successfully!', 'success');
+      } catch (e) { console.error(e); toast('Error linking payment. Please try again.', 'error'); }
   };
   const filterData = (items) => {
     let res = items;
@@ -1017,15 +1099,52 @@ function App() {
   const filteredBills = useMemo(() => filterData(vendorBills), [vendorBills, selectedMonth, selectedYear, searchTerm]);
 
   const totals = useMemo(() => {
-    const rev = filteredClients.reduce((a,c) => a + (Number(c.advanceReceived)||0), 0) + filteredPetty.reduce((a,c) => a + (Number(c.cashIn)||0), 0);
+    // Revenue = sum of paid invoices (amountReceived or calculated total) + petty cash in
+    const paidInvoiceRevenue = invoices.filter(inv => inv.status === 'Paid').reduce((a, inv) => {
+      const received = Number(inv.amountReceived);
+      if (received > 0) return a + received;
+      return a + calculateTax((inv.items || []).reduce((s, it) => s + ((it.qty || 0) * (it.rate || 0)), 0), inv.taxRate).total;
+    }, 0);
+    const pettyCashIn = filteredPetty.reduce((a,c) => a + (Number(c.cashIn)||0), 0);
+    const rev = paidInvoiceRevenue + pettyCashIn;
     const exp = filteredExp.reduce((a,c) => a + (Number(c.amount)||0), 0) + filteredSal.reduce((a,c) => a + (Number(c.totalPayable)||0), 0) + filteredPetty.reduce((a,c) => a + (Number(c.cashOut)||0), 0);
     const totalVendorBills = filteredBills.reduce((a,c) => a + (Number(c.amount)||0), 0);
     const totalVendorPaid = filteredBills.reduce((a,c) => a + (Number(c.paidAmount)||0), 0);
-    return { revenue: rev, expense: exp, profit: rev - exp, vendorPending: totalVendorBills - totalVendorPaid, clientPending: clients.reduce((a,c) => a + ((Number(c.projectTotal)||0) - (Number(c.advanceReceived)||0)), 0) };
-  }, [filteredPetty, filteredExp, filteredSal, clients, vendors, filteredBills]);
+    const unpaidInvoicesTotal = invoices.filter(inv => inv.status !== 'Paid').reduce((a, inv) => a + calculateTax((inv.items || []).reduce((s, it) => s + ((it.qty||0) * (it.rate||0)), 0), inv.taxRate).total, 0);
+    const today = new Date(); today.setHours(0,0,0,0);
+    const overdueCount = invoices.filter(inv => inv.status !== 'Paid' && inv.dueDate && new Date(inv.dueDate) < today).length;
+    return { revenue: rev, expense: exp, profit: rev - exp, vendorPending: totalVendorBills - totalVendorPaid, clientPending: unpaidInvoicesTotal, overdueCount };
+  }, [filteredPetty, filteredExp, filteredSal, invoices, filteredBills]);
 
   const expenseChartData = [ { name: 'Petty', value: filteredPetty.reduce((a,c) => a+(Number(c.cashOut)||0),0) }, { name: 'Expenses', value: filteredExp.reduce((a,c) => a+(Number(c.amount)||0),0) }, { name: 'Salaries', value: filteredSal.reduce((a,c) => a+(Number(c.totalPayable)||0),0) } ].filter(d => d.value > 0);
-  const COLORS = ['#8B5CF6', '#EC4899', '#F59E0B']; // New Violet/Pink theme colors
+  const COLORS = ['#8B5CF6', '#EC4899', '#F59E0B'];
+
+  // Monthly revenue vs expense bar chart (last 6 months)
+  const monthlyChartData = useMemo(() => {
+    const months = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(); d.setMonth(d.getMonth() - i); d.setDate(1);
+      const monthName = d.toLocaleString('default', { month: 'short' });
+      const year = d.getFullYear();
+      const monthFull = d.toLocaleString('default', { month: 'long' });
+      const rev = invoices.filter(inv => inv.status === 'Paid' && new Date(inv.date).getMonth() === d.getMonth() && new Date(inv.date).getFullYear() === year).reduce((a, inv) => a + calculateTax((inv.items||[]).reduce((s,it) => s+(it.qty*it.rate),0), inv.taxRate).total, 0);
+      const exp = [...expenses, ...salaries, ...pettyCash].filter(r => { const rd = new Date(r.date || r.createdAt); return rd.getMonth() === d.getMonth() && rd.getFullYear() === year; }).reduce((a, r) => a + (Number(r.amount || r.totalPayable || r.cashOut) || 0), 0);
+      months.push({ name: monthName, Revenue: Math.round(rev), Expenses: Math.round(exp) });
+    }
+    return months;
+  }, [invoices, expenses, salaries, pettyCash]);
+
+  // Dynamic year list from data
+  const availableYears = useMemo(() => {
+    const years = new Set();
+    [...invoices, ...expenses, ...salaries, ...pettyCash, ...bankRecords].forEach(r => {
+      const y = new Date(r.date || r.createdAt).getFullYear();
+      if (!isNaN(y)) years.add(y);
+    });
+    const currentYear = new Date().getFullYear();
+    years.add(currentYear); years.add(currentYear + 1);
+    return Array.from(years).sort((a,b) => b - a);
+  }, [invoices, expenses, salaries, pettyCash, bankRecords]);
 
   const NavButton = ({ id, icon: Icon, label }) => (
     <button onClick={() => { setView(id); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-2xl transition-all duration-200 group relative overflow-hidden ${view === id ? 'bg-white text-violet-700 shadow-xl shadow-violet-900/10' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
@@ -1049,7 +1168,7 @@ function App() {
       Papa.parse(file, { header: true, complete: async (results) => { if (results.data.length === 0) return alert("File empty!"); if (!confirm(`Import ${results.data.length} records?`)) return; const batch = writeBatch(db); results.data.forEach(row => { if (Object.values(row).some(v => v)) { const ref = doc(collection(db, collectionName)); batch.set(ref, { ...row, createdAt: new Date().toISOString() }); } }); await batch.commit(); alert("Import successful!"); } });
   };
 
-  if (!isAuthenticated) return <LoginView onLogin={handleLogin} error={authError} />;
+  if (!isAuthenticated) return <LoginView onLogin={handleLogin} loading={isSubmitting} error={authError} />;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900 selection:bg-violet-100 selection:text-violet-900">
@@ -1125,7 +1244,7 @@ function App() {
                     <div className="flex gap-3 bg-white p-1.5 rounded-2xl shadow-sm ring-1 ring-slate-200">
                         <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}><option value="All">All Months</option>{['January','February','March','April','May','June','July','August','September','October','November','December'].map(m=><option key={m}>{m}</option>)}</select>
                         <div className="w-px bg-slate-200 my-1"></div>
-                        <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={selectedYear} onChange={e=>setSelectedYear(e.target.value)}><option value="All">All Years</option><option>2024</option><option>2025</option><option>2026</option></select>
+                        <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={selectedYear} onChange={e=>setSelectedYear(e.target.value)}><option value="All">All Years</option>{availableYears.map(y=><option key={y}>{y}</option>)}</select>
                     </div>
                 )}
                 {!['dashboard','reports','invoices','settings','statements','quotations'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
@@ -1133,29 +1252,75 @@ function App() {
         </header>
 
         {view === 'dashboard' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
-                {[
-                    { l:'Total Revenue', v:totals.revenue, i:ArrowDownLeft, c:'text-emerald-600', b:'bg-emerald-50 ring-emerald-100' },
-                    { l:'Total Expenses', v:totals.expense, i:ArrowUpRight, c:'text-rose-600', b:'bg-rose-50 ring-rose-100' },
-                    { l:'Net Profit', v:totals.profit, i:Wallet, c:totals.profit>=0?'text-violet-600':'text-orange-600', b:totals.profit>=0?'bg-violet-50 ring-violet-100':'bg-orange-50 ring-orange-100' },
-                    { l:'Pending Invoices', v:totals.clientPending, i:Clock, c:'text-amber-600', b:'bg-amber-50 ring-amber-100' }
-                ].map((s,i) => (
-                    <div key={i} className="bg-white p-6 rounded-3xl shadow-sm hover:shadow-xl transition-all duration-300 border border-slate-100 group">
-                        <div className="flex justify-between items-start mb-4">
-                            <div className={`p-4 rounded-2xl ring-1 ${s.b} ${s.c} transition-transform group-hover:scale-110 duration-300`}><s.i size={28}/></div>
-                            <span className={`text-xs font-bold px-2 py-1 rounded-full ${totals.profit>=0?'bg-emerald-100 text-emerald-700':'bg-slate-100 text-slate-500'}`}>YTD</span>
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
+                {/* Overdue alert banner */}
+                {totals.overdueCount > 0 && (
+                    <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-center gap-4">
+                        <div className="bg-rose-100 p-3 rounded-xl flex-shrink-0"><Clock className="text-rose-600" size={22}/></div>
+                        <div className="flex-1">
+                            <p className="font-bold text-rose-800">You have {totals.overdueCount} overdue invoice{totals.overdueCount !== 1 ? 's' : ''}</p>
+                            <p className="text-rose-600 text-sm">Go to Invoices and filter by "Overdue" to follow up with clients.</p>
                         </div>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">{s.l}</p>
-                        <h3 className="text-3xl font-extrabold text-slate-900 tracking-tight">{formatCurrency(s.v)}</h3>
+                        <button onClick={() => setView('invoices')} className="bg-rose-600 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-rose-700 transition-colors flex-shrink-0">View →</button>
                     </div>
-                ))}
-                
-                <div className="md:col-span-2 lg:col-span-2 bg-white p-8 rounded-3xl shadow-sm border border-slate-100 h-96 relative">
-                    <h3 className="font-bold text-slate-800 mb-6 text-lg flex items-center gap-2"><div className="w-2 h-6 bg-rose-500 rounded-full"></div> Expense Distribution</h3>
-                    <ResponsiveContainer width="100%" height="85%"><RePieChart><Pie data={expenseChartData} innerRadius={80} outerRadius={110} paddingAngle={8} dataKey="value" cornerRadius={8}>{expenseChartData.map((e,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} strokeWidth={0}/>)}</Pie><ChartTooltip formatter={formatCurrency} contentStyle={{borderRadius:'16px', border:'none', boxShadow:'0 10px 15px -3px rgba(0, 0, 0, 0.1)', padding:'12px'}}/><Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{paddingTop:'20px'}}/></RePieChart></ResponsiveContainer>
-                    <div className="absolute top-[45%] left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none mt-2">
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Total Out</p>
-                        <p className="text-2xl font-extrabold text-slate-800">{formatCurrency(totals.expense)}</p>
+                )}
+
+                {/* KPI Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {[
+                        { l:'Revenue Collected', v:totals.revenue, i:ArrowDownLeft, c:'text-emerald-600', b:'bg-emerald-50 ring-emerald-100' },
+                        { l:'Total Expenses', v:totals.expense, i:ArrowUpRight, c:'text-rose-600', b:'bg-rose-50 ring-rose-100' },
+                        { l:'Net Profit', v:totals.profit, i:Wallet, c:totals.profit>=0?'text-violet-600':'text-orange-600', b:totals.profit>=0?'bg-violet-50 ring-violet-100':'bg-orange-50 ring-orange-100' },
+                        { l:'Outstanding Invoices', v:totals.clientPending, i:Clock, c:'text-amber-600', b:'bg-amber-50 ring-amber-100' }
+                    ].map((s,i) => (
+                        <div key={i} className="bg-white p-6 rounded-3xl shadow-sm hover:shadow-xl transition-all duration-300 border border-slate-100 group">
+                            <div className="flex justify-between items-start mb-4">
+                                <div className={`p-4 rounded-2xl ring-1 ${s.b} ${s.c} transition-transform group-hover:scale-110 duration-300`}><s.i size={28}/></div>
+                                <span className={`text-xs font-bold px-2 py-1 rounded-full ${totals.profit>=0?'bg-emerald-100 text-emerald-700':'bg-slate-100 text-slate-500'}`}>YTD</span>
+                            </div>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">{s.l}</p>
+                            <h3 className="text-3xl font-extrabold text-slate-900 tracking-tight">{formatCurrency(s.v)}</h3>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Charts Row */}
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                    {/* Monthly Revenue vs Expenses Bar Chart */}
+                    <div className="lg:col-span-3 bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                        <h3 className="font-bold text-slate-800 mb-6 text-lg flex items-center gap-2"><div className="w-2 h-6 bg-violet-500 rounded-full"></div> Revenue vs Expenses (6 Months)</h3>
+                        <ResponsiveContainer width="100%" height={220}>
+                            <BarChart data={monthlyChartData} barCategoryGap="30%">
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false}/>
+                                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize:12, fontWeight:700, fill:'#94a3b8'}}/>
+                                <YAxis axisLine={false} tickLine={false} tick={{fontSize:11, fill:'#94a3b8'}} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}/>
+                                <ChartTooltip formatter={(v) => formatCurrency(v)} contentStyle={{borderRadius:'16px', border:'none', boxShadow:'0 10px 25px rgba(0,0,0,0.1)', padding:'12px 16px'}}/>
+                                <Legend wrapperStyle={{paddingTop:'16px', fontSize:'12px', fontWeight:700}}/>
+                                <Bar dataKey="Revenue" fill="#8B5CF6" radius={[6,6,0,0]}/>
+                                <Bar dataKey="Expenses" fill="#F87171" radius={[6,6,0,0]}/>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+
+                    {/* Expense Pie Chart */}
+                    <div className="lg:col-span-2 bg-white p-8 rounded-3xl shadow-sm border border-slate-100 relative">
+                        <h3 className="font-bold text-slate-800 mb-2 text-lg flex items-center gap-2"><div className="w-2 h-6 bg-rose-500 rounded-full"></div> Expense Mix</h3>
+                        {expenseChartData.length > 0 ? (
+                            <>
+                                <ResponsiveContainer width="100%" height={200}>
+                                    <RePieChart><Pie data={expenseChartData} innerRadius={65} outerRadius={88} paddingAngle={6} dataKey="value" cornerRadius={6}>{expenseChartData.map((e,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} strokeWidth={0}/>)}</Pie><ChartTooltip formatter={formatCurrency} contentStyle={{borderRadius:'16px', border:'none', boxShadow:'0 10px 15px -3px rgba(0, 0, 0, 0.1)', padding:'12px'}}/></RePieChart>
+                                </ResponsiveContainer>
+                                <div className="absolute top-[52%] left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
+                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Out</p>
+                                    <p className="text-xl font-extrabold text-slate-800">{formatCurrency(totals.expense)}</p>
+                                </div>
+                                <div className="flex flex-wrap gap-2 mt-2 justify-center">
+                                    {expenseChartData.map((e,i) => <span key={i} className="text-xs font-bold px-2 py-1 rounded-full" style={{background: COLORS[i%COLORS.length]+'22', color: COLORS[i%COLORS.length]}}>{e.name}</span>)}
+                                </div>
+                            </>
+                        ) : (
+                            <div className="flex items-center justify-center h-48 text-slate-300 text-sm font-bold">No expense data yet</div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -1208,13 +1373,10 @@ function App() {
                                 {view==='vendors' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Vendor</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Type</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Total</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Paid</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Due</th></>}
                                 {view==='vendor-bills' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Bill #</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Vendor</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Desc</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Bill Total</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">WHT</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Net Payable</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Paid</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Due</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th></>}
                                 {view==='expenses' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Category</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Desc</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Amount</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Payment Details</th></>}
-                                {view==='petty-cash' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Description</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Cash Out</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Cash In</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Payment Details</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">Actions</th></>}
-                                {view==='salaries' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Employee</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Net Salary</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Tax Deducted</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Basic</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">Actions</th></>}
-                                {view==='bank' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Bank</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Amount</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">Actions</th></>}
-                                {view==='manage-users' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Username</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Email</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Role</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">Actions</th></>}
                                 {view==='petty-cash' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Desc</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Out</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">In</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Balance</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Details</th></>}
                                 {view==='salaries' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Employee</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Net Salary</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Tax Deducted</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Basic Salary</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th></>}
                                 {view==='bank' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Bank</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Amount</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th></>}
+                                {view==='manage-users' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Username</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Email</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Role</th></>}
                                 <th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">Actions</th>
                             </tr>
                         </thead>
@@ -1416,4 +1578,4 @@ function App() {
 }
 
 const root = createRoot(document.getElementById('root'));
-root.render(<ErrorBoundary><App /></ErrorBoundary>);
+root.render(<ErrorBoundary><ToastProvider><App /></ToastProvider></ErrorBoundary>);
