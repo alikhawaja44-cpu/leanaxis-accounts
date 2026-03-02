@@ -1099,22 +1099,83 @@ function App() {
   const filteredBills = useMemo(() => filterData(vendorBills), [vendorBills, selectedMonth, selectedYear, searchTerm]);
 
   const totals = useMemo(() => {
-    // Revenue = sum of paid invoices (amountReceived or calculated total) + petty cash in
-    const paidInvoiceRevenue = invoices.filter(inv => inv.status === 'Paid').reduce((a, inv) => {
+    // Helper: check if a record falls within the selected month/year filter
+    const inFilter = (dateStr) => {
+      if (selectedMonth === 'All' && selectedYear === 'All') return true;
+      const d = new Date(dateStr);
+      if (isNaN(d)) return true;
+      const monthMatch = selectedMonth === 'All' || d.toLocaleString('default', { month: 'long' }) === selectedMonth;
+      const yearMatch = selectedYear === 'All' || d.getFullYear().toString() === selectedYear;
+      return monthMatch && yearMatch;
+    };
+
+    // --- REVENUE ---
+    // Source 1: Paid invoices (use amountReceived if set, otherwise full invoice total)
+    // Filter by the invoice date and only include those matching month/year filter
+    const paidInvoices = invoices.filter(inv => inv.status === 'Paid' && inFilter(inv.date));
+    const invoiceRevenue = paidInvoices.reduce((a, inv) => {
       const received = Number(inv.amountReceived);
-      if (received > 0) return a + received;
-      return a + calculateTax((inv.items || []).reduce((s, it) => s + ((it.qty || 0) * (it.rate || 0)), 0), inv.taxRate).total;
+      // amountReceived is set when payment is recorded via executePayment (net of WHT)
+      // Fall back to full calculated total if not set
+      const total = calculateTax(
+        (inv.items || []).reduce((s, it) => s + ((it.qty || 0) * (it.rate || 0)), 0),
+        inv.taxRate
+      ).total;
+      return a + (received > 0 ? received : total);
     }, 0);
-    const pettyCashIn = filteredPetty.reduce((a,c) => a + (Number(c.cashIn)||0), 0);
-    const rev = paidInvoiceRevenue + pettyCashIn;
-    const exp = filteredExp.reduce((a,c) => a + (Number(c.amount)||0), 0) + filteredSal.reduce((a,c) => a + (Number(c.totalPayable)||0), 0) + filteredPetty.reduce((a,c) => a + (Number(c.cashOut)||0), 0);
-    const totalVendorBills = filteredBills.reduce((a,c) => a + (Number(c.amount)||0), 0);
-    const totalVendorPaid = filteredBills.reduce((a,c) => a + (Number(c.paidAmount)||0), 0);
-    const unpaidInvoicesTotal = invoices.filter(inv => inv.status !== 'Paid').reduce((a, inv) => a + calculateTax((inv.items || []).reduce((s, it) => s + ((it.qty||0) * (it.rate||0)), 0), inv.taxRate).total, 0);
-    const today = new Date(); today.setHours(0,0,0,0);
-    const overdueCount = invoices.filter(inv => inv.status !== 'Paid' && inv.dueDate && new Date(inv.dueDate) < today).length;
-    return { revenue: rev, expense: exp, profit: rev - exp, vendorPending: totalVendorBills - totalVendorPaid, clientPending: unpaidInvoicesTotal, overdueCount };
-  }, [filteredPetty, filteredExp, filteredSal, invoices, filteredBills]);
+
+    // Source 2: Manual petty cash receipts that are NOT linked to invoice payments
+    // Invoice payments via petty cash get description "Inv Payment: ..." — exclude those from double count
+    const manualPettyCashIn = filteredPetty.filter(r =>
+      !(r.description || '').toLowerCase().startsWith('inv payment:')
+    ).reduce((a, c) => a + (Number(c.cashIn) || 0), 0);
+
+    const rev = invoiceRevenue + manualPettyCashIn;
+
+    // --- EXPENSES ---
+    const expenseTotal = filteredExp.reduce((a, c) => a + (Number(c.amount) || 0), 0);
+    const salaryTotal = filteredSal.reduce((a, c) => a + (Number(c.totalPayable) || 0), 0);
+    // Only count petty cash OUTFLOWS (not inflows which are revenue)
+    const pettyCashOut = filteredPetty.reduce((a, c) => a + (Number(c.cashOut) || 0), 0);
+    const exp = expenseTotal + salaryTotal + pettyCashOut;
+
+    // --- VENDOR BILLS ---
+    const totalVendorBills = filteredBills.reduce((a, c) => a + (Number(c.amount) || 0), 0);
+    const totalVendorPaid = filteredBills.reduce((a, c) => a + (Number(c.paidAmount) || 0), 0);
+
+    // --- OUTSTANDING INVOICES ---
+    const unpaidInvoicesTotal = invoices
+      .filter(inv => inv.status !== 'Paid')
+      .reduce((a, inv) => a + calculateTax(
+        (inv.items || []).reduce((s, it) => s + ((it.qty || 0) * (it.rate || 0)), 0),
+        inv.taxRate
+      ).total, 0);
+
+    // --- OVERDUE ---
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const overdueCount = invoices.filter(inv =>
+      inv.status !== 'Paid' && inv.dueDate && new Date(inv.dueDate) < today
+    ).length;
+
+    // --- BREAKDOWN for P&L report ---
+    const invoiceRevenueBreakdown = invoiceRevenue;
+    const pettyCashInBreakdown = manualPettyCashIn;
+
+    return {
+      revenue: rev,
+      expense: exp,
+      profit: rev - exp,
+      vendorPending: totalVendorBills - totalVendorPaid,
+      clientPending: unpaidInvoicesTotal,
+      overdueCount,
+      // For P&L breakdown panel
+      invoiceRevenueBreakdown,
+      pettyCashInBreakdown,
+      expenseTotal,
+      salaryTotal,
+      pettyCashOut,
+    };
+  }, [filteredPetty, filteredExp, filteredSal, invoices, filteredBills, selectedMonth, selectedYear]);
 
   const expenseChartData = [ { name: 'Petty', value: filteredPetty.reduce((a,c) => a+(Number(c.cashOut)||0),0) }, { name: 'Expenses', value: filteredExp.reduce((a,c) => a+(Number(c.amount)||0),0) }, { name: 'Salaries', value: filteredSal.reduce((a,c) => a+(Number(c.totalPayable)||0),0) } ].filter(d => d.value > 0);
   const COLORS = ['#8B5CF6', '#EC4899', '#F59E0B'];
@@ -1126,9 +1187,27 @@ function App() {
       const d = new Date(); d.setMonth(d.getMonth() - i); d.setDate(1);
       const monthName = d.toLocaleString('default', { month: 'short' });
       const year = d.getFullYear();
-      const monthFull = d.toLocaleString('default', { month: 'long' });
-      const rev = invoices.filter(inv => inv.status === 'Paid' && new Date(inv.date).getMonth() === d.getMonth() && new Date(inv.date).getFullYear() === year).reduce((a, inv) => a + calculateTax((inv.items||[]).reduce((s,it) => s+(it.qty*it.rate),0), inv.taxRate).total, 0);
-      const exp = [...expenses, ...salaries, ...pettyCash].filter(r => { const rd = new Date(r.date || r.createdAt); return rd.getMonth() === d.getMonth() && rd.getFullYear() === year; }).reduce((a, r) => a + (Number(r.amount || r.totalPayable || r.cashOut) || 0), 0);
+      const mIdx = d.getMonth();
+
+      // Revenue: paid invoices in this month (amountReceived or full total)
+      const rev = invoices
+        .filter(inv => inv.status === 'Paid' && new Date(inv.date).getMonth() === mIdx && new Date(inv.date).getFullYear() === year)
+        .reduce((a, inv) => {
+          const received = Number(inv.amountReceived);
+          const total = calculateTax((inv.items||[]).reduce((s,it) => s+(it.qty*it.rate),0), inv.taxRate).total;
+          return a + (received > 0 ? received : total);
+        }, 0)
+        + pettyCash
+          .filter(r => new Date(r.date).getMonth() === mIdx && new Date(r.date).getFullYear() === year && !(r.description||'').toLowerCase().startsWith('inv payment:'))
+          .reduce((a, r) => a + (Number(r.cashIn)||0), 0);
+
+      // Expenses: all outflows in this month
+      const exp = [
+        ...expenses.filter(r => new Date(r.date || r.createdAt).getMonth() === mIdx && new Date(r.date || r.createdAt).getFullYear() === year).map(r => Number(r.amount)||0),
+        ...salaries.filter(r => new Date(r.date || r.createdAt).getMonth() === mIdx && new Date(r.date || r.createdAt).getFullYear() === year).map(r => Number(r.totalPayable)||0),
+        ...pettyCash.filter(r => new Date(r.date).getMonth() === mIdx && new Date(r.date).getFullYear() === year).map(r => Number(r.cashOut)||0),
+      ].reduce((a, v) => a + v, 0);
+
       months.push({ name: monthName, Revenue: Math.round(rev), Expenses: Math.round(exp) });
     }
     return months;
@@ -1339,8 +1418,43 @@ function App() {
                     </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100"><h3 className="font-bold text-emerald-700 mb-6 flex items-center gap-3 text-lg"><div className="p-2 bg-emerald-100 rounded-lg"><ArrowDownLeft size={24}/></div> Income Sources</h3><div className="space-y-4">{[{l:'Client Advance',v:totals.revenue - filteredPetty.reduce((a,c)=>a+(Number(c.cashIn)||0),0)},{l:'Petty Cash In',v:filteredPetty.reduce((a,c)=>a+(Number(c.cashIn)||0),0)}].map((i,k)=><div key={k} className="flex justify-between items-center p-5 bg-emerald-50/50 rounded-2xl border border-emerald-100/50"><span className="text-emerald-900 font-bold">{i.l}</span><span className="font-extrabold text-emerald-600 text-lg">{formatCurrency(i.v)}</span></div>)}</div></div>
-                    <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100"><h3 className="font-bold text-rose-700 mb-6 flex items-center gap-3 text-lg"><div className="p-2 bg-rose-100 rounded-lg"><ArrowUpRight size={24}/></div> Expense Breakdown</h3><div className="space-y-4">{expenseChartData.map((i,k)=><div key={k} className="flex justify-between items-center p-5 bg-rose-50/50 rounded-2xl border border-rose-100/50"><span className="text-rose-900 font-bold">{i.name}</span><span className="font-extrabold text-rose-600 text-lg">{formatCurrency(i.value)}</span></div>)}</div></div>
+                    <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                        <h3 className="font-bold text-emerald-700 mb-6 flex items-center gap-3 text-lg"><div className="p-2 bg-emerald-100 rounded-lg"><ArrowDownLeft size={24}/></div> Income Sources</h3>
+                        <div className="space-y-4">
+                            {[
+                                { l: 'Invoice Payments', v: totals.invoiceRevenueBreakdown },
+                                { l: 'Petty Cash Receipts', v: totals.pettyCashInBreakdown },
+                            ].map((item, k) => (
+                                <div key={k} className="flex justify-between items-center p-5 bg-emerald-50/50 rounded-2xl border border-emerald-100/50">
+                                    <span className="text-emerald-900 font-bold">{item.l}</span>
+                                    <span className="font-extrabold text-emerald-600 text-lg">{formatCurrency(item.v)}</span>
+                                </div>
+                            ))}
+                            <div className="flex justify-between items-center p-5 bg-emerald-100 rounded-2xl border border-emerald-200">
+                                <span className="text-emerald-900 font-extrabold">Total Revenue</span>
+                                <span className="font-extrabold text-emerald-700 text-xl">{formatCurrency(totals.revenue)}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                        <h3 className="font-bold text-rose-700 mb-6 flex items-center gap-3 text-lg"><div className="p-2 bg-rose-100 rounded-lg"><ArrowUpRight size={24}/></div> Expense Breakdown</h3>
+                        <div className="space-y-4">
+                            {[
+                                { l: 'General Expenses', v: totals.expenseTotal },
+                                { l: 'Team Salaries', v: totals.salaryTotal },
+                                { l: 'Petty Cash Outflows', v: totals.pettyCashOut },
+                            ].map((item, k) => (
+                                <div key={k} className="flex justify-between items-center p-5 bg-rose-50/50 rounded-2xl border border-rose-100/50">
+                                    <span className="text-rose-900 font-bold">{item.l}</span>
+                                    <span className="font-extrabold text-rose-600 text-lg">{formatCurrency(item.v)}</span>
+                                </div>
+                            ))}
+                            <div className="flex justify-between items-center p-5 bg-rose-100 rounded-2xl border border-rose-200">
+                                <span className="text-rose-900 font-extrabold">Total Expenses</span>
+                                <span className="font-extrabold text-rose-700 text-xl">{formatCurrency(totals.expense)}</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         )}
