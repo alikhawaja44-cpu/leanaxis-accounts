@@ -86,7 +86,7 @@ const calculateTax = (amount, taxRate = 0) => {
   return { subtotal: numAmount, tax: tax, total: numAmount + tax };
 };
 const exportToCSV = (data, filename) => {
-  if (!data || !data.length) { alert("No data to export!"); return; }
+  if (!data || !data.length) { window.__leanaxisToast?.('No data to export!', 'warning'); return; }
   const cleanData = data.map(item => {
       const row = { ...item };
       if (row.items && Array.isArray(row.items)) row.items = row.items.map(i => `${i.desc} (${i.qty}x${i.rate})`).join('; ');
@@ -220,6 +220,7 @@ const LoginView = ({ onLogin, loading: externalLoading, error }) => {
 
 // --- QUOTATION GENERATOR ---
 const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotation, onConvertToInvoice }) => {
+    const toast = useToast();
     const [viewMode, setViewMode] = useState('list'); 
     const [quoteData, setQuoteData] = useState({ client: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0, status: 'Pending' });
     const addItem = () => setQuoteData({...quoteData, items: [...quoteData.items, { desc: '', qty: 1, rate: 0 }]});
@@ -228,7 +229,7 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
     const { subtotal, tax, total } = calculateTax(quoteData.items.reduce((acc, item) => acc + (item.qty * item.rate), 0), quoteData.taxRate);
 
     const handleShareWhatsApp = () => {
-        if (!quoteData.client || total === 0) return alert("Please select a client and add items first.");
+        if (!quoteData.client || total === 0) return toast("Please select a client and add items first.", "warning");
         const message = `*QUOTATION* from LeanAxis Agency%0A` + `To: ${quoteData.client}%0A` + `Date: ${quoteData.date}%0A%0A` + quoteData.items.map(item => `- ${item.desc}: Rs ${item.rate * item.qty}`).join('%0A') + `%0A%0A*Total Estimate: ${formatCurrency(total)}*`;
         window.open(`https://wa.me/?text=${message}`, '_blank');
     };
@@ -506,6 +507,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
 
 // --- SALARY SLIP COMPONENT ---
 const SalarySlip = ({ data, onClose }) => {
+    const toast = useToast();
     if (!data) return null;
 
     const handleWhatsApp = () => {
@@ -532,7 +534,7 @@ const SalarySlip = ({ data, onClose }) => {
             window.html2pdf().set(opt).from(element).save();
         } catch (e) {
             console.error(e);
-            alert('PDF library failed to load. Please check internet connection.');
+            toast('PDF library failed to load. Please check your internet connection.', 'error');
         }
     };
 
@@ -905,6 +907,8 @@ const TaxReport = ({ invoices, salaries, expenses, vendorBills, month, year }) =
 // --- MAIN APP COMPONENT ---
 function App() {
   const toast = useToast();
+  // Make toast accessible to global helper functions
+  React.useEffect(() => { window.__leanaxisToast = toast; }, [toast]);
   const [isAuthenticated, setIsAuthenticated] = useStickyState(false, 'leanaxis_auth');
   const [currentUser, setCurrentUser] = useStickyState(null, 'leanaxis_current_user');
   const [imgbbKey, setImgbbKey] = useStickyState('', 'leanaxis_imgbb_key'); 
@@ -967,7 +971,7 @@ function App() {
       setIsSubmitting(false);
   };
 
-  const handleLogout = () => { setIsAuthenticated(false); setCurrentUser(null); setView('dashboard'); };
+  const handleLogout = () => { if (confirm('Are you sure you want to sign out?')) { setIsAuthenticated(false); setCurrentUser(null); setView('dashboard'); } };
   const deleteRecord = async (collectionName, id) => { 
     if(confirm('Are you sure you want to delete this record? This cannot be undone.')) {
       await deleteDoc(doc(db, collectionName, id));
@@ -1039,7 +1043,7 @@ function App() {
   const uploadFile = async (file) => {
       if (!file || !imgbbKey) return null; setUploadProgress('Uploading...');
       const fd = new FormData(); fd.append("image", file);
-      try { const res = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbKey}`, { method: "POST", body: fd }); const d = await res.json(); if (d.success) { setUploadProgress('Done!'); return d.data.url; } } catch (e) { alert("Upload failed"); } return null;
+      try { const res = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbKey}`, { method: "POST", body: fd }); const d = await res.json(); if (d.success) { setUploadProgress('Done!'); return d.data.url; } } catch (e) { toast("File upload failed. Check your ImgBB API key.", 'error'); } return null;
   };
   const saveToFirebase = async (collectionName, data, id = null) => {
       setIsSubmitting(true);
@@ -1244,7 +1248,7 @@ function App() {
   );
   const handleGenericImport = (event, collectionName) => {
       const file = event.target.files[0]; if (!file) return;
-      Papa.parse(file, { header: true, complete: async (results) => { if (results.data.length === 0) return alert("File empty!"); if (!confirm(`Import ${results.data.length} records?`)) return; const batch = writeBatch(db); results.data.forEach(row => { if (Object.values(row).some(v => v)) { const ref = doc(collection(db, collectionName)); batch.set(ref, { ...row, createdAt: new Date().toISOString() }); } }); await batch.commit(); alert("Import successful!"); } });
+      Papa.parse(file, { header: true, complete: async (results) => { if (results.data.length === 0) return toast("File is empty!", 'warning'); if (!confirm(`Import ${results.data.length} records?`)) return; const batch = writeBatch(db); results.data.forEach(row => { if (Object.values(row).some(v => v)) { const ref = doc(collection(db, collectionName)); batch.set(ref, { ...row, createdAt: new Date().toISOString() }); } }); await batch.commit(); toast("Import successful!", 'success'); } });
   };
 
   if (!isAuthenticated) return <LoginView onLogin={handleLogin} loading={isSubmitting} error={authError} />;
@@ -1587,8 +1591,27 @@ function App() {
                     <form onSubmit={handleAddSubmit} className="space-y-6">
                          {/* DYNAMIC FORM FIELDS BASED ON VIEW - STYLED CONSISTENTLY */}
                         {view==='manage-users' && <><input required placeholder="Username" className="form-input" value={formData.username||''} onChange={e=>setFormData({...formData,username:e.target.value})}/><input type="email" required placeholder="Email" className="form-input" value={formData.email||''} onChange={e=>setFormData({...formData,email:e.target.value})}/><input type="password" placeholder="Password (leave blank to keep)" className="form-input" value={formData.password||''} onChange={e=>setFormData({...formData,password:e.target.value})}/><select className="form-select" value={formData.role||'Viewer'} onChange={e=>setFormData({...formData,role:e.target.value})}><option>Viewer</option><option>Editor</option><option>Admin</option></select></>}
-                        {view==='clients' && <><input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input required placeholder="Client Name" className="form-input" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/><input placeholder="Project Name" className="form-input" value={formData.projectName||''} onChange={e=>setFormData({...formData,projectName:e.target.value})}/><input type="number" placeholder="Project Total" className="form-input" value={formData.projectTotal||''} onChange={e=>setFormData({...formData,projectTotal:e.target.value})}/><input type="number" placeholder="Advance Received" className="form-input" value={formData.advanceReceived||''} onChange={e=>setFormData({...formData,advanceReceived:e.target.value})}/><input type="number" placeholder="Monthly Retainer Amount (if any)" className="form-input" value={formData.retainerAmount||''} onChange={e=>setFormData({...formData,retainerAmount:e.target.value})}/><select className="form-select" value={formData.status||'Ongoing'} onChange={e=>setFormData({...formData,status:e.target.value})}><option>Ongoing</option><option>Completed</option></select></>}
-                        {!['manage-users','clients','vendor-bills','salaries','vendors','petty-cash'].includes(view) && <><input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input placeholder="Description/Name" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})}/><input type="number" placeholder="Amount" className="form-input" value={formData.amount||''} onChange={e=>setFormData({...formData,amount:e.target.value})}/></>}
+                        {view==='clients' && <><input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input required placeholder="Client Name" className="form-input" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/><input placeholder="Project Name" className="form-input" value={formData.projectName||''} onChange={e=>setFormData({...formData,projectName:e.target.value})}/><input type="number" placeholder="Project Total" className="form-input" value={formData.projectTotal||''} onChange={e=>setFormData({...formData,projectTotal:e.target.value})}/><input type="number" placeholder="Advance Received" className="form-input" value={formData.advanceReceived||''} onChange={e=>setFormData({...formData,advanceReceived:e.target.value})}/><input type="number" placeholder="Monthly Retainer Amount (if any)" className="form-input" value={formData.retainerAmount||''} onChange={e=>setFormData({...formData,retainerAmount:e.target.value})}/><select className="form-select" value={formData.status||'Ongoing'} onChange={e=>setFormData({...formData,status:e.target.value})}><option>Ongoing</option><option>Retainer</option><option>Completed</option></select></>}
+                        {!['manage-users','clients','vendor-bills','salaries','vendors','petty-cash','bank'].includes(view) && <><input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input placeholder="Description/Name" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})}/><input type="number" placeholder="Amount" className="form-input" value={formData.amount||''} onChange={e=>setFormData({...formData,amount:e.target.value})}/></>}
+                        {view==='bank' && <>
+                            <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/>
+                            <input placeholder="Bank Name (e.g. HBL, Meezan)" className="form-input" value={formData.bank||''} onChange={e=>setFormData({...formData,bank:e.target.value})}/>
+                            <input placeholder="Description / Reference" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})}/>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Amount</label>
+                                    <input type="number" placeholder="Positive = Credit, Negative = Debit" className="form-input" value={formData.amount||''} onChange={e=>setFormData({...formData,amount:e.target.value})}/>
+                                    <p className="text-xs text-slate-400 mt-1">Use negative (−) for payments out</p>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Status</label>
+                                    <select className="form-select" value={formData.status||'Cleared'} onChange={e=>setFormData({...formData,status:e.target.value})}>
+                                        <option>Cleared</option>
+                                        <option>Pending</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </>}
                         {view==='petty-cash' && <>
                             <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/>
                             <input placeholder="Description" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})}/>
