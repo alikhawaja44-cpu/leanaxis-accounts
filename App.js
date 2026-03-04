@@ -1141,6 +1141,440 @@ const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, on
     );
 };
 
+// ============================================================
+// PETTY CASH PAGE — Full Module with Ledger & Analytics
+// ============================================================
+const PETTY_CATEGORIES = [
+    'Office Supplies', 'Meals & Entertainment', 'Travel & Transport',
+    'Courier & Delivery', 'Utilities', 'Printing & Stationery',
+    'Repairs & Maintenance', 'Miscellaneous', 'Advance', 'Refund / Receipt'
+];
+
+const PettyCashPage = ({ pettyCash, currentUser, onNewEntry, onEdit, onDelete }) => {
+    const [search, setSearch]           = useState('');
+    const [typeFilter, setTypeFilter]   = useState('All');   // All | Out | In
+    const [catFilter, setCatFilter]     = useState('All');
+    const [monthFilter, setMonthFilter] = useState('All');
+    const [sortBy, setSortBy]           = useState('date');
+    const [viewMode, setViewMode]       = useState('ledger'); // ledger | cards
+
+    const today = new Date();
+
+    /* ── Enriched records ─────────────────────────────────── */
+    const enriched = useMemo(() => {
+        const sorted = [...pettyCash].sort((a, b) => new Date(a.date) - new Date(b.date));
+        let running = 0;
+        return sorted.map(r => {
+            const out = Number(r.cashOut) || 0;
+            const inp = Number(r.cashIn)  || 0;
+            running += inp - out;
+            return {
+                ...r,
+                out, inp,
+                balance: running,
+                monthNum: r.date ? r.date.slice(0, 7) : '',
+                monthName: (() => { try { return new Date(r.date).toLocaleString('default', { month: 'long', year: 'numeric' }); } catch { return r.date; } })(),
+            };
+        });
+    }, [pettyCash]);
+
+    /* ── KPIs ─────────────────────────────────────────────── */
+    const kpis = useMemo(() => {
+        const totalOut   = enriched.reduce((a, r) => a + r.out, 0);
+        const totalIn    = enriched.reduce((a, r) => a + r.inp, 0);
+        const balance    = totalIn - totalOut;
+        const curMonth   = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+        const monthOut   = enriched.filter(r => r.monthNum === curMonth).reduce((a, r) => a + r.out, 0);
+        const monthIn    = enriched.filter(r => r.monthNum === curMonth).reduce((a, r) => a + r.inp, 0);
+        const txCount    = enriched.length;
+        const avgOut     = enriched.filter(r => r.out > 0).length > 0
+            ? totalOut / enriched.filter(r => r.out > 0).length : 0;
+        return { totalOut, totalIn, balance, monthOut, monthIn, txCount, avgOut };
+    }, [enriched]);
+
+    /* ── Monthly trend (last 6 months) ───────────────────── */
+    const monthlyChart = useMemo(() => {
+        const months = [];
+        for (let i = 5; i >= 0; i--) {
+            const d   = new Date(today.getFullYear(), today.getMonth() - i, 1);
+            const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+            const lbl = d.toLocaleString('default', { month: 'short' });
+            const out = enriched.filter(r => r.monthNum === key).reduce((a, r) => a + r.out, 0);
+            const inp = enriched.filter(r => r.monthNum === key).reduce((a, r) => a + r.inp, 0);
+            months.push({ name: lbl, 'Out': out, 'In': inp });
+        }
+        return months;
+    }, [enriched]);
+
+    /* ── Category breakdown ───────────────────────────────── */
+    const categoryBreakdown = useMemo(() => {
+        const map = {};
+        enriched.filter(r => r.out > 0).forEach(r => {
+            const cat = r.category || 'Miscellaneous';
+            map[cat] = (map[cat] || 0) + r.out;
+        });
+        return Object.entries(map)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 6)
+            .map(([name, value]) => ({ name, value }));
+    }, [enriched]);
+
+    const PIE_COLORS = ['#6366f1','#f59e0b','#10b981','#f43f5e','#06b6d4','#8b5cf6'];
+
+    /* ── Unique months & categories ──────────────────────── */
+    const uniqueMonths = useMemo(() =>
+        [...new Set(enriched.map(r => r.monthName).filter(Boolean))].reverse(), [enriched]);
+    const uniqueCats = useMemo(() =>
+        [...new Set(enriched.map(r => r.category).filter(Boolean))].sort(), [enriched]);
+
+    /* ── Filtered + sorted list ───────────────────────────── */
+    const filtered = useMemo(() => {
+        let res = [...enriched];
+        if (search)          res = res.filter(r => (r.description||'').toLowerCase().includes(search.toLowerCase()) || (r.category||'').toLowerCase().includes(search.toLowerCase()) || (r.bankName||'').toLowerCase().includes(search.toLowerCase()));
+        if (typeFilter==='Out') res = res.filter(r => r.out > 0);
+        if (typeFilter==='In')  res = res.filter(r => r.inp > 0);
+        if (catFilter!=='All')  res = res.filter(r => (r.category||'Miscellaneous') === catFilter);
+        if (monthFilter!=='All') res = res.filter(r => r.monthName === monthFilter);
+        if (sortBy==='date-asc') res = [...res].sort((a,b)=>new Date(a.date)-new Date(b.date));
+        if (sortBy==='date-desc') res = [...res].sort((a,b)=>new Date(b.date)-new Date(a.date));
+        if (sortBy==='amount')   res = [...res].sort((a,b)=>(b.out||b.inp)-(a.out||a.inp));
+        return res;
+    }, [enriched, search, typeFilter, catFilter, monthFilter, sortBy]);
+
+    const catIcon = { 'Office Supplies':'🖇️','Meals & Entertainment':'🍽️','Travel & Transport':'🚗','Courier & Delivery':'📦','Utilities':'💡','Printing & Stationery':'🖨️','Repairs & Maintenance':'🔧','Advance':'💵','Refund / Receipt':'↩️','Miscellaneous':'📋' };
+
+    return (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+
+            {/* ── KPI Cards ─────────────────────────────────── */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                {[
+                    { l:'Cash Balance',  v: formatCurrency(kpis.balance),   sub:'current float', c: kpis.balance>=0?'text-emerald-700':'text-rose-700', bg: kpis.balance>=0?'bg-emerald-50 border-emerald-200':'bg-rose-50 border-rose-200', icon: Wallet },
+                    { l:'Total Out',     v: formatCurrency(kpis.totalOut),   sub:'all expenses',  c:'text-rose-700',    bg:'bg-rose-50 border-rose-200',     icon: ArrowUpRight },
+                    { l:'Total In',      v: formatCurrency(kpis.totalIn),    sub:'receipts',      c:'text-emerald-700', bg:'bg-emerald-50 border-emerald-200', icon: ArrowDownLeft },
+                    { l:'This Month Out',v: formatCurrency(kpis.monthOut),   sub: new Date().toLocaleString('default',{month:'long'}), c:'text-amber-700', bg:'bg-amber-50 border-amber-200', icon: Calendar },
+                    { l:'Avg Expense',   v: formatCurrency(kpis.avgOut),     sub:'per transaction', c:'text-slate-700', bg:'bg-white border-slate-200', icon: Percent },
+                    { l:'Transactions',  v: kpis.txCount,                    sub:'total entries',   c:'text-slate-800', bg:'bg-white border-slate-200', icon: FileText },
+                ].map((k,i) => (
+                    <div key={i} className={`${k.bg} border p-4 rounded-2xl shadow-sm hover:shadow-md transition-all group`}>
+                        <div className="flex justify-between items-start mb-2">
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-tight">{k.l}</p>
+                            <k.icon size={14} className="text-slate-300 group-hover:text-slate-400 flex-shrink-0 mt-0.5"/>
+                        </div>
+                        <p className={`text-lg font-extrabold tabular-nums ${k.c}`}>{k.v}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{k.sub}</p>
+                    </div>
+                ))}
+            </div>
+
+            {/* ── Balance health bar ────────────────────────── */}
+            {kpis.totalIn > 0 && (
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+                    <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Fund Utilisation</span>
+                        <span className={`text-xs font-extrabold px-2 py-1 rounded-full ${kpis.balance>=0?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-700'}`}>
+                            {formatCurrency(kpis.totalOut)} spent of {formatCurrency(kpis.totalIn)} received
+                        </span>
+                    </div>
+                    <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                            className={`h-full rounded-full transition-all duration-700 ${kpis.totalOut/kpis.totalIn>0.9?'bg-rose-500':kpis.totalOut/kpis.totalIn>0.7?'bg-amber-400':'bg-emerald-500'}`}
+                            style={{width:`${Math.min(100,(kpis.totalOut/kpis.totalIn)*100).toFixed(1)}%`}}
+                        />
+                    </div>
+                </div>
+            )}
+
+            {/* ── Charts Row ────────────────────────────────── */}
+            {enriched.length > 0 && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                    {/* Monthly trend */}
+                    <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+                        <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2">
+                            <div className="w-2 h-5 bg-amber-400 rounded-full"/>
+                            Monthly Cash Flow (6 Months)
+                        </h3>
+                        <ResponsiveContainer width="100%" height={180}>
+                            <BarChart data={monthlyChart} barCategoryGap="30%">
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false}/>
+                                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize:11,fontWeight:700,fill:'#94a3b8'}}/>
+                                <YAxis axisLine={false} tickLine={false} tick={{fontSize:10,fill:'#94a3b8'}} tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}/>
+                                <ChartTooltip formatter={v=>formatCurrency(v)} contentStyle={{borderRadius:'14px',border:'none',boxShadow:'0 8px 24px rgba(0,0,0,0.1)',padding:'10px 14px'}}/>
+                                <Bar dataKey="Out" fill="#f87171" radius={[5,5,0,0]}/>
+                                <Bar dataKey="In"  fill="#34d399" radius={[5,5,0,0]}/>
+                            </BarChart>
+                        </ResponsiveContainer>
+                        <div className="flex gap-4 mt-2">
+                            <span className="flex items-center gap-1.5 text-xs font-bold text-rose-500"><span className="w-3 h-3 bg-rose-400 rounded-sm inline-block"/>Cash Out</span>
+                            <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-600"><span className="w-3 h-3 bg-emerald-400 rounded-sm inline-block"/>Cash In</span>
+                        </div>
+                    </div>
+
+                    {/* Category breakdown */}
+                    <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+                        <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2">
+                            <div className="w-2 h-5 bg-violet-500 rounded-full"/>
+                            Top Expense Categories
+                        </h3>
+                        {categoryBreakdown.length > 0 ? (
+                            <div className="space-y-3">
+                                {categoryBreakdown.map((cat, i) => {
+                                    const pct = kpis.totalOut > 0 ? (cat.value / kpis.totalOut) * 100 : 0;
+                                    return (
+                                        <div key={i}>
+                                            <div className="flex justify-between items-center mb-1">
+                                                <span className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                                                    <span>{catIcon[cat.name]||'📋'}</span>
+                                                    <span className="truncate max-w-[110px]">{cat.name}</span>
+                                                </span>
+                                                <span className="text-xs font-extrabold text-slate-600 tabular-nums">{formatCurrency(cat.value)}</span>
+                                            </div>
+                                            <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                <div className="h-full rounded-full" style={{width:`${pct.toFixed(1)}%`, backgroundColor: PIE_COLORS[i % PIE_COLORS.length]}}/>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <p className="text-sm text-slate-400 text-center py-6">No expense data yet.</p>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Toolbar ───────────────────────────────────── */}
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+                <div className="flex flex-wrap gap-2 items-center">
+                    {/* Search */}
+                    <div className="relative">
+                        <Search className="absolute left-3 top-2.5 text-slate-400" size={15}/>
+                        <input className="pl-8 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-medium focus:ring-2 focus:ring-amber-400 outline-none w-48 transition-all"
+                            placeholder="Search entries..." value={search} onChange={e=>setSearch(e.target.value)}/>
+                    </div>
+
+                    {/* In / Out filter */}
+                    <div className="flex bg-white border border-slate-200 rounded-xl overflow-hidden">
+                        {['All','Out','In'].map(t=>(
+                            <button key={t} onClick={()=>setTypeFilter(t)}
+                                className={`px-3 py-2 text-xs font-bold transition-all ${typeFilter===t?(t==='Out'?'bg-rose-500 text-white':t==='In'?'bg-emerald-500 text-white':'bg-slate-800 text-white'):'text-slate-500 hover:text-slate-700'}`}>
+                                {t==='All'?'All':t==='Out'?'⬆ Out':'⬇ In'}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Category filter */}
+                    {uniqueCats.length > 0 && (
+                        <select value={catFilter} onChange={e=>setCatFilter(e.target.value)}
+                            className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 outline-none cursor-pointer">
+                            <option value="All">All Categories</option>
+                            {uniqueCats.map(c=><option key={c} value={c}>{catIcon[c]||'📋'} {c}</option>)}
+                        </select>
+                    )}
+
+                    {/* Month filter */}
+                    {uniqueMonths.length > 1 && (
+                        <select value={monthFilter} onChange={e=>setMonthFilter(e.target.value)}
+                            className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 outline-none cursor-pointer">
+                            <option value="All">All Months</option>
+                            {uniqueMonths.map(m=><option key={m} value={m}>{m}</option>)}
+                        </select>
+                    )}
+
+                    {/* Sort */}
+                    <select value={sortBy} onChange={e=>setSortBy(e.target.value)}
+                        className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 outline-none cursor-pointer">
+                        <option value="date-asc">Oldest First</option>
+                        <option value="date-desc">Newest First</option>
+                        <option value="amount">Highest Amount</option>
+                    </select>
+
+                    {/* View toggle */}
+                    <div className="flex bg-white border border-slate-200 rounded-xl overflow-hidden">
+                        <button onClick={()=>setViewMode('ledger')} title="Ledger View"
+                            className={`px-3 py-2 transition-all ${viewMode==='ledger'?'bg-slate-800 text-white':'text-slate-400 hover:text-slate-600'}`}>
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="0" width="16" height="3" rx="1"/><rect x="0" y="5" width="16" height="3" rx="1"/><rect x="0" y="10" width="16" height="3" rx="1"/></svg>
+                        </button>
+                        <button onClick={()=>setViewMode('cards')} title="Card View"
+                            className={`px-3 py-2 transition-all ${viewMode==='cards'?'bg-slate-800 text-white':'text-slate-400 hover:text-slate-600'}`}>
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="0" width="7" height="7" rx="1.5"/><rect x="9" y="0" width="7" height="7" rx="1.5"/><rect x="0" y="9" width="7" height="7" rx="1.5"/><rect x="9" y="9" width="7" height="7" rx="1.5"/></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <button onClick={onNewEntry}
+                    className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-amber-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all flex-shrink-0">
+                    <Plus size={16}/> New Entry
+                </button>
+            </div>
+
+            {(search || typeFilter!=='All' || catFilter!=='All' || monthFilter!=='All') && (
+                <p className="text-sm text-slate-500 font-medium -mt-2">
+                    Showing <span className="font-bold text-amber-600">{filtered.length}</span> of {enriched.length} entries
+                    {filtered.length > 0 && <> · Out: <span className="font-bold text-rose-600">{formatCurrency(filtered.reduce((a,r)=>a+r.out,0))}</span> · In: <span className="font-bold text-emerald-600">{formatCurrency(filtered.reduce((a,r)=>a+r.inp,0))}</span></>}
+                </p>
+            )}
+
+            {/* ── Empty state ───────────────────────────────── */}
+            {filtered.length === 0 && (
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-16 text-center">
+                    <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <Wallet className="text-amber-300" size={32}/>
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-700 mb-2">
+                        {enriched.length===0 ? 'No petty cash entries yet' : 'No entries match your filters'}
+                    </h3>
+                    <p className="text-sm text-slate-400 mb-6">
+                        {enriched.length===0 ? 'Start tracking your cash float by adding the first entry.' : 'Try clearing your search or filters.'}
+                    </p>
+                    {enriched.length===0 && (
+                        <button onClick={onNewEntry} className="bg-amber-500 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-amber-600 transition-colors">
+                            + Add First Entry
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* ── LEDGER VIEW ───────────────────────────────── */}
+            {viewMode==='ledger' && filtered.length > 0 && (
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left min-w-[700px]">
+                            <thead className="bg-slate-50 border-b border-slate-100">
+                                <tr>
+                                    {['Date','Description','Category','Cash Out','Cash In','Running Balance',''].map((h,i)=>(
+                                        <th key={i} className={`px-5 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider ${['Cash Out','Cash In','Running Balance'].includes(h)?'text-right':''}`}>{h}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {filtered.map(item => (
+                                    <tr key={item.id} className={`hover:bg-slate-50/80 transition-colors group ${item.inp>0?'bg-emerald-50/20':''}`}>
+                                        <td className="px-5 py-3.5">
+                                            <p className="text-sm font-medium text-slate-600">{item.date}</p>
+                                            <p className="text-xs text-slate-400">{item.monthName}</p>
+                                        </td>
+                                        <td className="px-5 py-3.5">
+                                            <p className="text-sm font-bold text-slate-800 leading-snug">{item.description || '—'}</p>
+                                            {item.bankName && (
+                                                <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+                                                    <CreditCard size={10}/> {item.bankName}{item.chequeNumber?` #${item.chequeNumber}`:''}
+                                                </p>
+                                            )}
+                                        </td>
+                                        <td className="px-5 py-3.5">
+                                            {item.category ? (
+                                                <span className="text-xs font-bold px-2 py-1 bg-slate-100 text-slate-600 rounded-lg flex items-center gap-1 w-fit">
+                                                    {catIcon[item.category]||'📋'} {item.category}
+                                                </span>
+                                            ) : <span className="text-slate-300 text-sm">—</span>}
+                                        </td>
+                                        <td className="px-5 py-3.5 text-right">
+                                            {item.out > 0 ? (
+                                                <span className="font-extrabold text-rose-600 tabular-nums">{formatCurrency(item.out)}</span>
+                                            ) : <span className="text-slate-200">—</span>}
+                                        </td>
+                                        <td className="px-5 py-3.5 text-right">
+                                            {item.inp > 0 ? (
+                                                <span className="font-extrabold text-emerald-600 tabular-nums">{formatCurrency(item.inp)}</span>
+                                            ) : <span className="text-slate-200">—</span>}
+                                        </td>
+                                        <td className="px-5 py-3.5 text-right">
+                                            <span className={`font-extrabold tabular-nums text-sm ${item.balance>=0?'text-slate-800':'text-rose-600'}`}>
+                                                {formatCurrency(item.balance)}
+                                            </span>
+                                            {item.balance < 0 && <p className="text-xs text-rose-400 font-bold">Overdrawn</p>}
+                                        </td>
+                                        <td className="px-5 py-3.5">
+                                            <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {currentUser?.role==='Admin' && (
+                                                    <button onClick={()=>onEdit(item)} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"><Edit size={13}/></button>
+                                                )}
+                                                {currentUser?.role==='Admin' && (
+                                                    <button onClick={()=>onDelete(item.id)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"><Trash2 size={13}/></button>
+                                                )}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                            <tfoot className="bg-gradient-to-r from-slate-50 to-amber-50/40 border-t-2 border-slate-200">
+                                <tr>
+                                    <td colSpan={3} className="px-5 py-4 text-xs font-extrabold text-slate-500 uppercase tracking-wider">
+                                        TOTALS — {filtered.length} entries
+                                    </td>
+                                    <td className="px-5 py-4 text-right font-extrabold text-rose-600 tabular-nums">
+                                        {formatCurrency(filtered.reduce((a,r)=>a+r.out,0))}
+                                    </td>
+                                    <td className="px-5 py-4 text-right font-extrabold text-emerald-600 tabular-nums">
+                                        {formatCurrency(filtered.reduce((a,r)=>a+r.inp,0))}
+                                    </td>
+                                    <td className="px-5 py-4 text-right">
+                                        <span className={`font-extrabold tabular-nums ${kpis.balance>=0?'text-slate-900':'text-rose-600'}`}>
+                                            {formatCurrency(kpis.balance)}
+                                        </span>
+                                        <p className="text-xs text-slate-400 font-medium">current balance</p>
+                                    </td>
+                                    <td/>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {/* ── CARD VIEW ─────────────────────────────────── */}
+            {viewMode==='cards' && filtered.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {filtered.map(item => (
+                        <div key={item.id} className={`rounded-2xl border shadow-sm hover:shadow-lg transition-all duration-200 overflow-hidden group
+                            ${item.inp>0 ? 'bg-emerald-50/60 border-emerald-200' : 'bg-white border-slate-200'}`}>
+                            {/* Card top stripe */}
+                            <div className={`h-1 w-full ${item.inp>0?'bg-emerald-400':'bg-rose-400'}`}/>
+                            <div className="p-5">
+                                <div className="flex justify-between items-start mb-3">
+                                    <div>
+                                        <p className="font-extrabold text-slate-800 leading-snug">{item.description || 'No description'}</p>
+                                        <p className="text-xs text-slate-400 mt-0.5">{item.date} · {item.monthName}</p>
+                                    </div>
+                                    <div className={`text-right flex-shrink-0 ml-2`}>
+                                        {item.out > 0 && <p className="text-lg font-extrabold text-rose-600 tabular-nums">-{formatCurrency(item.out)}</p>}
+                                        {item.inp > 0 && <p className="text-lg font-extrabold text-emerald-600 tabular-nums">+{formatCurrency(item.inp)}</p>}
+                                    </div>
+                                </div>
+                                <div className="flex flex-wrap gap-2 items-center">
+                                    {item.category && (
+                                        <span className="text-xs font-bold px-2 py-1 bg-white border border-slate-200 text-slate-600 rounded-lg">
+                                            {catIcon[item.category]||'📋'} {item.category}
+                                        </span>
+                                    )}
+                                    {item.bankName && (
+                                        <span className="text-xs font-medium px-2 py-1 bg-white border border-slate-200 text-slate-500 rounded-lg flex items-center gap-1">
+                                            <CreditCard size={10}/> {item.bankName}
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="flex justify-between items-center mt-3 pt-3 border-t border-slate-100">
+                                    <span className="text-xs text-slate-400 font-medium">Balance after</span>
+                                    <span className={`text-sm font-extrabold tabular-nums ${item.balance>=0?'text-slate-700':'text-rose-600'}`}>
+                                        {formatCurrency(item.balance)}
+                                    </span>
+                                </div>
+                            </div>
+                            {currentUser?.role==='Admin' && (
+                                <div className="px-4 pb-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button onClick={()=>onEdit(item)} className="flex-1 py-1.5 text-xs font-bold text-slate-500 hover:text-amber-600 bg-slate-50 hover:bg-amber-50 rounded-lg transition-colors flex items-center justify-center gap-1"><Edit size={11}/> Edit</button>
+                                    <button onClick={()=>onDelete(item.id)} className="flex-1 py-1.5 text-xs font-bold text-slate-500 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 rounded-lg transition-colors flex items-center justify-center gap-1"><Trash2 size={11}/> Delete</button>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
 // --- CLIENT STATEMENT COMPONENT ---
 const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
     const [selectedClient, setSelectedClient] = useState('');
@@ -3250,13 +3684,14 @@ function App() {
                      view === 'receivables-payables' ? 'Receivables & Payables' :
                      view === 'tax-report' ? 'Tax Liability' :
                      view === 'salaries' ? 'Team Salaries' :
+                     view === 'petty-cash' ? 'Petty Cash' :
                      view.replace(/-/g, ' ')}
                 </h2>
-                <p className="text-slate-500 font-medium">{view === 'salaries' ? 'Payroll, payslips & employee analytics' : 'Overview & Management'}</p>
+                <p className="text-slate-500 font-medium">{view === 'salaries' ? 'Payroll, payslips & employee analytics' : view === 'petty-cash' ? 'Cash float, ledger & expense tracking' : 'Overview & Management'}</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-4 w-full xl:w-auto">
-                {!['dashboard','receivables-payables','client-profile','vendor-profile','tax-report','reports','statements','clients','salaries'].includes(view) && <div className="relative flex-1 sm:w-72 group"><Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/><input className="w-full pl-12 pr-4 py-3 rounded-2xl border-none bg-white shadow-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-violet-500 outline-none transition-all font-medium text-slate-600" placeholder="Search records..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
-                {['clients','expenses','petty-cash','bank','vendor-bills','vendors'].includes(view) && (
+                {!['dashboard','receivables-payables','client-profile','vendor-profile','tax-report','reports','statements','clients','salaries','petty-cash'].includes(view) && <div className="relative flex-1 sm:w-72 group"><Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/><input className="w-full pl-12 pr-4 py-3 rounded-2xl border-none bg-white shadow-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-violet-500 outline-none transition-all font-medium text-slate-600" placeholder="Search records..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
+                {['clients','expenses','bank','vendor-bills','vendors'].includes(view) && (
                     <div className="flex gap-3">
                         <label className="bg-white px-4 py-3 rounded-2xl font-bold text-sm text-slate-600 shadow-sm ring-1 ring-slate-200 hover:ring-violet-300 hover:text-violet-600 transition-all cursor-pointer flex items-center gap-2">
                             <Upload size={18}/> <span className="hidden sm:inline">Import</span> <input type="file" className="hidden" accept=".csv" onChange={(e) => handleGenericImport(e, view === 'petty-cash' ? 'petty_cash' : view === 'vendor-bills' ? 'vendor_bills' : view)}/>
@@ -3266,14 +3701,14 @@ function App() {
                         </button>
                     </div>
                 )}
-                {['expenses','petty-cash','bank','vendor-bills'].includes(view) && (
+                {['expenses','bank','vendor-bills'].includes(view) && (
                     <div className="flex gap-3 bg-white p-1.5 rounded-2xl shadow-sm ring-1 ring-slate-200">
                         <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}><option value="All">All Months</option>{['January','February','March','April','May','June','July','August','September','October','November','December'].map(m=><option key={m}>{m}</option>)}</select>
                         <div className="w-px bg-slate-200 my-1"></div>
                         <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={selectedYear} onChange={e=>setSelectedYear(e.target.value)}><option value="All">All Years</option>{availableYears.map(y=><option key={y}>{y}</option>)}</select>
                     </div>
                 )}
-                {!['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report','clients','salaries'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
+                {!['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report','clients','salaries','petty-cash'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
             </div>
         </header>
 
@@ -3471,6 +3906,8 @@ function App() {
 
         {view === 'vendor-profile' && selectedVendorProfile && <VendorProfile vendor={selectedVendorProfile} vendorBills={vendorBills} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('vendors')} />}
 
+        {view === 'petty-cash' && <PettyCashPage pettyCash={pettyCash} currentUser={currentUser} onNewEntry={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => handleDelete(id, 'petty')} />}
+
         {view === 'salaries' && <SalariesPage salaries={salaries} currentUser={currentUser} onNewSalary={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(s) => { setFormData({...s}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => handleDelete(id, 'salary')} onViewSlip={(s) => { if (s) { setFormData(s); setShowSalarySlip(true); } }} />}
 
         {view === 'quotations' && <QuotationGenerator clients={clients} onSave={(q) => saveToFirebase('quotations', q, q.id)} savedQuotations={quotations} onDeleteQuotation={(id) => handleDelete(id, 'quotation')} onConvertToInvoice={handleConvertToInvoice} />}
@@ -3478,8 +3915,8 @@ function App() {
         {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => handleDelete(id, 'invoice')} onGenerateRecurring={handleGenerateRecurring} onReceivePayment={(inv, amt) => initiatePayment(inv, 'invoice', amt)} />}
 
         {/* GENERIC TABLE RENDERER */}
-        {['vendors','petty-cash','expenses','bank','manage-users','vendor-bills'].includes(view) && (() => {
-            const currentData = view==='vendors'?filteredVendors:view==='vendor-bills'?filteredBills:view==='expenses'?filteredExp:view==='petty-cash'?filteredPetty:view==='bank'?bankRecords:users;
+        {['vendors','expenses','bank','manage-users','vendor-bills'].includes(view) && (() => {
+            const currentData = view==='vendors'?filteredVendors:view==='vendor-bills'?filteredBills:view==='expenses'?filteredExp:view==='bank'?bankRecords:users;
             if (currentData.length === 0) {
                 return (
                     <div className="bg-white p-16 rounded-3xl shadow-sm border border-slate-100 text-center animate-in fade-in zoom-in-95 duration-300">
@@ -3506,7 +3943,7 @@ function App() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                            {(view==='vendors'?filteredVendors:view==='vendor-bills'?filteredBills:view==='expenses'?filteredExp:view==='petty-cash'?filteredPetty:view==='bank'?bankRecords:users).map((item, idx, arr) => {
+                            {(view==='vendors'?filteredVendors:view==='vendor-bills'?filteredBills:view==='expenses'?filteredExp:view==='bank'?bankRecords:users).map((item, idx, arr) => {
                                 // Calculate running balance for petty cash
                                 const pettyCashBalance = view === 'petty-cash' ? arr.slice(0, idx + 1).reduce((bal, r) => bal + (Number(r.cashIn)||0) - (Number(r.cashOut)||0), 0) : null;
                                 return (
@@ -3593,7 +4030,7 @@ function App() {
         {showForm && (
             <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                 <div className="bg-white p-8 md:p-10 rounded-3xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
-                    <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-6"><h3 className="text-2xl font-bold text-slate-800">{view==='clients' ? (isEditingRecord ? 'Edit Client' : 'New Client') : view==='salaries' ? (isEditingRecord ? 'Edit Payslip' : 'New Payslip') : 'Record Details'}</h3><button onClick={()=>setShowForm(false)} className="p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"><X size={20}/></button></div>
+                    <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-6"><h3 className="text-2xl font-bold text-slate-800">{view==='clients' ? (isEditingRecord ? 'Edit Client' : 'New Client') : view==='salaries' ? (isEditingRecord ? 'Edit Payslip' : 'New Payslip') : view==='petty-cash' ? (isEditingRecord ? 'Edit Entry' : 'New Cash Entry') : 'Record Details'}</h3><button onClick={()=>setShowForm(false)} className="p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"><X size={20}/></button></div>
                     <form onSubmit={handleAddSubmit} className="space-y-6">
                          {/* DYNAMIC FORM FIELDS BASED ON VIEW - STYLED CONSISTENTLY */}
                         {view==='manage-users' && <><input required placeholder="Username" className="form-input" value={formData.username||''} onChange={e=>setFormData({...formData,username:e.target.value})}/><input type="email" required placeholder="Email" className="form-input" value={formData.email||''} onChange={e=>setFormData({...formData,email:e.target.value})}/><input type="password" placeholder="Password (leave blank to keep)" className="form-input" value={formData.password||''} onChange={e=>setFormData({...formData,password:e.target.value})}/><select className="form-select" value={formData.role||'Viewer'} onChange={e=>setFormData({...formData,role:e.target.value})}><option>Viewer</option><option>Editor</option><option>Admin</option></select></>}
@@ -3641,14 +4078,54 @@ function App() {
                                 </div>
                             </div>
                         </>}
-                        {view==='petty-cash' && <>
-                            <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/>
-                            <input placeholder="Description" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})}/>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Cash Out (Expense)</label><input type="number" placeholder="0" className="form-input text-rose-600" value={formData.cashOut||''} onChange={e=>setFormData({...formData,cashOut:e.target.value,cashIn:formData.cashIn||''})} /></div>
-                                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Cash In (Receipt)</label><input type="number" placeholder="0" className="form-input text-emerald-600" value={formData.cashIn||''} onChange={e=>setFormData({...formData,cashIn:e.target.value,cashOut:formData.cashOut||''})} /></div>
+                        {view==='petty-cash' && (
+                            <div className="space-y-4">
+                                <div className="pb-2 border-b border-slate-100">
+                                    <p className="text-xs font-extrabold text-amber-600 uppercase tracking-widest">Entry Details</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Date *</label>
+                                        <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Category</label>
+                                        <select className="form-select" value={formData.category||'Miscellaneous'} onChange={e=>setFormData({...formData,category:e.target.value})}>
+                                            {['Office Supplies','Meals & Entertainment','Travel & Transport','Courier & Delivery','Utilities','Printing & Stationery','Repairs & Maintenance','Miscellaneous','Advance','Refund / Receipt'].map(c=><option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Description *</label>
+                                    <input required placeholder="e.g. Stationery for office, Lunch meeting..." className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})}/>
+                                </div>
+                                <div className="pb-2 border-b border-slate-100 pt-1">
+                                    <p className="text-xs font-extrabold text-amber-600 uppercase tracking-widest">Amount</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block flex items-center gap-1.5">
+                                            <span className="w-2 h-2 bg-rose-500 rounded-full inline-block"></span>Cash Out (Expense)
+                                        </label>
+                                        <input type="number" placeholder="0" className="form-input" value={formData.cashOut||''} onChange={e=>setFormData({...formData,cashOut:e.target.value})}/>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block flex items-center gap-1.5">
+                                            <span className="w-2 h-2 bg-emerald-500 rounded-full inline-block"></span>Cash In (Receipt)
+                                        </label>
+                                        <input type="number" placeholder="0" className="form-input" value={formData.cashIn||''} onChange={e=>setFormData({...formData,cashIn:e.target.value})}/>
+                                    </div>
+                                </div>
+                                {(formData.cashOut > 0 || formData.cashIn > 0) && (
+                                    <div className={`p-3 rounded-xl flex items-center justify-between border ${Number(formData.cashIn)>0?'bg-emerald-50 border-emerald-200':'bg-rose-50 border-rose-200'}`}>
+                                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">{Number(formData.cashIn)>0?'Cash In':'Cash Out'}</span>
+                                        <span className={`text-xl font-extrabold tabular-nums ${Number(formData.cashIn)>0?'text-emerald-700':'text-rose-700'}`}>
+                                            {Number(formData.cashIn)>0?'+':'-'}{formatCurrency(Number(formData.cashIn)||Number(formData.cashOut)||0)}
+                                        </span>
+                                    </div>
+                                )}
                             </div>
-                        </>}
+                        )}
                         {view==='vendors' && <><input required placeholder="Vendor / Supplier Name" className="form-input" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/><input placeholder="Service Type (e.g. Printing, Media)" className="form-input" value={formData.serviceType||''} onChange={e=>setFormData({...formData,serviceType:e.target.value})}/><input placeholder="Contact / Phone" className="form-input" value={formData.contact||''} onChange={e=>setFormData({...formData,contact:e.target.value})}/><input type="number" placeholder="Total Amount Payable" className="form-input" value={formData.amountPayable||''} onChange={e=>setFormData({...formData,amountPayable:e.target.value})}/><input type="number" placeholder="Amount Paid So Far" className="form-input" value={formData.amountPaid||''} onChange={e=>setFormData({...formData,amountPaid:e.target.value})}/></>}
                         {view === 'salaries' && (
                             <>
@@ -3777,7 +4254,7 @@ function App() {
                                 </div>
                             </>
                         )}
-                        {(view==='salaries'||view==='petty-cash'||view==='expenses') && <div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Payment Details (Optional)</label><div className="grid grid-cols-2 gap-4"><input placeholder="Bank Name" className="form-input bg-white" value={formData.bankName||''} onChange={e=>setFormData({...formData,bankName:e.target.value})} /><input placeholder="Cheque #" className="form-input bg-white" value={formData.chequeNumber||''} onChange={e=>setFormData({...formData,chequeNumber:e.target.value})} /></div></div>}
+                        {(view==='salaries'||view==='expenses') && <div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Payment Details (Optional)</label><div className="grid grid-cols-2 gap-4"><input placeholder="Bank Name" className="form-input bg-white" value={formData.bankName||''} onChange={e=>setFormData({...formData,bankName:e.target.value})} /><input placeholder="Cheque #" className="form-input bg-white" value={formData.chequeNumber||''} onChange={e=>setFormData({...formData,chequeNumber:e.target.value})} /></div></div>}{view==='petty-cash' && <div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Payment Details (Optional)</label><div className="grid grid-cols-2 gap-4"><input placeholder="Bank Name" className="form-input bg-white" value={formData.bankName||''} onChange={e=>setFormData({...formData,bankName:e.target.value})} /><input placeholder="Ref / Receipt #" className="form-input bg-white" value={formData.chequeNumber||''} onChange={e=>setFormData({...formData,chequeNumber:e.target.value})} /></div></div>}
                         <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-5 rounded-2xl hover:bg-violet-50 transition-colors border-2 border-dashed border-slate-200 hover:border-violet-300 group"><div className="p-2 bg-white rounded-full text-slate-400 group-hover:text-violet-500 shadow-sm"><Upload size={20}/></div><span className="text-sm font-bold text-slate-500 group-hover:text-violet-600">{fileToUpload?fileToUpload.name:"Attach Receipt / Proof"}</span><input type="file" className="hidden" onChange={e=>setFileToUpload(e.target.files[0])}/></label>
                         <button disabled={isSubmitting} className="w-full bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white py-4 rounded-2xl font-bold hover:shadow-lg hover:shadow-violet-200 transition-all transform hover:scale-[1.01] active:scale-95 flex justify-center items-center gap-2">{isSubmitting?<RefreshCw className="animate-spin" size={20}/>:<CheckCircle size={20}/>} {isSubmitting?'Saving...':'Save Record'}</button>
                     </form>
