@@ -834,6 +834,7 @@ const ClientsPage = ({
     const sendWhatsApp = (client) => {
         const phone = (client.phone||'').replace(/[^0-9]/g,'');
         if (!phone) { window._toast?.('No phone number saved for this client.', 'error'); return; }
+        const msg = encodeURIComponent(
             `Dear ${client.name},\n\nThis is a gentle reminder regarding your outstanding payment of ${formatCurrency(client.outstanding)}.\n\nPlease get in touch with us at your earliest convenience.\n\nThank you!`
         );
         window.open(`https://wa.me/${phone}?text=${msg}`, '_blank');
