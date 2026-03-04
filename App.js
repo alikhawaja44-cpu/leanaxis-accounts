@@ -833,8 +833,7 @@ const ClientsPage = ({
 
     const sendWhatsApp = (client) => {
         const phone = (client.phone||'').replace(/[^0-9]/g,'');
-        if (!phone) { alert('No phone number saved for this client.'); return; }
-        const msg = encodeURIComponent(
+        if (!phone) { window._toast?.('No phone number saved for this client.', 'error'); return; }
             `Dear ${client.name},\n\nThis is a gentle reminder regarding your outstanding payment of ${formatCurrency(client.outstanding)}.\n\nPlease get in touch with us at your earliest convenience.\n\nThank you!`
         );
         window.open(`https://wa.me/${phone}?text=${msg}`, '_blank');
@@ -1282,7 +1281,7 @@ const ClientProfile = ({ client, invoices, bankRecords, pettyCash, onBack, onCre
 
     const sendWhatsAppReminder = () => {
         const phone = (client.phone||'').replace(/[^0-9]/g,'');
-        if (!phone) { alert('No phone number saved for this client.'); return; }
+        if (!phone) { window._toast?.('No phone number saved for this client.', 'error'); return; }
         const overdueList = invoiceSummary.filter(i => i.isOverdue)
             .map(i => `  • Invoice ${i.invoiceNumber || ''} — ${formatCurrency(i.outstanding)} (Due: ${i.dueDate})`).join('\n');
         const body = overdueList
@@ -3054,7 +3053,7 @@ function App() {
                     <form onSubmit={handleAddSubmit} className="space-y-6">
                          {/* DYNAMIC FORM FIELDS BASED ON VIEW - STYLED CONSISTENTLY */}
                         {view==='manage-users' && <><input required placeholder="Username" className="form-input" value={formData.username||''} onChange={e=>setFormData({...formData,username:e.target.value})}/><input type="email" required placeholder="Email" className="form-input" value={formData.email||''} onChange={e=>setFormData({...formData,email:e.target.value})}/><input type="password" placeholder="Password (leave blank to keep)" className="form-input" value={formData.password||''} onChange={e=>setFormData({...formData,password:e.target.value})}/><select className="form-select" value={formData.role||'Viewer'} onChange={e=>setFormData({...formData,role:e.target.value})}><option>Viewer</option><option>Editor</option><option>Admin</option></select></>}
-                        {{view==='clients' && (
+                        {view==='clients' && (
                             <div className="space-y-5">
                                 <div className="pb-2 border-b border-slate-100"><p className="text-xs font-bold text-violet-600 uppercase tracking-widest">Identity</p></div>
                                 <div className="grid grid-cols-2 gap-4">
