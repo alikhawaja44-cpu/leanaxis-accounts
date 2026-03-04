@@ -751,8 +751,459 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
     );
 };
 
-// --- CLIENT PROFILE COMPONENT ---
-const ClientProfile = ({ client, invoices, bankRecords, pettyCash, onBack, onViewInvoice }) => {
+
+// ============================================================
+// ============================================================
+// CLIENT MODULE — LIST PAGE (ClientsPage)
+// ============================================================
+const ClientsPage = ({
+    clients, invoices, bankRecords, pettyCash,
+    onViewProfile, onEdit, onDelete, onNewClient, currentUser
+}) => {
+    const [search, setSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState('All');
+    const [outstandingOnly, setOutstandingOnly] = useState(false);
+    const [sortBy, setSortBy] = useState('outstanding');
+    const [viewMode, setViewMode] = useState('cards'); // 'cards' | 'table'
+
+    const today = new Date(); today.setHours(0,0,0,0);
+
+    const enriched = useMemo(() => clients.map(client => {
+        const name = (client.name || '').toLowerCase().trim();
+        const clientInvs = invoices.filter(inv => (inv.client || '').toLowerCase().trim() === name);
+        const totalBilled = clientInvs.reduce((a, inv) =>
+            a + calculateTax((inv.items||[]).reduce((s,it)=>s+((it.qty||0)*(it.rate||0)),0), inv.taxRate).total, 0);
+        const totalReceived = clientInvs.filter(i => i.status === 'Paid').reduce((a, inv) => {
+            const r = Number(inv.amountReceived);
+            const t = calculateTax((inv.items||[]).reduce((s,it)=>s+((it.qty||0)*(it.rate||0)),0), inv.taxRate).total;
+            return a + (r > 0 ? r : t);
+        }, 0) + (Number(client.advanceReceived)||0);
+        const outstanding = Math.max(0, totalBilled - totalReceived);
+        const overdueInvs = clientInvs.filter(i => i.status !== 'Paid' && i.dueDate && new Date(i.dueDate) < today);
+        const unpaidInvs = clientInvs.filter(i => i.status !== 'Paid');
+        const paidCount = clientInvs.filter(i => i.status === 'Paid').length;
+        const collectionRate = totalBilled > 0 ? Math.round((totalReceived / totalBilled) * 100) : 0;
+        return {
+            ...client, totalBilled, totalReceived, outstanding,
+            overdueCount: overdueInvs.length, invoiceCount: clientInvs.length,
+            unpaidCount: unpaidInvs.length, paidCount, collectionRate
+        };
+    }), [clients, invoices]);
+
+    const filtered = useMemo(() => {
+        let res = enriched;
+        if (search) res = res.filter(c =>
+            (c.name||'').toLowerCase().includes(search.toLowerCase()) ||
+            (c.projectName||'').toLowerCase().includes(search.toLowerCase()) ||
+            (c.phone||'').includes(search) ||
+            (c.email||'').toLowerCase().includes(search.toLowerCase()));
+        if (statusFilter !== 'All') res = res.filter(c => (c.status || 'Ongoing') === statusFilter);
+        if (outstandingOnly) res = res.filter(c => c.outstanding > 0);
+        if (sortBy === 'outstanding') res = [...res].sort((a,b) => b.outstanding - a.outstanding);
+        else if (sortBy === 'billed') res = [...res].sort((a,b) => b.totalBilled - a.totalBilled);
+        else if (sortBy === 'overdue') res = [...res].sort((a,b) => b.overdueCount - a.overdueCount);
+        else if (sortBy === 'date') res = [...res].sort((a,b) => new Date(b.date||0) - new Date(a.date||0));
+        else res = [...res].sort((a,b) => (a.name||'').localeCompare(b.name||''));
+        return res;
+    }, [enriched, search, statusFilter, outstandingOnly, sortBy]);
+
+    const kpis = useMemo(() => {
+        const avgCollection = enriched.length > 0
+            ? Math.round(enriched.reduce((a,c) => a + c.collectionRate, 0) / enriched.length)
+            : 0;
+        const topClient = enriched.reduce((best, c) => c.totalBilled > (best?.totalBilled || 0) ? c : best, null);
+        return {
+            total: enriched.length,
+            totalBilled: enriched.reduce((a,c)=>a+c.totalBilled,0),
+            totalReceived: enriched.reduce((a,c)=>a+c.totalReceived,0),
+            totalOutstanding: enriched.reduce((a,c)=>a+c.outstanding,0),
+            overdueClients: enriched.filter(c=>c.overdueCount>0).length,
+            activeClients: enriched.filter(c=>(c.status||'Ongoing')!=='Completed').length,
+            retainerClients: enriched.filter(c=>c.status==='Retainer').length,
+            avgCollection,
+            topClient,
+        };
+    }, [enriched]);
+
+    const statusColors = {
+        Ongoing: 'bg-amber-100 text-amber-700',
+        Retainer: 'bg-violet-100 text-violet-700',
+        Completed: 'bg-emerald-100 text-emerald-700'
+    };
+
+    const sendWhatsApp = (client) => {
+        const phone = (client.phone||'').replace(/[^0-9]/g,'');
+        if (!phone) { alert('No phone number saved for this client.'); return; }
+        const msg = encodeURIComponent(
+            `Dear ${client.name},\n\nThis is a gentle reminder regarding your outstanding payment of ${formatCurrency(client.outstanding)}.\n\nPlease get in touch with us at your earliest convenience.\n\nThank you!`
+        );
+        window.open(`https://wa.me/${phone}?text=${msg}`, '_blank');
+    };
+
+    const WaIcon = () => (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+        </svg>
+    );
+
+    return (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+
+        <div className="space-y-4">
+            {/* Overdue alert */}
+            {kpis.overdueClients > 0 && (
+                <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-center gap-4">
+                    <div className="bg-rose-100 p-2.5 rounded-xl flex-shrink-0"><Clock className="text-rose-600" size={20}/></div>
+                    <div className="flex-1 min-w-0">
+                        <p className="font-bold text-rose-800 text-sm">{kpis.overdueClients} client{kpis.overdueClients>1?'s have':' has'} overdue invoices</p>
+                        <p className="text-rose-600 text-xs mt-0.5">Filter by "Overdue First" to follow up quickly.</p>
+                    </div>
+                    <button onClick={() => setSortBy('overdue')} className="bg-rose-600 text-white px-3 py-1.5 rounded-xl font-bold text-xs hover:bg-rose-700 transition-colors flex-shrink-0">Show Overdue</button>
+                </div>
+            )}
+
+            {/* KPI Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                {[
+                    { l: 'Total Clients', v: kpis.total, sub: `${kpis.activeClients} active`, c: 'text-slate-800', bg: 'bg-white border-slate-200', icon: Users },
+                    { l: 'On Retainer', v: kpis.retainerClients, sub: 'Recurring revenue', c: 'text-violet-700', bg: 'bg-violet-50 border-violet-200', icon: RefreshCw },
+                    { l: 'Total Invoiced', v: formatCurrency(kpis.totalBilled), sub: 'All time billings', c: 'text-slate-800', bg: 'bg-white border-slate-200', icon: FileText },
+                    { l: 'Total Collected', v: formatCurrency(kpis.totalReceived), sub: 'Revenue received', c: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200', icon: ArrowDownLeft },
+                    { l: 'Outstanding', v: formatCurrency(kpis.totalOutstanding), sub: 'Pending collection', c: 'text-rose-700', bg: kpis.totalOutstanding > 0 ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200', icon: Clock },
+                    { l: 'Avg Collection', v: `${kpis.avgCollection}%`, sub: kpis.avgCollection>=80?'Excellent health':kpis.avgCollection>=60?'Good health':'Needs attention', c: kpis.avgCollection>=80?'text-emerald-700':kpis.avgCollection>=60?'text-amber-700':'text-rose-700', bg: kpis.avgCollection>=80?'bg-emerald-50 border-emerald-200':kpis.avgCollection>=60?'bg-amber-50 border-amber-200':'bg-rose-50 border-rose-200', icon: Percent },
+                ].map((k,i) => (
+                    <div key={i} className={`${k.bg} border p-4 rounded-2xl shadow-sm hover:shadow-md transition-all group`}>
+                        <div className="flex items-start justify-between mb-2">
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-tight">{k.l}</p>
+                            <k.icon size={14} className="text-slate-300 group-hover:text-slate-400 transition-colors flex-shrink-0 mt-0.5"/>
+                        </div>
+                        <p className={`text-lg font-extrabold ${k.c} tabular-nums`}>{k.v}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{k.sub}</p>
+                    </div>
+                ))}
+            </div>
+
+            {/* Collection health bar */}
+            {kpis.totalBilled > 0 && (
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Portfolio Collection Health</span>
+                        <span className={`text-xs font-extrabold px-2 py-1 rounded-full ${kpis.avgCollection>=80?'bg-emerald-100 text-emerald-700':kpis.avgCollection>=60?'bg-amber-100 text-amber-700':'bg-rose-100 text-rose-700'}`}>
+                            {formatCurrency(kpis.totalReceived)} of {formatCurrency(kpis.totalBilled)} collected
+                        </span>
+                    </div>
+                    <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                            className={`h-full rounded-full transition-all duration-1000 ${kpis.avgCollection>=80?'bg-gradient-to-r from-emerald-400 to-emerald-500':kpis.avgCollection>=60?'bg-gradient-to-r from-amber-400 to-amber-500':'bg-gradient-to-r from-rose-500 to-rose-400'}`}
+                            style={{width:`${Math.min(100,(kpis.totalBilled>0?kpis.totalReceived/kpis.totalBilled*100:0))}%`}}
+                        />
+                    </div>
+                    <div className="flex justify-between text-xs text-slate-400 mt-1.5">
+                        <span>{formatCurrency(kpis.totalReceived)} received</span>
+                        <span className="text-rose-500 font-medium">{formatCurrency(kpis.totalOutstanding)} outstanding</span>
+                    </div>
+                </div>
+            )}
+        </div>
+
+            {/* Toolbar */}
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+                <div className="flex flex-wrap gap-2 items-center">
+                    <div className="relative">
+                        <Search className="absolute left-3 top-2.5 text-slate-400" size={15}/>
+                        <input
+                            className="pl-8 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none w-52 transition-all"
+                            placeholder="Search clients..."
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                        />
+                    </div>
+                    <div className="flex bg-white border border-slate-200 rounded-xl overflow-hidden">
+                        {['All','Ongoing','Retainer','Completed'].map(s => (
+                            <button key={s} onClick={() => setStatusFilter(s)}
+                                className={`px-3 py-2 text-xs font-bold transition-all ${statusFilter===s ? 'bg-violet-600 text-white' : 'text-slate-500 hover:text-violet-600'}`}>
+                                {s}
+                            </button>
+                        ))}
+                    </div>
+                    <button onClick={() => setOutstandingOnly(v=>!v)}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all ${outstandingOnly ? 'bg-rose-600 text-white border-rose-600' : 'bg-white border-slate-200 text-slate-500 hover:border-rose-400 hover:text-rose-600'}`}>
+                        {outstandingOnly ? '✓ ' : ''}Outstanding Only
+                    </button>
+                    <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+                        className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 outline-none cursor-pointer">
+                        <option value="outstanding">Sort: Outstanding ↓</option>
+                        <option value="billed">Sort: Most Billed</option>
+                        <option value="overdue">Sort: Overdue First</option>
+                        <option value="name">Sort: Name A–Z</option>
+                        <option value="date">Sort: Newest</option>
+                    </select>
+                    <div className="flex bg-white border border-slate-200 rounded-xl overflow-hidden">
+                        <button onClick={() => setViewMode('cards')} title="Card View"
+                            className={`px-3 py-2 transition-all ${viewMode==='cards' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-600'}`}>
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="0" width="7" height="7" rx="1.5"/><rect x="9" y="0" width="7" height="7" rx="1.5"/><rect x="0" y="9" width="7" height="7" rx="1.5"/><rect x="9" y="9" width="7" height="7" rx="1.5"/></svg>
+                        </button>
+                        <button onClick={() => setViewMode('table')} title="Table View"
+                            className={`px-3 py-2 transition-all ${viewMode==='table' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-600'}`}>
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="0" width="16" height="3" rx="1"/><rect x="0" y="5" width="16" height="3" rx="1"/><rect x="0" y="10" width="16" height="3" rx="1"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <button onClick={onNewClient}
+                    className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all flex-shrink-0">
+                    <Plus size={16}/> New Client
+                </button>
+            </div>
+
+            {(search || statusFilter !== 'All' || outstandingOnly) && (
+                <p className="text-sm text-slate-500 font-medium -mt-2">
+                    Showing <span className="font-bold text-violet-600">{filtered.length}</span> of {enriched.length} clients
+                </p>
+            )}
+
+            {/* Empty State */}
+            {filtered.length === 0 && (
+                <div className="bg-white p-16 rounded-3xl shadow-sm border border-slate-100 text-center">
+                    <div className="bg-slate-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Briefcase className="text-slate-300" size={36}/>
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-700 mb-2">
+                        {search || statusFilter !== 'All' || outstandingOnly ? 'No clients match your filters' : 'No clients yet'}
+                    </h3>
+                    <p className="text-sm text-slate-400 mb-6">
+                        {search || statusFilter !== 'All' || outstandingOnly ? 'Try adjusting your filters.' : 'Add your first client to start tracking projects and payments.'}
+                    </p>
+                    {!search && statusFilter === 'All' && !outstandingOnly && (
+                        <button onClick={onNewClient} className="bg-violet-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-violet-700 transition-colors">
+                            + Add First Client
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* CARD VIEW */}
+            {viewMode === 'cards' && filtered.length > 0 && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
+                    {filtered.map(client => {
+                        const collPct = Math.min(100, client.collectionRate);
+                        const statusColor = statusColors[client.status||'Ongoing'] || statusColors.Ongoing;
+                        const initials = (client.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+                        const isOverdue = client.overdueCount > 0;
+                        const isCompleted = (client.status||'Ongoing') === 'Completed';
+                        return (
+                            <div key={client.id}
+                                className={`bg-white rounded-2xl border shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden flex flex-col ${isOverdue ? 'border-rose-200 shadow-rose-100/30' : isCompleted ? 'border-emerald-200' : 'border-slate-200'}`}>
+
+                                {/* Card Header */}
+                                <div className={`p-5 border-b ${isOverdue ? 'bg-rose-50/40 border-rose-100' : isCompleted ? 'bg-emerald-50/40 border-emerald-100' : 'bg-slate-50/50 border-slate-100'}`}>
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-white font-extrabold text-sm flex-shrink-0 shadow-md ${isCompleted ? 'bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-100' : 'bg-gradient-to-br from-violet-500 to-fuchsia-600 shadow-violet-100'}`}>
+                                                {initials}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="font-extrabold text-slate-900 truncate">{client.name}</p>
+                                                {client.projectName && <p className="text-xs text-slate-400 truncate mt-0.5">{client.projectName}</p>}
+                                                {client.phone && (
+                                                    <a href={`tel:${client.phone}`} className="text-xs text-violet-500 hover:text-violet-700 font-medium truncate mt-0.5 block">{client.phone}</a>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                                            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${statusColor}`}>{client.status||'Ongoing'}</span>
+                                            {isOverdue && <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-rose-100 text-rose-700">⚠ {client.overdueCount} overdue</span>}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Financial Stats */}
+                                <div className="p-5 space-y-3 flex-1">
+                                    <div className="grid grid-cols-3 gap-2 text-center">
+                                        <div className="bg-slate-50 rounded-xl p-3">
+                                            <p className="text-xs text-slate-400 font-bold uppercase leading-tight mb-1">Billed</p>
+                                            <p className="text-sm font-extrabold text-slate-800 tabular-nums">{formatCurrency(client.totalBilled)}</p>
+                                        </div>
+                                        <div className="bg-emerald-50 rounded-xl p-3">
+                                            <p className="text-xs text-emerald-600 font-bold uppercase leading-tight mb-1">Received</p>
+                                            <p className="text-sm font-extrabold text-emerald-700 tabular-nums">{formatCurrency(client.totalReceived)}</p>
+                                        </div>
+                                        <div className={`rounded-xl p-3 ${client.outstanding > 0 ? 'bg-rose-50' : 'bg-emerald-50'}`}>
+                                            <p className={`text-xs font-bold uppercase leading-tight mb-1 ${client.outstanding > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>Balance</p>
+                                            <p className={`text-sm font-extrabold tabular-nums ${client.outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                                                {client.outstanding > 0 ? formatCurrency(client.outstanding) : '✓ Clear'}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {client.totalBilled > 0 && (
+                                        <div>
+                                            <div className="flex justify-between items-center mb-1.5">
+                                                <span className="text-xs text-slate-400 font-medium">Collection Rate</span>
+                                                <span className={`text-xs font-extrabold ${collPct >= 80 ? 'text-emerald-600' : collPct >= 50 ? 'text-amber-600' : 'text-rose-600'}`}>{collPct}%</span>
+                                            </div>
+                                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                                <div
+                                                    className={`h-full rounded-full transition-all duration-700 ${collPct >= 80 ? 'bg-gradient-to-r from-emerald-400 to-emerald-500' : collPct >= 50 ? 'bg-gradient-to-r from-amber-400 to-amber-500' : 'bg-gradient-to-r from-rose-400 to-rose-500'}`}
+                                                    style={{width:`${collPct}%`}}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="flex flex-wrap items-center justify-between text-xs text-slate-400 gap-1">
+                                        <span>{client.invoiceCount} invoice{client.invoiceCount !== 1 ? 's' : ''} · {client.paidCount} paid</span>
+                                        {client.retainerAmount > 0 && (
+                                            <span className="bg-violet-50 text-violet-600 font-bold px-2 py-0.5 rounded-full">Retainer {formatCurrency(client.retainerAmount)}/mo</span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Card Actions */}
+                                <div className="px-4 pb-4 flex gap-2 border-t border-slate-100 pt-3">
+                                    <button onClick={() => onViewProfile(client)}
+                                        className="flex-1 bg-violet-600 hover:bg-violet-700 text-white py-2 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-1.5 shadow-sm hover:shadow-md">
+                                        <Briefcase size={14}/> View Profile
+                                    </button>
+                                    <div className="flex gap-1">
+                                        {client.phone && client.outstanding > 0 && (
+                                            <button onClick={() => sendWhatsApp(client)} title="Send WhatsApp Reminder"
+                                                className="p-2 bg-[#25D366]/10 text-[#25D366] hover:bg-[#25D366]/20 rounded-xl transition-colors">
+                                                <WaIcon/>
+                                            </button>
+                                        )}
+                                        {client.email && (
+                                            <a href={`mailto:${client.email}?subject=Payment Reminder — ${client.projectName||client.name}&body=Dear ${client.name},%0A%0AThis is a gentle reminder regarding your outstanding balance.%0A%0AThank you!`}
+                                                title="Send Email"
+                                                className="p-2 bg-sky-50 text-sky-500 hover:bg-sky-100 rounded-xl transition-colors flex items-center">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 7L2 7"/></svg>
+                                            </a>
+                                        )}
+                                        {currentUser?.role === 'Admin' && (
+                                            <button onClick={() => onEdit(client)} title="Edit"
+                                                className="p-2 bg-slate-100 text-slate-500 hover:bg-violet-100 hover:text-violet-700 rounded-xl transition-colors">
+                                                <Edit size={14}/>
+                                            </button>
+                                        )}
+                                        {currentUser?.role === 'Admin' && (
+                                            <button onClick={() => onDelete(client.id)} title="Delete"
+                                                className="p-2 bg-slate-100 text-slate-500 hover:bg-rose-100 hover:text-rose-600 rounded-xl transition-colors">
+                                                <Trash2 size={14}/>
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* TABLE VIEW */}
+            {viewMode === 'table' && filtered.length > 0 && (
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left min-w-[900px]">
+                            <thead className="bg-slate-50 border-b border-slate-100">
+                                <tr>
+                                    {['Client / Project','Status','Contact','Invoices','Billed','Received','Outstanding','Rate',''].map((h,i) => (
+                                        <th key={i} className={`px-5 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider ${i >= 4 && i <= 6 ? 'text-right' : ''}`}>{h}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {filtered.map(client => {
+                                    const collPct = Math.min(100, client.collectionRate);
+                                    const isOverdue = client.overdueCount > 0;
+                                    return (
+                                        <tr key={client.id} className={`hover:bg-slate-50/80 transition-colors group ${isOverdue ? 'bg-rose-50/20' : ''}`}>
+                                            <td className="px-5 py-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center text-white font-extrabold text-xs flex-shrink-0">
+                                                        {(client.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-bold text-slate-800 text-sm">{client.name}</p>
+                                                        {client.projectName && <p className="text-xs text-slate-400">{client.projectName}</p>}
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="px-5 py-4">
+                                                <div className="flex flex-col gap-1">
+                                                    <span className={`text-xs font-bold px-2.5 py-1 rounded-full w-fit ${statusColors[client.status||'Ongoing']||statusColors.Ongoing}`}>{client.status||'Ongoing'}</span>
+                                                    {isOverdue && <span className="text-xs font-bold text-rose-600">⚠ {client.overdueCount} overdue</span>}
+                                                </div>
+                                            </td>
+                                            <td className="px-5 py-4">
+                                                <div className="text-xs text-slate-500 space-y-0.5">
+                                                    {client.phone && <div><a href={`tel:${client.phone}`} className="text-violet-500 hover:underline">{client.phone}</a></div>}
+                                                    {client.email && <div className="truncate max-w-[130px]">{client.email}</div>}
+                                                    {!client.phone && !client.email && <span className="text-slate-300">—</span>}
+                                                </div>
+                                            </td>
+                                            <td className="px-5 py-4 text-sm text-slate-500">
+                                                {client.invoiceCount} total · {client.paidCount} paid
+                                            </td>
+                                            <td className="px-5 py-4 text-right font-bold text-slate-800 tabular-nums">{formatCurrency(client.totalBilled)}</td>
+                                            <td className="px-5 py-4 text-right font-bold text-emerald-600 tabular-nums">{formatCurrency(client.totalReceived)}</td>
+                                            <td className="px-5 py-4 text-right font-bold tabular-nums">
+                                                {client.outstanding > 0
+                                                    ? <span className="text-rose-600">{formatCurrency(client.outstanding)}</span>
+                                                    : <span className="text-emerald-500 text-xs">✓ Clear</span>}
+                                            </td>
+                                            <td className="px-5 py-4">
+                                                {client.totalBilled > 0 && (
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-14 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                                            <div className={`h-full rounded-full ${collPct >= 80 ? 'bg-emerald-500' : collPct >= 50 ? 'bg-amber-500' : 'bg-rose-500'}`} style={{width:`${collPct}%`}}/>
+                                                        </div>
+                                                        <span className={`text-xs font-bold ${collPct >= 80 ? 'text-emerald-600' : collPct >= 50 ? 'text-amber-600' : 'text-rose-600'}`}>{collPct}%</span>
+                                                    </div>
+                                                )}
+                                            </td>
+                                            <td className="px-5 py-4">
+                                                <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <button onClick={() => onViewProfile(client)}
+                                                        className="text-xs font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap">
+                                                        Profile →
+                                                    </button>
+                                                    {currentUser?.role === 'Admin' && (
+                                                        <button onClick={() => onEdit(client)} className="p-1.5 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"><Edit size={13}/></button>
+                                                    )}
+                                                    {currentUser?.role === 'Admin' && (
+                                                        <button onClick={() => onDelete(client.id)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"><Trash2 size={13}/></button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                            <tfoot className="bg-gradient-to-r from-slate-50 to-slate-100 border-t-2 border-slate-200">
+                                <tr>
+                                    <td colSpan={4} className="px-5 py-4 text-xs font-extrabold text-slate-500 uppercase tracking-wider">TOTALS ({filtered.length} clients)</td>
+                                    <td className="px-5 py-4 text-right font-extrabold text-slate-900 tabular-nums">{formatCurrency(filtered.reduce((a,c)=>a+c.totalBilled,0))}</td>
+                                    <td className="px-5 py-4 text-right font-extrabold text-emerald-700 tabular-nums">{formatCurrency(filtered.reduce((a,c)=>a+c.totalReceived,0))}</td>
+                                    <td className="px-5 py-4 text-right font-extrabold text-rose-700 tabular-nums">{formatCurrency(filtered.reduce((a,c)=>a+c.outstanding,0))}</td>
+                                    <td colSpan={2}/>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ============================================================
+// CLIENT MODULE — PROFILE PAGE (ClientProfile)
+// ============================================================
+const ClientProfile = ({ client, invoices, bankRecords, pettyCash, onBack, onCreateInvoice, onRecordPayment }) => {
+    const [activeTab, setActiveTab] = useState('overview');
+    const [invFilter, setInvFilter] = useState('All');
+
+    const today = new Date(); today.setHours(0,0,0,0);
+
     const clientInvoices = useMemo(() => invoices.filter(inv =>
         (inv.client || '').toLowerCase().trim() === (client.name || '').toLowerCase().trim()
     ), [invoices, client]);
@@ -760,171 +1211,640 @@ const ClientProfile = ({ client, invoices, bankRecords, pettyCash, onBack, onVie
     const payments = useMemo(() => {
         const target = (client.name || '').toLowerCase().trim();
         const fromBank = bankRecords.filter(r =>
+            (r.description || '').toLowerCase().includes(target) && Number(r.amount) > 0 &&
+            !(r.description || '').toLowerCase().startsWith('inv payment:')
+        ).map(r => ({ id: r.id, date: r.date, ref: r.description, amount: Number(r.amount), method: 'Bank Transfer', icon: '🏦' }));
+
+        const fromInvBank = bankRecords.filter(r =>
+            (r.description || '').toLowerCase().startsWith('inv payment:') &&
             (r.description || '').toLowerCase().includes(target) && Number(r.amount) > 0
-        ).map(r => ({ id: r.id, date: r.date, ref: r.description, amount: Number(r.amount), method: 'Bank Transfer', bank: r.bank }));
+        ).map(r => ({ id: r.id, date: r.date, ref: r.description, amount: Number(r.amount), method: 'Bank (Invoice)', icon: '🏦' }));
+
         const fromCash = pettyCash.filter(r =>
             (r.description || '').toLowerCase().includes(target) && Number(r.cashIn) > 0 &&
             !(r.description || '').toLowerCase().startsWith('inv payment:')
-        ).map(r => ({ id: r.id, date: r.date, ref: r.description, amount: Number(r.cashIn), method: 'Cash', bank: null }));
-        // Payments linked via invoice executePayment (description = "Inv Payment: ClientName")
-        const fromInvPayment = bankRecords.filter(r =>
-            (r.description || '').toLowerCase() === `inv payment: ${target}` && Number(r.amount) > 0
-        ).map(r => ({ id: r.id, date: r.date, ref: r.description, amount: Number(r.amount), method: 'Bank (Invoice)', bank: r.bank }));
-        const fromCashInvPayment = pettyCash.filter(r =>
-            (r.description || '').toLowerCase() === `inv payment: ${target}` && Number(r.cashIn) > 0
-        ).map(r => ({ id: r.id, date: r.date, ref: r.description, amount: Number(r.cashIn), method: 'Cash (Invoice)', bank: null }));
-        return [...fromBank, ...fromCash, ...fromInvPayment, ...fromCashInvPayment]
+        ).map(r => ({ id: r.id, date: r.date, ref: r.description, amount: Number(r.cashIn), method: 'Cash Receipt', icon: '💵' }));
+
+        const fromCashInv = pettyCash.filter(r =>
+            (r.description || '').toLowerCase().startsWith('inv payment:') &&
+            (r.description || '').toLowerCase().includes(target) && Number(r.cashIn) > 0
+        ).map(r => ({ id: r.id, date: r.date, ref: r.description, amount: Number(r.cashIn), method: 'Cash (Invoice)', icon: '💵' }));
+
+        const all = [...fromBank, ...fromInvBank, ...fromCash, ...fromCashInv];
+        const seen = new Set();
+        return all.filter(p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; })
             .sort((a, b) => new Date(b.date) - new Date(a.date));
     }, [bankRecords, pettyCash, client]);
 
     const invoiceSummary = useMemo(() => clientInvoices.map(inv => {
-        const total = calculateTax((inv.items || []).reduce((s, it) => s + ((it.qty||0)*(it.rate||0)), 0), inv.taxRate).total;
+        const subtotal = (inv.items || []).reduce((s, it) => s + ((it.qty||0)*(it.rate||0)), 0);
+        const total = calculateTax(subtotal, inv.taxRate).total;
         const received = Number(inv.amountReceived) || 0;
+        const isOverdue = inv.status !== 'Paid' && inv.dueDate && new Date(inv.dueDate) < today;
         const outstanding = inv.status === 'Paid' ? 0 : total - received;
-        return { ...inv, total, received, outstanding };
-    }), [clientInvoices]);
+        const statusLabel = inv.status === 'Paid' ? 'Paid' : isOverdue ? 'Overdue' : received > 0 ? 'Partial' : (inv.status || 'Unpaid');
+        return { ...inv, total, received, outstanding, isOverdue, statusLabel };
+    }).sort((a,b) => new Date(b.date) - new Date(a.date)), [clientInvoices]);
+
+    const filteredInvoices = useMemo(() => {
+        if (invFilter === 'All') return invoiceSummary;
+        return invoiceSummary.filter(i => i.statusLabel === invFilter);
+    }, [invoiceSummary, invFilter]);
 
     const totalBilled = invoiceSummary.reduce((a, i) => a + i.total, 0);
-    const totalReceived = invoiceSummary.reduce((a, i) => a + i.received, 0) + payments.filter(p => !p.method.includes('Invoice')).reduce((a, p) => a + p.amount, 0);
+    const totalReceived = invoiceSummary.filter(i => i.status === 'Paid').reduce((a,i) => a + i.received, 0)
+        + payments.filter(p => !p.method.toLowerCase().includes('invoice')).reduce((a,p) => a + p.amount, 0);
     const totalOutstanding = invoiceSummary.reduce((a, i) => a + i.outstanding, 0);
     const advance = Number(client.advanceReceived) || 0;
-    const today = new Date(); today.setHours(0,0,0,0);
+    const overdueCount = invoiceSummary.filter(i => i.isOverdue).length;
+    const collectionRate = totalBilled > 0 ? Math.round((totalReceived / totalBilled) * 100) : 0;
+    const collPct = Math.min(100, collectionRate);
+    const unpaidInvoices = invoiceSummary.filter(i => i.status !== 'Paid');
+
+    const timeline = useMemo(() => {
+        const invEvents = invoiceSummary.map(i => ({
+            date: i.date, type: 'invoice',
+            label: `Invoice ${i.invoiceNumber || '(no number)'}`,
+            detail: `${i.statusLabel} · ${formatCurrency(i.total)}`,
+            color: i.status==='Paid' ? 'bg-emerald-500' : i.isOverdue ? 'bg-rose-500' : 'bg-violet-500',
+        }));
+        const payEvents = payments.map(p => ({
+            date: p.date, type: 'payment',
+            label: 'Payment Received',
+            detail: `${formatCurrency(p.amount)} via ${p.method}`,
+            color: 'bg-emerald-500',
+        }));
+        if (advance > 0) payEvents.push({ date: client.date || '', type: 'advance', label: 'Opening Advance', detail: formatCurrency(advance), color: 'bg-sky-500' });
+        return [...invEvents, ...payEvents].sort((a,b) => new Date(b.date) - new Date(a.date)).slice(0, 20);
+    }, [invoiceSummary, payments, advance, client]);
+
+    const statusBadge = { Paid:'bg-emerald-100 text-emerald-700', Overdue:'bg-rose-100 text-rose-700', Partial:'bg-sky-100 text-sky-700', Draft:'bg-slate-100 text-slate-600', Unpaid:'bg-amber-100 text-amber-700' };
+
+    const sendWhatsAppReminder = () => {
+        const phone = (client.phone||'').replace(/[^0-9]/g,'');
+        if (!phone) { alert('No phone number saved for this client.'); return; }
+        const overdueList = invoiceSummary.filter(i => i.isOverdue)
+            .map(i => `  • Invoice ${i.invoiceNumber || ''} — ${formatCurrency(i.outstanding)} (Due: ${i.dueDate})`).join('\n');
+        const body = overdueList
+            ? `Dear ${client.name},\n\nThis is a friendly reminder that the following invoice(s) are overdue:\n\n${overdueList}\n\nTotal Outstanding: ${formatCurrency(totalOutstanding)}\n\nKindly arrange payment at your earliest convenience.\n\nThank you!`
+            : `Dear ${client.name},\n\nJust a gentle reminder that you have an outstanding balance of ${formatCurrency(totalOutstanding)} with us.\n\nPlease get in touch at your earliest convenience.\n\nThank you!`;
+        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(body)}`, '_blank');
+    };
+
+    const WaIcon = () => (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+        </svg>
+    );
 
     return (
-        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <button onClick={onBack} className="flex items-center gap-2 text-slate-500 hover:text-violet-600 font-bold text-sm transition-colors">
-                <ArrowDownLeft className="rotate-90" size={16}/> Back to Clients
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+
+            {/* Back */}
+            <button onClick={onBack} className="flex items-center gap-2 text-slate-500 hover:text-violet-600 font-bold text-sm transition-colors group">
+                <ArrowDownLeft className="rotate-90 group-hover:-translate-x-0.5 transition-transform" size={16}/> Back to Clients
             </button>
 
-            {/* Client Header */}
-            <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-8 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-violet-500/10 rounded-full blur-3xl translate-x-1/2 -translate-y-1/2 pointer-events-none"/>
-                <div className="flex flex-col md:flex-row justify-between items-start gap-6 relative z-10">
-                    <div>
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className="bg-violet-500/20 p-3 rounded-2xl"><Briefcase className="text-violet-300" size={24}/></div>
-                            <h2 className="text-3xl font-extrabold text-white">{client.name}</h2>
+            {/* Hero Header */}
+            <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-3xl p-8 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-96 h-96 bg-violet-500/10 rounded-full blur-3xl translate-x-1/3 -translate-y-1/3 pointer-events-none"/>
+                <div className="absolute bottom-0 left-0 w-56 h-56 bg-fuchsia-500/8 rounded-full blur-3xl -translate-x-1/4 translate-y-1/4 pointer-events-none"/>
+                <div className="relative z-10 space-y-6">
+
+                    {/* Identity + Actions */}
+                    <div className="flex flex-col lg:flex-row justify-between items-start gap-6">
+                        <div className="flex items-start gap-4">
+                            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center text-white font-extrabold text-xl shadow-lg shadow-violet-900/40 flex-shrink-0">
+                                {(client.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}
+                            </div>
+                            <div className="space-y-2">
+                                <h2 className="text-3xl font-extrabold text-white tracking-tight">{client.name}</h2>
+                                {client.projectName && <p className="text-slate-400 text-sm">📁 {client.projectName}</p>}
+                                <div className="flex flex-wrap gap-2">
+                                    <span className={`text-xs font-bold px-3 py-1.5 rounded-full ${client.status==='Completed' ? 'bg-emerald-500/20 text-emerald-300' : client.status==='Retainer' ? 'bg-violet-500/20 text-violet-300' : 'bg-amber-500/20 text-amber-300'}`}>
+                                        {client.status||'Ongoing'}
+                                    </span>
+                                    {overdueCount > 0 && <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-rose-500/20 text-rose-300">⚠ {overdueCount} Overdue</span>}
+                                    {advance > 0 && <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-sky-500/20 text-sky-300">Advance: {formatCurrency(advance)}</span>}
+                                    {client.retainerAmount > 0 && <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-violet-500/20 text-violet-300">Retainer: {formatCurrency(client.retainerAmount)}/mo</span>}
+                                </div>
+                                <div className="flex flex-wrap gap-4 text-sm text-slate-400">
+                                    {client.phone && <a href={`tel:${client.phone}`} className="hover:text-violet-300 transition-colors">📞 {client.phone}</a>}
+                                    {client.email && <a href={`mailto:${client.email}`} className="hover:text-violet-300 transition-colors">✉ {client.email}</a>}
+                                    {client.address && <span>📍 {client.address}</span>}
+                                </div>
+                            </div>
                         </div>
-                        {client.projectName && <p className="text-slate-400 font-medium ml-1">Project: <span className="text-slate-200">{client.projectName}</span></p>}
-                        <div className="flex gap-2 mt-3">
-                            <span className={`text-xs font-bold px-3 py-1.5 rounded-full ${client.status === 'Retainer' ? 'bg-violet-500/30 text-violet-300' : client.status === 'Completed' ? 'bg-emerald-500/30 text-emerald-300' : 'bg-amber-500/30 text-amber-300'}`}>{client.status || 'Ongoing'}</span>
-                            {advance > 0 && <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-sky-500/20 text-sky-300">Advance: {formatCurrency(advance)}</span>}
+
+                        {/* Quick Actions */}
+                        <div className="flex flex-wrap gap-2 flex-shrink-0">
+                            {onCreateInvoice && (
+                                <button onClick={() => onCreateInvoice(client)}
+                                    className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-violet-900/30 hover:scale-105 active:scale-95">
+                                    <Plus size={14}/>New Invoice
+                                </button>
+                            )}
+                            {onRecordPayment && unpaidInvoices.length > 0 && (
+                                <button onClick={() => onRecordPayment(unpaidInvoices[0])}
+                                    className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-900/30 hover:scale-105 active:scale-95">
+                                    <DollarSign size={14}/>Record Payment
+                                </button>
+                            )}
+                            {totalOutstanding > 0 && (
+                                <button onClick={sendWhatsAppReminder}
+                                    className="flex items-center gap-2 bg-[#25D366]/20 hover:bg-[#25D366]/30 text-[#25D366] px-4 py-2.5 rounded-xl font-bold text-sm transition-all border border-[#25D366]/30 hover:scale-105 active:scale-95">
+                                    <WaIcon/>Send Reminder
+                                </button>
+                            )}
+                            {client.email && (
+                                <a href={`mailto:${client.email}`}
+                                    className="flex items-center gap-2 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 px-4 py-2.5 rounded-xl font-bold text-sm transition-all border border-sky-500/30 hover:scale-105 active:scale-95">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 7L2 7"/></svg>
+                                    Email
+                                </a>
+                            )}
+                            <button onClick={() => window.print()}
+                                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2.5 rounded-xl font-bold text-sm transition-all border border-white/10 hover:scale-105 active:scale-95">
+                                <Printer size={14}/>Print
+                            </button>
                         </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-4">
+
+                    {/* KPI Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         {[
-                            { l: 'Total Billed', v: totalBilled, c: 'text-white' },
-                            { l: 'Total Received', v: totalReceived, c: 'text-emerald-400' },
-                            { l: 'Outstanding', v: totalOutstanding, c: totalOutstanding > 0 ? 'text-rose-400' : 'text-emerald-400' },
-                        ].map((s, i) => (
-                            <div key={i} className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-4 text-center">
+                            { l:'Total Billed', v:formatCurrency(totalBilled), sub:`${invoiceSummary.length} invoices`, c:'text-white' },
+                            { l:'Collected', v:formatCurrency(totalReceived), sub:`${collPct}% collection rate`, c:'text-emerald-400' },
+                            { l:'Outstanding', v:formatCurrency(totalOutstanding), sub:totalOutstanding>0?`${unpaidInvoices.length} unpaid invoices`:'Fully cleared', c:totalOutstanding>0?'text-rose-400':'text-emerald-400' },
+                            { l:'Contract Value', v:formatCurrency(client.projectTotal||0), sub:client.projectName||'Agreed value', c:'text-slate-300' },
+                        ].map((s,i) => (
+                            <div key={i} className="bg-white/5 border border-white/10 rounded-2xl p-4 backdrop-blur-sm">
                                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">{s.l}</p>
-                                <p className={`text-xl font-extrabold ${s.c}`}>{formatCurrency(s.v)}</p>
+                                <p className={`text-xl font-extrabold ${s.c} tabular-nums`}>{s.v}</p>
+                                <p className="text-xs text-slate-500 mt-1 leading-tight">{s.sub}</p>
                             </div>
                         ))}
                     </div>
+
+                    {/* Collection Progress */}
+                    {totalBilled > 0 && (
+                        <div>
+                            <div className="flex justify-between text-xs text-slate-400 mb-2 font-bold uppercase tracking-widest">
+                                <span>Collection Progress</span>
+                                <span className={collPct>=80?'text-emerald-400':collPct>=50?'text-amber-400':'text-rose-400'}>{collPct}%</span>
+                            </div>
+                            <div className="h-3 bg-white/10 rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full transition-all duration-1000 ${collPct>=80?'bg-gradient-to-r from-emerald-500 to-emerald-400':collPct>=50?'bg-gradient-to-r from-amber-500 to-amber-400':'bg-gradient-to-r from-rose-600 to-rose-400'}`} style={{width:`${collPct}%`}}/>
+                            </div>
+                            <div className="flex justify-between text-xs text-slate-500 mt-1.5">
+                                <span>{formatCurrency(totalReceived)} received</span>
+                                <span>{formatCurrency(totalOutstanding)} remaining</span>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-                {/* Invoice Breakdown */}
-                <div className="xl:col-span-2 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                        <h3 className="font-extrabold text-slate-800 text-lg">Invoice Breakdown</h3>
-                        <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-full">{invoiceSummary.length} invoices</span>
+            {/* Balance Position */}
+            <div className={`rounded-2xl p-6 border-2 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${totalOutstanding>0?'bg-rose-50 border-rose-200':'bg-emerald-50 border-emerald-200'}`}>
+                <div>
+                    <p className={`text-xs font-bold uppercase tracking-widest mb-1 ${totalOutstanding>0?'text-rose-500':'text-emerald-500'}`}>
+                        {totalOutstanding > 0 ? '⚠ Amount Client Owes Us' : '✓ Account Fully Settled'}
+                    </p>
+                    <p className={`text-4xl font-extrabold tabular-nums ${totalOutstanding>0?'text-rose-800':'text-emerald-800'}`}>{formatCurrency(totalOutstanding)}</p>
+                    {totalOutstanding > 0 && overdueCount > 0 && (
+                        <p className="text-rose-600 text-sm mt-1 font-medium">{overdueCount} invoice{overdueCount>1?'s':''} past due — follow up needed</p>
+                    )}
+                </div>
+                <div className="flex gap-6 flex-wrap">
+                    {[
+                        { l:'Contract Value', v:client.projectTotal||0 },
+                        { l:'Total Invoiced', v:totalBilled },
+                        { l:'Total Received', v:totalReceived, green:true },
+                    ].map((x,i) => (
+                        <div key={i} className="text-center">
+                            <p className="text-xs text-slate-500 font-bold uppercase mb-0.5">{x.l}</p>
+                            <p className={`text-lg font-extrabold tabular-nums ${x.green?'text-emerald-700':'text-slate-800'}`}>{formatCurrency(x.v)}</p>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex gap-1 bg-white border border-slate-200 p-1.5 rounded-2xl shadow-sm flex-wrap">
+                {[
+                    ['overview','Overview'],
+                    ['invoices',`Invoices (${invoiceSummary.length})`],
+                    ['payments',`Payments (${payments.length})`],
+                    ['timeline','Activity'],
+                    ['statement','Statement'],
+                    ['notes','Info & Notes'],
+                ].map(([id,label]) => (
+                    <button key={id} onClick={() => setActiveTab(id)}
+                        className={`px-4 py-2 rounded-xl font-bold text-sm transition-all ${activeTab===id?'bg-violet-600 text-white shadow-sm':'text-slate-500 hover:text-violet-600'}`}>
+                        {label}
+                    </button>
+                ))}
+            </div>
+
+            {/* TAB: OVERVIEW */}
+            {activeTab === 'overview' && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Unpaid Invoices */}
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+                            <h3 className="font-extrabold text-slate-800">Unpaid Invoices</h3>
+                            <button onClick={() => setActiveTab('invoices')} className="text-xs font-bold text-violet-600 hover:text-violet-800">View All →</button>
+                        </div>
+                        {unpaidInvoices.length === 0 ? (
+                            <div className="p-8 text-center">
+                                <CheckCircle className="mx-auto mb-2 text-emerald-400" size={32}/>
+                                <p className="text-emerald-700 font-bold text-sm">All invoices paid — great work!</p>
+                            </div>
+                        ) : (
+                            <div className="divide-y divide-slate-50">
+                                {unpaidInvoices.slice(0, 5).map(inv => (
+                                    <div key={inv.id} className={`p-4 flex items-center justify-between gap-3 ${inv.isOverdue?'bg-rose-50/30':''}`}>
+                                        <div className="min-w-0">
+                                            <p className="font-bold text-slate-800 text-sm">{inv.isOverdue && '⚠ '}{inv.invoiceNumber || 'No #'}</p>
+                                            <p className="text-xs text-slate-400 mt-0.5">
+                                                {inv.isOverdue ? <span className="text-rose-600 font-bold">Overdue since {inv.dueDate}</span> : `Due: ${inv.dueDate || 'Not set'}`}
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-2 flex-shrink-0">
+                                            <div className="text-right">
+                                                <p className="font-extrabold text-rose-600 text-sm tabular-nums">{formatCurrency(inv.outstanding)}</p>
+                                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${statusBadge[inv.statusLabel]||'bg-slate-100 text-slate-600'}`}>{inv.statusLabel}</span>
+                                            </div>
+                                            {onRecordPayment && (
+                                                <button onClick={() => onRecordPayment(inv)}
+                                                    className="p-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-colors shadow-sm" title="Record Payment">
+                                                    <DollarSign size={13}/>
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                                {unpaidInvoices.length > 5 && (
+                                    <div className="p-3 text-center text-xs text-slate-400 font-medium">
+                                        +{unpaidInvoices.length - 5} more ·{' '}
+                                        <button onClick={() => setActiveTab('invoices')} className="text-violet-600 font-bold hover:underline">View all</button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
-                    {invoiceSummary.length === 0 ? (
-                        <div className="p-12 text-center text-slate-400 font-medium">No invoices for this client yet.</div>
+
+                    {/* Recent Payments */}
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                        <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+                            <h3 className="font-extrabold text-slate-800">Recent Payments</h3>
+                            <button onClick={() => setActiveTab('payments')} className="text-xs font-bold text-violet-600 hover:text-violet-800">View All →</button>
+                        </div>
+                        {payments.length === 0 && advance === 0 ? (
+                            <div className="p-8 text-center text-slate-400 text-sm font-medium flex-1 flex items-center justify-center">No payments recorded yet.</div>
+                        ) : (
+                            <div className="divide-y divide-slate-50 flex-1">
+                                {advance > 0 && (
+                                    <div className="p-4 flex items-center justify-between">
+                                        <div>
+                                            <p className="font-bold text-slate-700 text-sm">Opening Advance</p>
+                                            <p className="text-xs text-slate-400">{client.date}</p>
+                                        </div>
+                                        <span className="font-extrabold text-sky-600 tabular-nums">{formatCurrency(advance)}</span>
+                                    </div>
+                                )}
+                                {payments.slice(0, 5).map((p,i) => (
+                                    <div key={i} className="p-4 flex items-center justify-between">
+                                        <div className="min-w-0">
+                                            <p className="font-bold text-slate-700 text-sm truncate">{p.ref}</p>
+                                            <p className="text-xs text-slate-400">{p.date} · {p.icon} {p.method}</p>
+                                        </div>
+                                        <span className="font-extrabold text-emerald-600 flex-shrink-0 ml-3 tabular-nums">{formatCurrency(p.amount)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <div className="p-4 bg-emerald-50 border-t border-emerald-100 flex justify-between items-center">
+                            <span className="text-sm font-bold text-emerald-800">Total Received</span>
+                            <span className="font-extrabold text-emerald-700 tabular-nums">{formatCurrency(totalReceived)}</span>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* TAB: INVOICES */}
+            {activeTab === 'invoices' && (
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                        <h3 className="font-extrabold text-slate-800 text-lg">All Invoices — {client.name}</h3>
+                        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+                            {['All','Paid','Unpaid','Overdue','Partial'].map(f => (
+                                <button key={f} onClick={() => setInvFilter(f)}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${invFilter===f?'bg-white text-violet-700 shadow-sm':'text-slate-500 hover:text-violet-600'}`}>
+                                    {f}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    {filteredInvoices.length === 0 ? (
+                        <div className="p-12 text-center">
+                            <FileText className="mx-auto mb-3 text-slate-300" size={40}/>
+                            <p className="text-slate-400 font-medium">{invFilter==='All'?'No invoices yet for this client.':`No ${invFilter.toLowerCase()} invoices.`}</p>
+                            {onCreateInvoice && invFilter==='All' && (
+                                <button onClick={() => onCreateInvoice(client)} className="mt-4 bg-violet-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-violet-700 transition-colors">
+                                    + Create First Invoice
+                                </button>
+                            )}
+                        </div>
                     ) : (
                         <div className="overflow-x-auto">
-                            <table className="w-full text-left">
+                            <table className="w-full text-left min-w-[760px]">
                                 <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                    <tr><th className="p-4">Inv #</th><th className="p-4">Date</th><th className="p-4">Due</th><th className="p-4 text-right">Amount</th><th className="p-4 text-right">Received</th><th className="p-4 text-right">Balance</th><th className="p-4 text-center">Status</th></tr>
+                                    <tr>
+                                        <th className="px-5 py-4">Inv #</th><th className="px-5 py-4">Issued</th><th className="px-5 py-4">Due Date</th>
+                                        <th className="px-5 py-4 text-right">Amount</th><th className="px-5 py-4 text-right">Received</th><th className="px-5 py-4 text-right">Balance</th>
+                                        <th className="px-5 py-4 text-center">Status</th><th className="px-5 py-4 text-center">Action</th>
+                                    </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-50">
-                                    {invoiceSummary.map(inv => {
-                                        const isOverdue = inv.status !== 'Paid' && inv.dueDate && new Date(inv.dueDate) < today;
-                                        const statusLabel = inv.status === 'Paid' ? 'Paid' : isOverdue ? 'Overdue' : inv.received > 0 ? 'Partial' : (inv.status || 'Unpaid');
-                                        const statusColor = inv.status === 'Paid' ? 'bg-emerald-100 text-emerald-700' : isOverdue ? 'bg-rose-100 text-rose-700' : inv.received > 0 ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700';
-                                        return (
-                                            <tr key={inv.id} className={`hover:bg-slate-50/50 transition-colors ${isOverdue ? 'bg-rose-50/20' : ''}`}>
-                                                <td className="p-4 text-xs font-mono text-violet-600 font-bold">{inv.invoiceNumber || '—'}</td>
-                                                <td className="p-4 text-sm text-slate-500">{inv.date}</td>
-                                                <td className="p-4 text-sm">{inv.dueDate ? <span className={isOverdue ? 'text-rose-600 font-bold' : 'text-slate-500'}>{inv.dueDate}</span> : <span className="text-slate-300">—</span>}</td>
-                                                <td className="p-4 text-right font-bold text-slate-800">{formatCurrency(inv.total)}</td>
-                                                <td className="p-4 text-right font-bold text-emerald-600">{inv.received > 0 ? formatCurrency(inv.received) : '—'}</td>
-                                                <td className="p-4 text-right font-bold text-rose-600">{inv.outstanding > 0 ? formatCurrency(inv.outstanding) : <span className="text-emerald-500">✓ Cleared</span>}</td>
-                                                <td className="p-4 text-center"><span className={`text-xs font-bold px-2.5 py-1 rounded-full ${statusColor}`}>{statusLabel}</span></td>
-                                            </tr>
-                                        );
-                                    })}
+                                    {filteredInvoices.map(inv => (
+                                        <tr key={inv.id} className={`hover:bg-slate-50/50 transition-colors ${inv.isOverdue?'bg-rose-50/20':''}`}>
+                                            <td className="px-5 py-4 font-mono text-violet-600 font-bold text-sm">{inv.invoiceNumber||'—'}</td>
+                                            <td className="px-5 py-4 text-sm text-slate-500">{inv.date}</td>
+                                            <td className="px-5 py-4 text-sm">{inv.dueDate?<span className={inv.isOverdue?'text-rose-600 font-bold':'text-slate-500'}>{inv.isOverdue?'⚠ ':''}{inv.dueDate}</span>:<span className="text-slate-300">Not set</span>}</td>
+                                            <td className="px-5 py-4 text-right font-bold text-slate-800 tabular-nums">{formatCurrency(inv.total)}</td>
+                                            <td className="px-5 py-4 text-right font-bold tabular-nums">{inv.received>0?<span className="text-emerald-600">{formatCurrency(inv.received)}</span>:<span className="text-slate-300">—</span>}</td>
+                                            <td className="px-5 py-4 text-right font-bold tabular-nums">{inv.outstanding>0?<span className="text-rose-600">{formatCurrency(inv.outstanding)}</span>:<span className="text-emerald-500 text-sm">✓ Cleared</span>}</td>
+                                            <td className="px-5 py-4 text-center"><span className={`text-xs font-bold px-3 py-1.5 rounded-full ${statusBadge[inv.statusLabel]||'bg-slate-100 text-slate-600'}`}>{inv.statusLabel}</span></td>
+                                            <td className="px-5 py-4 text-center">{inv.status!=='Paid'&&onRecordPayment&&<button onClick={()=>onRecordPayment(inv)} className="text-xs font-bold bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 transition-colors whitespace-nowrap">Pay Now</button>}</td>
+                                        </tr>
+                                    ))}
                                 </tbody>
-                                <tfoot className="bg-slate-50 border-t border-slate-200">
+                                <tfoot className="bg-gradient-to-r from-slate-50 to-slate-100 border-t-2 border-slate-200">
                                     <tr>
-                                        <td colSpan={3} className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Totals</td>
-                                        <td className="p-4 text-right font-extrabold text-slate-800">{formatCurrency(totalBilled)}</td>
-                                        <td className="p-4 text-right font-extrabold text-emerald-700">{formatCurrency(invoiceSummary.reduce((a,i)=>a+i.received,0))}</td>
-                                        <td className="p-4 text-right font-extrabold text-rose-700">{formatCurrency(totalOutstanding)}</td>
-                                        <td/>
+                                        <td colSpan={3} className="px-5 py-4 text-xs font-extrabold text-slate-500 uppercase tracking-wider">TOTALS ({filteredInvoices.length})</td>
+                                        <td className="px-5 py-4 text-right font-extrabold text-slate-900 tabular-nums">{formatCurrency(filteredInvoices.reduce((a,i)=>a+i.total,0))}</td>
+                                        <td className="px-5 py-4 text-right font-extrabold text-emerald-700 tabular-nums">{formatCurrency(filteredInvoices.reduce((a,i)=>a+i.received,0))}</td>
+                                        <td className="px-5 py-4 text-right font-extrabold text-rose-700 tabular-nums">{formatCurrency(filteredInvoices.reduce((a,i)=>a+i.outstanding,0))}</td>
+                                        <td colSpan={2}/>
                                     </tr>
                                 </tfoot>
                             </table>
                         </div>
                     )}
                 </div>
+            )}
 
-                {/* Payment History */}
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-                    <div className="p-6 border-b border-slate-100">
+            {/* TAB: PAYMENTS */}
+            {activeTab === 'payments' && (
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="p-5 border-b border-slate-100 flex justify-between items-center">
                         <h3 className="font-extrabold text-slate-800 text-lg">Payment History</h3>
-                        <p className="text-xs text-slate-400 mt-1">All payments received from this client</p>
+                        <span className="text-sm font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl tabular-nums">Total: {formatCurrency(payments.reduce((a,p)=>a+p.amount,0)+advance)}</span>
                     </div>
-                    <div className="flex-1 overflow-y-auto max-h-96">
-                        {payments.length === 0 ? (
-                            <div className="p-8 text-center text-slate-400 text-sm font-medium">No payments recorded yet.</div>
-                        ) : (
-                            <div className="divide-y divide-slate-50">
-                                {payments.map((p, i) => (
-                                    <div key={i} className="p-4 hover:bg-slate-50/50 transition-colors">
-                                        <div className="flex justify-between items-start mb-1">
-                                            <span className="font-bold text-emerald-600">{formatCurrency(p.amount)}</span>
-                                            <span className="text-xs text-slate-400">{p.date}</span>
+                    {payments.length===0&&advance===0 ? (
+                        <div className="p-12 text-center">
+                            <DollarSign className="mx-auto mb-3 text-slate-300" size={40}/>
+                            <p className="text-slate-400 font-medium">No payments recorded yet.</p>
+                        </div>
+                    ) : (
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                <tr><th className="px-5 py-4">Date</th><th className="px-5 py-4">Reference / Description</th><th className="px-5 py-4">Method</th><th className="px-5 py-4 text-right">Amount</th></tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {advance > 0 && (
+                                    <tr className="bg-sky-50/30">
+                                        <td className="px-5 py-4 text-sm text-slate-500">{client.date||'—'}</td>
+                                        <td className="px-5 py-4 text-sm font-medium text-slate-700">Opening Advance (from Client Record)</td>
+                                        <td className="px-5 py-4"><span className="text-xs font-bold bg-sky-100 text-sky-700 px-2 py-1 rounded-full">Advance</span></td>
+                                        <td className="px-5 py-4 text-right font-extrabold text-sky-600 tabular-nums">{formatCurrency(advance)}</td>
+                                    </tr>
+                                )}
+                                {payments.map((p,i) => (
+                                    <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                                        <td className="px-5 py-4 text-sm text-slate-500">{p.date}</td>
+                                        <td className="px-5 py-4 text-sm font-medium text-slate-700 max-w-xs truncate">{p.ref}</td>
+                                        <td className="px-5 py-4"><span className="text-xs font-bold bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full">{p.icon} {p.method}</span></td>
+                                        <td className="px-5 py-4 text-right font-extrabold text-emerald-600 tabular-nums">{formatCurrency(p.amount)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                            <tfoot className="bg-emerald-50 border-t-2 border-emerald-200">
+                                <tr>
+                                    <td colSpan={3} className="px-5 py-4 font-extrabold text-emerald-800 text-sm uppercase tracking-wide">Grand Total Received</td>
+                                    <td className="px-5 py-4 text-right font-extrabold text-emerald-800 text-lg tabular-nums">{formatCurrency(payments.reduce((a,p)=>a+p.amount,0)+advance)}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    )}
+                </div>
+            )}
+
+            {/* TAB: TIMELINE */}
+            {activeTab === 'timeline' && (
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6">
+                    <h3 className="font-extrabold text-slate-800 text-lg mb-6">Activity Timeline</h3>
+                    {timeline.length === 0 ? (
+                        <div className="text-center py-8 text-slate-400 font-medium">No activity recorded yet.</div>
+                    ) : (
+                        <div className="relative">
+                            <div className="absolute left-5 top-0 bottom-0 w-0.5 bg-slate-100"/>
+                            <div className="space-y-4">
+                                {timeline.map((t,i) => (
+                                    <div key={i} className="flex gap-4 relative">
+                                        <div className={`w-10 h-10 rounded-full ${t.color} flex items-center justify-center flex-shrink-0 shadow-sm z-10`}>
+                                            {t.type==='payment'||t.type==='advance' ? <ArrowDownLeft size={15} className="text-white"/> : <FileText size={15} className="text-white"/>}
                                         </div>
-                                        <p className="text-xs text-slate-500 truncate">{p.ref}</p>
-                                        <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full mt-1 inline-block">{p.method}</span>
+                                        <div className="flex-1 bg-slate-50 rounded-2xl p-4 border border-slate-100 hover:border-slate-200 transition-colors">
+                                            <div className="flex justify-between items-start gap-2">
+                                                <p className="font-bold text-slate-800 text-sm">{t.label}</p>
+                                                <span className="text-xs text-slate-400 flex-shrink-0">{t.date}</span>
+                                            </div>
+                                            <p className="text-xs text-slate-500 mt-1">{t.detail}</p>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
-                        )}
-                    </div>
-                    <div className="p-4 border-t border-slate-100 bg-emerald-50">
-                        <div className="flex justify-between items-center">
-                            <span className="text-sm font-bold text-emerald-800">Total Received</span>
-                            <span className="text-lg font-extrabold text-emerald-700">{formatCurrency(payments.reduce((a,p)=>a+p.amount,0) + (advance||0))}</span>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* TAB: ACCOUNT STATEMENT */}
+            {activeTab === 'statement' && (() => {
+                // Build chronological ledger combining invoices + payments
+                const ledgerRows = [];
+                invoiceSummary.forEach(inv => {
+                    ledgerRows.push({ date: inv.date, type: 'invoice', ref: `Invoice ${inv.invoiceNumber||'#'}`, description: `Services rendered${inv.items?.length>0?' — '+inv.items[0].desc:''}`, debit: inv.total, credit: 0, color: 'text-slate-800' });
+                    if (inv.received > 0) {
+                        ledgerRows.push({ date: inv.date, type: 'payment', ref: `Payment on ${inv.invoiceNumber||'#'}`, description: 'Payment received', debit: 0, credit: inv.received, color: 'text-emerald-700' });
+                    }
+                });
+                payments.forEach(p => {
+                    if (!p.method.toLowerCase().includes('invoice')) {
+                        ledgerRows.push({ date: p.date, type: 'payment', ref: p.ref, description: `${p.method} payment received`, debit: 0, credit: p.amount, color: 'text-emerald-700' });
+                    }
+                });
+                if (advance > 0) {
+                    ledgerRows.push({ date: client.date||'', type: 'advance', ref: 'Opening Advance', description: 'Advance payment from client', debit: 0, credit: advance, color: 'text-sky-700' });
+                }
+                ledgerRows.sort((a,b) => new Date(a.date) - new Date(b.date));
+                let runningBalance = 0;
+                const ledger = ledgerRows.map(r => {
+                    runningBalance += r.debit - r.credit;
+                    return { ...r, balance: runningBalance };
+                });
+                return (
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                        {/* Statement Header */}
+                        <div className="bg-gradient-to-r from-slate-50 to-slate-100 p-6 border-b border-slate-200">
+                            <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+                                <div>
+                                    <h3 className="font-extrabold text-slate-800 text-xl">Account Statement</h3>
+                                    <p className="text-slate-500 text-sm mt-1">Client: <span className="font-bold text-slate-800">{client.name}</span></p>
+                                    {client.projectName && <p className="text-slate-400 text-sm">Project: {client.projectName}</p>}
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-xs text-slate-400 font-medium">Generated on</p>
+                                    <p className="font-bold text-slate-700">{new Date().toLocaleDateString('en-GB', {day:'2-digit',month:'long',year:'numeric'})}</p>
+                                    <div className={`mt-2 px-3 py-1.5 rounded-xl inline-block text-sm font-extrabold ${totalOutstanding>0?'bg-rose-100 text-rose-700':'bg-emerald-100 text-emerald-700'}`}>
+                                        Balance Due: {formatCurrency(totalOutstanding)}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {/* Ledger Table */}
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left min-w-[700px]">
+                                <thead className="bg-slate-50 border-b border-slate-200">
+                                    <tr>
+                                        <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th>
+                                        <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-wider">Reference</th>
+                                        <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-wider">Description</th>
+                                        <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Charge (Dr)</th>
+                                        <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Payment (Cr)</th>
+                                        <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Balance</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50">
+                                    {ledger.length === 0 ? (
+                                        <tr><td colSpan={6} className="px-5 py-10 text-center text-slate-400 font-medium">No transactions recorded yet.</td></tr>
+                                    ) : ledger.map((row, i) => (
+                                        <tr key={i} className={`hover:bg-slate-50/50 transition-colors ${row.type==='advance'?'bg-sky-50/20':row.type==='payment'?'bg-emerald-50/20':''}`}>
+                                            <td className="px-5 py-3 text-sm text-slate-500 whitespace-nowrap">{row.date}</td>
+                                            <td className="px-5 py-3 text-sm font-mono text-violet-600 font-bold">{row.ref}</td>
+                                            <td className="px-5 py-3 text-sm text-slate-600 max-w-[200px] truncate">{row.description}</td>
+                                            <td className="px-5 py-3 text-right text-sm font-bold text-slate-800 tabular-nums">{row.debit > 0 ? formatCurrency(row.debit) : <span className="text-slate-300">—</span>}</td>
+                                            <td className="px-5 py-3 text-right text-sm font-bold text-emerald-600 tabular-nums">{row.credit > 0 ? formatCurrency(row.credit) : <span className="text-slate-300">—</span>}</td>
+                                            <td className={`px-5 py-3 text-right text-sm font-extrabold tabular-nums ${row.balance > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{formatCurrency(Math.abs(row.balance))}{row.balance > 0 ? ' Dr' : row.balance < 0 ? ' Cr' : ''}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                                <tfoot className={`border-t-2 ${totalOutstanding>0?'bg-rose-50 border-rose-200':'bg-emerald-50 border-emerald-200'}`}>
+                                    <tr>
+                                        <td colSpan={3} className={`px-5 py-4 font-extrabold text-sm uppercase tracking-wide ${totalOutstanding>0?'text-rose-800':'text-emerald-800'}`}>
+                                            {totalOutstanding > 0 ? '⚠ Balance Due from Client' : '✓ Account Cleared'}
+                                        </td>
+                                        <td className="px-5 py-4 text-right font-extrabold text-slate-900 tabular-nums">{formatCurrency(totalBilled)}</td>
+                                        <td className="px-5 py-4 text-right font-extrabold text-emerald-700 tabular-nums">{formatCurrency(totalReceived)}</td>
+                                        <td className={`px-5 py-4 text-right font-extrabold text-lg tabular-nums ${totalOutstanding>0?'text-rose-800':'text-emerald-800'}`}>{formatCurrency(totalOutstanding)}</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                        <div className="p-4 text-center border-t border-slate-100">
+                            <button onClick={() => window.print()} className="bg-slate-800 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-slate-700 transition-colors flex items-center gap-2 mx-auto">
+                                <Printer size={14}/> Print / Export Statement
+                            </button>
                         </div>
                     </div>
-                </div>
-            </div>
+                );
+            })()}
 
-            {/* Balance Summary */}
-            <div className={`rounded-3xl p-6 border-2 ${totalOutstanding > 0 ? 'bg-rose-50 border-rose-200' : 'bg-emerald-50 border-emerald-200'}`}>
-                <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                    <div>
-                        <p className={`text-sm font-bold uppercase tracking-widest mb-1 ${totalOutstanding > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                            {totalOutstanding > 0 ? 'Amount They Owe Us' : 'Account Settled'}
-                        </p>
-                        <p className={`text-4xl font-extrabold ${totalOutstanding > 0 ? 'text-rose-800' : 'text-emerald-800'}`}>{formatCurrency(totalOutstanding)}</p>
+            {/* TAB: INFO & NOTES */}
+            {activeTab === 'notes' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6">
+                        <div className="flex justify-between items-center mb-5">
+                            <h3 className="font-extrabold text-slate-800 text-lg">Client Information</h3>
+                            <button
+                                onClick={() => {
+                                    const text = [
+                                        `Client: ${client.name}`,
+                                        client.projectName && `Project: ${client.projectName}`,
+                                        client.phone && `Phone: ${client.phone}`,
+                                        client.email && `Email: ${client.email}`,
+                                        client.address && `Address: ${client.address}`,
+                                    ].filter(Boolean).join('\n');
+                                    navigator.clipboard?.writeText(text);
+                                }}
+                                className="text-xs font-bold text-slate-400 hover:text-violet-600 bg-slate-50 hover:bg-violet-50 px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5"
+                                title="Copy contact details">
+                                <Copy size={12}/> Copy
+                            </button>
+                        </div>
+                        <div className="space-y-0">
+                            {[
+                                { l:'Client / Company', v:client.name },
+                                { l:'Project Name', v:client.projectName||'—' },
+                                { l:'Status', v:client.status||'Ongoing' },
+                                { l:'Phone', v:client.phone||'—', link:client.phone?`tel:${client.phone}`:null },
+                                { l:'Email', v:client.email||'—', link:client.email?`mailto:${client.email}`:null },
+                                { l:'Address', v:client.address||'—' },
+                                { l:'Date Added', v:client.date||'—' },
+                                { l:'Added By', v:client.addedBy||'—' },
+                            ].map((row,i) => (
+                                <div key={i} className="flex justify-between items-center py-3 border-b border-slate-50 last:border-0">
+                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{row.l}</span>
+                                    {row.link
+                                        ? <a href={row.link} className="text-sm font-bold text-violet-600 hover:underline text-right max-w-[60%] truncate">{row.v}</a>
+                                        : <span className="text-sm font-bold text-slate-700 text-right max-w-[60%] truncate">{row.v}</span>}
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-6 text-center">
-                        <div><p className="text-xs text-slate-500 font-bold uppercase mb-1">Agreed Value</p><p className="text-lg font-extrabold text-slate-800">{formatCurrency(client.projectTotal || 0)}</p></div>
-                        <div><p className="text-xs text-slate-500 font-bold uppercase mb-1">Invoiced</p><p className="text-lg font-extrabold text-slate-800">{formatCurrency(totalBilled)}</p></div>
-                        <div><p className="text-xs text-emerald-600 font-bold uppercase mb-1">Collected</p><p className="text-lg font-extrabold text-emerald-700">{formatCurrency(totalReceived)}</p></div>
+
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6">
+                        <h3 className="font-extrabold text-slate-800 text-lg mb-5">Financial Summary</h3>
+                        <div className="space-y-0">
+                            {[
+                                { l:'Contract Value', v:formatCurrency(client.projectTotal||0), c:'text-slate-800' },
+                                { l:'Opening Advance', v:formatCurrency(advance), c:'text-sky-600' },
+                                { l:'Retainer/mo', v:client.retainerAmount>0?formatCurrency(client.retainerAmount):'None', c:'text-violet-600' },
+                                { l:'Total Invoiced', v:formatCurrency(totalBilled), c:'text-slate-800' },
+                                { l:'Total Received', v:formatCurrency(totalReceived), c:'text-emerald-600' },
+                                { l:'Outstanding', v:formatCurrency(totalOutstanding), c:totalOutstanding>0?'text-rose-600':'text-emerald-600' },
+                                { l:'Collection Rate', v:`${collPct}%`, c:collPct>=80?'text-emerald-600':collPct>=50?'text-amber-600':'text-rose-600' },
+                                { l:'Invoices (Paid/Total)', v:`${invoiceSummary.filter(i=>i.status==='Paid').length} / ${invoiceSummary.length}`, c:'text-slate-600' },
+                            ].map((row,i) => (
+                                <div key={i} className="flex justify-between items-center py-3 border-b border-slate-50 last:border-0">
+                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{row.l}</span>
+                                    <span className={`text-sm font-extrabold ${row.c} tabular-nums`}>{row.v}</span>
+                                </div>
+                            ))}
+                        </div>
                     </div>
+
+                    {client.notes ? (
+                        <div className="md:col-span-2 bg-amber-50 border border-amber-200 rounded-3xl p-6">
+                            <h4 className="font-bold text-amber-800 mb-3">📝 Notes</h4>
+                            <p className="text-amber-900 text-sm leading-relaxed whitespace-pre-line">{client.notes}</p>
+                        </div>
+                    ) : (
+                        <div className="md:col-span-2 bg-slate-50 border border-dashed border-slate-200 rounded-3xl p-8 text-center text-slate-400">
+                            <p className="text-sm font-medium">No notes added for this client yet.</p>
+                            <p className="text-xs mt-1">Edit the client record to add internal notes.</p>
+                        </div>
+                    )}
                 </div>
-            </div>
+            )}
         </div>
     );
 };
+
+
 
 // --- VENDOR PROFILE COMPONENT ---
 const VendorProfile = ({ vendor, vendorBills, bankRecords, pettyCash, onBack }) => {
@@ -1794,7 +2714,7 @@ function App() {
                 <p className="text-slate-500 font-medium">Overview & Management</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-4 w-full xl:w-auto">
-                {!['dashboard','receivables-payables','client-profile','vendor-profile','tax-report','reports','statements'].includes(view) && <div className="relative flex-1 sm:w-72 group"><Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/><input className="w-full pl-12 pr-4 py-3 rounded-2xl border-none bg-white shadow-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-violet-500 outline-none transition-all font-medium text-slate-600" placeholder="Search records..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
+                {!['dashboard','receivables-payables','client-profile','vendor-profile','tax-report','reports','statements','clients'].includes(view) && <div className="relative flex-1 sm:w-72 group"><Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/><input className="w-full pl-12 pr-4 py-3 rounded-2xl border-none bg-white shadow-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-violet-500 outline-none transition-all font-medium text-slate-600" placeholder="Search records..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
                 {['clients','expenses','petty-cash','salaries','bank','vendor-bills','vendors'].includes(view) && (
                     <div className="flex gap-3">
                         <label className="bg-white px-4 py-3 rounded-2xl font-bold text-sm text-slate-600 shadow-sm ring-1 ring-slate-200 hover:ring-violet-300 hover:text-violet-600 transition-all cursor-pointer flex items-center gap-2">
@@ -1805,14 +2725,14 @@ function App() {
                         </button>
                     </div>
                 )}
-                {['clients','expenses','petty-cash','salaries','bank','vendor-bills'].includes(view) && (
+                {['expenses','petty-cash','salaries','bank','vendor-bills'].includes(view) && (
                     <div className="flex gap-3 bg-white p-1.5 rounded-2xl shadow-sm ring-1 ring-slate-200">
                         <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}><option value="All">All Months</option>{['January','February','March','April','May','June','July','August','September','October','November','December'].map(m=><option key={m}>{m}</option>)}</select>
                         <div className="w-px bg-slate-200 my-1"></div>
                         <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={selectedYear} onChange={e=>setSelectedYear(e.target.value)}><option value="All">All Years</option>{availableYears.map(y=><option key={y}>{y}</option>)}</select>
                     </div>
                 )}
-                {!['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
+                {!['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report','clients'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
             </div>
         </header>
 
@@ -2004,7 +2924,9 @@ function App() {
 
         {view === 'receivables-payables' && <ReceivablesPayables clients={clients} invoices={invoices} vendors={vendors} vendorBills={vendorBills} bankRecords={bankRecords} pettyCash={pettyCash} onViewClient={(c) => { setSelectedClientProfile(c); setView('client-profile'); }} onViewVendor={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
 
-        {view === 'client-profile' && selectedClientProfile && <ClientProfile client={selectedClientProfile} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('clients')} />}
+        {view === 'clients' && <ClientsPage clients={clients} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} currentUser={currentUser} onViewProfile={(c) => { setSelectedClientProfile(c); setView('client-profile'); }} onEdit={(c) => { setFormData({...c}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => handleDelete(id, 'client')} onNewClient={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} />}
+
+        {view === 'client-profile' && selectedClientProfile && <ClientProfile client={selectedClientProfile} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('clients')} onCreateInvoice={() => setView('invoices')} onRecordPayment={(inv) => initiatePayment(inv, 'invoice', calculateTax((inv.items||[]).reduce((s,it)=>s+((it.qty||0)*(it.rate||0)),0), inv.taxRate).total - (Number(inv.amountReceived)||0))} />}
 
         {view === 'vendor-profile' && selectedVendorProfile && <VendorProfile vendor={selectedVendorProfile} vendorBills={vendorBills} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('vendors')} />}
 
@@ -2013,8 +2935,8 @@ function App() {
         {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => handleDelete(id, 'invoice')} onGenerateRecurring={handleGenerateRecurring} onReceivePayment={(inv, amt) => initiatePayment(inv, 'invoice', amt)} />}
 
         {/* GENERIC TABLE RENDERER */}
-        {['clients','vendors','petty-cash','expenses','salaries','bank','manage-users','vendor-bills'].includes(view) && (() => {
-            const currentData = view==='clients'?filteredClients:view==='vendors'?filteredVendors:view==='vendor-bills'?filteredBills:view==='expenses'?filteredExp:view==='petty-cash'?filteredPetty:view==='salaries'?filteredSal:view==='bank'?bankRecords:users;
+        {['vendors','petty-cash','expenses','salaries','bank','manage-users','vendor-bills'].includes(view) && (() => {
+            const currentData = view==='vendors'?filteredVendors:view==='vendor-bills'?filteredBills:view==='expenses'?filteredExp:view==='petty-cash'?filteredPetty:view==='salaries'?filteredSal:view==='bank'?bankRecords:users;
             if (currentData.length === 0) {
                 return (
                     <div className="bg-white p-16 rounded-3xl shadow-sm border border-slate-100 text-center animate-in fade-in zoom-in-95 duration-300">
@@ -2030,7 +2952,6 @@ function App() {
                     <table className="w-full text-left min-w-[900px]">
                         <thead className="bg-slate-50/80 border-b border-slate-100">
                             <tr>
-                                {view==='clients' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Client</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Total</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Paid</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Due</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Profile</th></>}
                                 {view==='vendors' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Vendor</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Type</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Total</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Paid</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Due</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Profile</th></>}
                                 {view==='vendor-bills' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Bill #</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Vendor</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Desc</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Bill Total</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">WHT</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Net Payable</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Paid</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Due</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th></>}
                                 {view==='expenses' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Category</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Desc</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Amount</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Payment Details</th></>}
@@ -2042,12 +2963,11 @@ function App() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                            {(view==='clients'?filteredClients:view==='vendors'?filteredVendors:view==='vendor-bills'?filteredBills:view==='expenses'?filteredExp:view==='petty-cash'?filteredPetty:view==='salaries'?filteredSal:view==='bank'?bankRecords:users).map((item, idx, arr) => {
+                            {(view==='vendors'?filteredVendors:view==='vendor-bills'?filteredBills:view==='expenses'?filteredExp:view==='petty-cash'?filteredPetty:view==='salaries'?filteredSal:view==='bank'?bankRecords:users).map((item, idx, arr) => {
                                 // Calculate running balance for petty cash
                                 const pettyCashBalance = view === 'petty-cash' ? arr.slice(0, idx + 1).reduce((bal, r) => bal + (Number(r.cashIn)||0) - (Number(r.cashOut)||0), 0) : null;
                                 return (
                                 <tr key={item.id} className="hover:bg-slate-50/80 transition-colors group">
-                                    {view==='clients' && <><td className="p-6 text-sm text-slate-500 font-medium">{item.date}</td><td className="p-6"><p className="font-bold text-slate-800 text-base">{item.name}</p>{item.projectName && <p className="text-xs text-slate-400">{item.projectName}</p>}</td><td className="p-6 text-right font-medium text-slate-600">{formatCurrency(item.projectTotal)}</td><td className="p-6 text-right text-emerald-600 font-bold">{formatCurrency(item.advanceReceived)}</td><td className="p-6 text-right text-rose-600 font-bold">{formatCurrency((item.projectTotal||0)-(item.advanceReceived||0))}</td><td className="p-6"><span className="px-3 py-1.5 bg-violet-100 text-violet-700 rounded-lg text-xs font-bold uppercase tracking-wide">{item.status}</span></td><td className="p-6"><button onClick={() => { setSelectedClientProfile(item); setView('client-profile'); }} className="text-xs font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 px-3 py-2 rounded-xl transition-colors whitespace-nowrap">View Profile →</button></td></>}
                                     {view==='vendors' && <><td className="p-6"><p className="font-bold text-slate-800">{item.name}</p></td><td className="p-6 text-sm text-slate-500">{item.serviceType}</td><td className="p-6 text-right font-medium text-slate-600">{formatCurrency(item.amountPayable)}</td><td className="p-6 text-right text-emerald-600 font-medium">{formatCurrency(item.amountPaid)}</td><td className="p-6 text-right text-rose-600 font-bold">{formatCurrency((item.amountPayable||0)-(item.amountPaid||0))}</td><td className="p-6"><button onClick={() => { setSelectedVendorProfile(item); setView('vendor-profile'); }} className="text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-2 rounded-xl transition-colors whitespace-nowrap">View Profile →</button></td></>}
                                     {view==='vendor-bills' && (() => { const due = Number(item.amount) - Number(item.paidAmount); const isPaid = due <= 0; const wht = Number(item.taxDeduction) || 0; const gross = (Number(item.amount) + wht); return (<><td className="p-6 text-sm text-slate-500">{item.date}</td><td className="p-6 font-bold text-slate-800">{item.billNumber}</td><td className="p-6 font-bold text-violet-600">{item.vendor}</td><td className="p-6 text-sm text-slate-500">{item.description}</td><td className="p-6 text-right font-medium text-slate-600">{formatCurrency(gross)}</td><td className="p-6 text-right font-medium text-rose-600">{wht > 0 ? `-${formatCurrency(wht)}` : '-'}</td><td className="p-6 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-6 text-right text-emerald-600 font-medium">{formatCurrency(item.paidAmount)}</td><td className="p-6 text-right text-rose-600 font-bold">{formatCurrency(due)}</td><td className="p-6"><span className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase ${isPaid ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700'}`}>{isPaid ? 'Paid' : 'Due'}</span></td><td className="p-6 text-center flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">{!isPaid && <button onClick={() => initiatePayment(item, 'bill', due)} className="p-2 bg-violet-600 text-white rounded-xl hover:bg-violet-700 transition-colors shadow-sm" title="Pay Now"><CreditCard size={16}/></button>}<ActionButtons item={item} type="bill" /></td></>); })()}
                                     {view==='expenses' && <><td className="p-6 text-sm text-slate-500">{item.date}</td><td className="p-6"><span className="px-3 py-1.5 bg-fuchsia-50 text-fuchsia-700 rounded-lg text-xs font-bold tracking-wide">{item.category}</span></td><td className="p-6 text-sm font-medium text-slate-700">{item.description}</td><td className="p-6 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-6 text-xs text-slate-500 font-medium">{item.bankName ? <span className="flex items-center gap-1"><CreditCard size={12}/> {item.bankName} - {item.chequeNumber}</span> : 'Cash'}</td></>}
@@ -2130,11 +3050,34 @@ function App() {
         {showForm && (
             <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                 <div className="bg-white p-8 md:p-10 rounded-3xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
-                    <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-6"><h3 className="text-2xl font-bold text-slate-800">Record Details</h3><button onClick={()=>setShowForm(false)} className="p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"><X size={20}/></button></div>
+                    <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-6"><h3 className="text-2xl font-bold text-slate-800">{view==='clients' ? (isEditingRecord ? 'Edit Client' : 'New Client') : 'Record Details'}</h3><button onClick={()=>setShowForm(false)} className="p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"><X size={20}/></button></div>
                     <form onSubmit={handleAddSubmit} className="space-y-6">
                          {/* DYNAMIC FORM FIELDS BASED ON VIEW - STYLED CONSISTENTLY */}
                         {view==='manage-users' && <><input required placeholder="Username" className="form-input" value={formData.username||''} onChange={e=>setFormData({...formData,username:e.target.value})}/><input type="email" required placeholder="Email" className="form-input" value={formData.email||''} onChange={e=>setFormData({...formData,email:e.target.value})}/><input type="password" placeholder="Password (leave blank to keep)" className="form-input" value={formData.password||''} onChange={e=>setFormData({...formData,password:e.target.value})}/><select className="form-select" value={formData.role||'Viewer'} onChange={e=>setFormData({...formData,role:e.target.value})}><option>Viewer</option><option>Editor</option><option>Admin</option></select></>}
-                        {view==='clients' && <><input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input required placeholder="Client Name" className="form-input" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/><input placeholder="Project Name" className="form-input" value={formData.projectName||''} onChange={e=>setFormData({...formData,projectName:e.target.value})}/><input type="number" placeholder="Project Total" className="form-input" value={formData.projectTotal||''} onChange={e=>setFormData({...formData,projectTotal:e.target.value})}/><input type="number" placeholder="Advance Received" className="form-input" value={formData.advanceReceived||''} onChange={e=>setFormData({...formData,advanceReceived:e.target.value})}/><input type="number" placeholder="Monthly Retainer Amount (if any)" className="form-input" value={formData.retainerAmount||''} onChange={e=>setFormData({...formData,retainerAmount:e.target.value})}/><select className="form-select" value={formData.status||'Ongoing'} onChange={e=>setFormData({...formData,status:e.target.value})}><option>Ongoing</option><option>Retainer</option><option>Completed</option></select></>}
+                        {{view==='clients' && (
+                            <div className="space-y-5">
+                                <div className="pb-2 border-b border-slate-100"><p className="text-xs font-bold text-violet-600 uppercase tracking-widest">Identity</p></div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Date Added</label><input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/></div>
+                                    <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Status</label><select className="form-select" value={formData.status||'Ongoing'} onChange={e=>setFormData({...formData,status:e.target.value})}><option>Ongoing</option><option>Retainer</option><option>Completed</option></select></div>
+                                </div>
+                                <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Client / Company Name *</label><input required placeholder="e.g. ABC Corp" className="form-input" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/></div>
+                                <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Project Name</label><input placeholder="e.g. Brand Identity 2025" className="form-input" value={formData.projectName||''} onChange={e=>setFormData({...formData,projectName:e.target.value})}/></div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Phone</label><input type="tel" placeholder="+92 300 0000000" className="form-input" value={formData.phone||''} onChange={e=>setFormData({...formData,phone:e.target.value})}/></div>
+                                    <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Email</label><input type="email" placeholder="client@email.com" className="form-input" value={formData.email||''} onChange={e=>setFormData({...formData,email:e.target.value})}/></div>
+                                </div>
+                                <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Address / City</label><input placeholder="e.g. Lahore, Pakistan" className="form-input" value={formData.address||''} onChange={e=>setFormData({...formData,address:e.target.value})}/></div>
+                                <div className="pb-2 border-b border-slate-100 pt-2"><p className="text-xs font-bold text-violet-600 uppercase tracking-widest">Financials</p></div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Contract Value (PKR)</label><input type="number" placeholder="0" className="form-input" value={formData.projectTotal||''} onChange={e=>setFormData({...formData,projectTotal:e.target.value})}/></div>
+                                    <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Opening Advance (PKR)</label><input type="number" placeholder="0" className="form-input" value={formData.advanceReceived||''} onChange={e=>setFormData({...formData,advanceReceived:e.target.value})}/></div>
+                                </div>
+                                <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Monthly Retainer Amount (PKR/mo)</label><input type="number" placeholder="0 - leave blank if not a retainer" className="form-input" value={formData.retainerAmount||''} onChange={e=>setFormData({...formData,retainerAmount:e.target.value})}/></div>
+                                <div className="pb-2 border-b border-slate-100 pt-2"><p className="text-xs font-bold text-violet-600 uppercase tracking-widest">Notes</p></div>
+                                <div><textarea rows={3} placeholder="Internal notes about this client (optional)" className="form-input resize-none" value={formData.notes||''} onChange={e=>setFormData({...formData,notes:e.target.value})}/></div>
+                            </div>
+                        )}
                         {!['manage-users','clients','vendor-bills','salaries','vendors','petty-cash','bank'].includes(view) && <><input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input placeholder="Description/Name" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})}/><input type="number" placeholder="Amount" className="form-input" value={formData.amount||''} onChange={e=>setFormData({...formData,amount:e.target.value})}/></>}
                         {view==='bank' && <>
                             <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/>
