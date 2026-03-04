@@ -3765,6 +3765,622 @@ const ClientProfile = ({ client, invoices, bankRecords, pettyCash, onBack, onCre
 };
 
 
+// ============================================================
+// VENDORS PAGE — Full module with KPIs, cards, analytics
+// ============================================================
+const VendorsPage = ({ vendors, vendorBills, currentUser, onNewVendor, onEdit, onDelete, onViewProfile }) => {
+    const [search,      setSearch]      = useState('');
+    const [typeFilter,  setTypeFilter]  = useState('All');
+    const [sortBy,      setSortBy]      = useState('outstanding-desc');
+    const [viewMode,    setViewMode]    = useState('cards'); // cards | table
+
+    /* ── Enrich each vendor with bill-derived stats ───── */
+    const enriched = useMemo(() => vendors.map(v => {
+        const vBills    = vendorBills.filter(b => (b.vendor||'').toLowerCase().trim() === (v.name||'').toLowerCase().trim());
+        const totalBills = vBills.reduce((a, b) => a + (Number(b.amount)||0), 0);
+        const totalPaid  = vBills.reduce((a, b) => a + (Number(b.paidAmount)||0), 0);
+        const outstanding = Math.max(0, totalBills - totalPaid);
+        const billCount  = vBills.length;
+        const paidBills  = vBills.filter(b => (Number(b.amount) - Number(b.paidAmount)) <= 0).length;
+        const hasPending = outstanding > 0;
+        const payRate    = totalBills > 0 ? (totalPaid / totalBills) * 100 : 0;
+        return { ...v, totalBills, totalPaid, outstanding, billCount, paidBills, hasPending, payRate };
+    }), [vendors, vendorBills]);
+
+    /* ── KPIs ─────────────────────────────────────────── */
+    const kpis = useMemo(() => {
+        const totalPayable   = enriched.reduce((a, v) => a + v.outstanding, 0);
+        const totalPaid      = enriched.reduce((a, v) => a + v.totalPaid, 0);
+        const totalBills     = enriched.reduce((a, v) => a + v.totalBills, 0);
+        const pendingVendors = enriched.filter(v => v.hasPending).length;
+        const activeVendors  = enriched.filter(v => v.billCount > 0).length;
+        return { totalPayable, totalPaid, totalBills, pendingVendors, activeVendors, count: vendors.length };
+    }, [enriched, vendors]);
+
+    /* ── Service type breakdown ───────────────────────── */
+    const serviceBreakdown = useMemo(() => {
+        const map = {};
+        enriched.forEach(v => {
+            const t = v.serviceType || 'Other';
+            if (!map[t]) map[t] = { count: 0, outstanding: 0, totalBills: 0 };
+            map[t].count++;
+            map[t].outstanding += v.outstanding;
+            map[t].totalBills  += v.totalBills;
+        });
+        return Object.entries(map).sort((a, b) => b[1].outstanding - a[1].outstanding);
+    }, [enriched]);
+
+    /* ── Unique service types for filter ─────────────── */
+    const serviceTypes = useMemo(() => [...new Set(enriched.map(v => v.serviceType).filter(Boolean))].sort(), [enriched]);
+
+    /* ── Filtered + sorted ────────────────────────────── */
+    const filtered = useMemo(() => {
+        let res = [...enriched];
+        if (search)            res = res.filter(v => (v.name||'').toLowerCase().includes(search.toLowerCase()) || (v.serviceType||'').toLowerCase().includes(search.toLowerCase()) || (v.contact||'').toLowerCase().includes(search.toLowerCase()));
+        if (typeFilter !== 'All') res = res.filter(v => (v.serviceType||'Other') === typeFilter);
+        if (sortBy === 'outstanding-desc') res = [...res].sort((a, b) => b.outstanding - a.outstanding);
+        if (sortBy === 'outstanding-asc')  res = [...res].sort((a, b) => a.outstanding - b.outstanding);
+        if (sortBy === 'name')             res = [...res].sort((a, b) => (a.name||'').localeCompare(b.name||''));
+        if (sortBy === 'bills-desc')       res = [...res].sort((a, b) => b.billCount - a.billCount);
+        if (sortBy === 'total-desc')       res = [...res].sort((a, b) => b.totalBills - a.totalBills);
+        return res;
+    }, [enriched, search, typeFilter, sortBy]);
+
+    const VEN_COLORS = ['#6366f1','#f59e0b','#10b981','#f43f5e','#06b6d4','#8b5cf6'];
+
+    return (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+
+            {/* ── KPI Cards ──────────────────────────────── */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                {[
+                    { l:'Total Vendors',   v: kpis.count,                    sub:'registered',        c:'text-slate-800',  bg:'bg-white border-slate-200',      icon: Truck },
+                    { l:'Active Vendors',  v: kpis.activeVendors,            sub:'with bills',        c:'text-violet-700', bg:'bg-violet-50 border-violet-200',  icon: Building2 },
+                    { l:'Total Billed',    v: formatCurrency(kpis.totalBills),sub:'all time',         c:'text-slate-700',  bg:'bg-white border-slate-200',       icon: FileText },
+                    { l:'Total Paid Out',  v: formatCurrency(kpis.totalPaid), sub:'payments made',    c:'text-emerald-700',bg:'bg-emerald-50 border-emerald-200', icon: CheckCircle },
+                    { l:'Outstanding',     v: formatCurrency(kpis.totalPayable), sub:'amount owed',   c: kpis.totalPayable>0?'text-rose-700':'text-emerald-700', bg: kpis.totalPayable>0?'bg-rose-50 border-rose-200':'bg-emerald-50 border-emerald-200', icon: ArrowUpRight },
+                    { l:'Pending',         v: kpis.pendingVendors,            sub:'vendors with dues', c: kpis.pendingVendors>0?'text-amber-700':'text-emerald-700', bg: kpis.pendingVendors>0?'bg-amber-50 border-amber-200':'bg-emerald-50 border-emerald-200', icon: Clock },
+                ].map((k, i) => (
+                    <div key={i} className={`${k.bg} border p-4 rounded-2xl shadow-sm hover:shadow-md transition-all group`}>
+                        <div className="flex justify-between items-start mb-2">
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-tight">{k.l}</p>
+                            <k.icon size={13} className="text-slate-300 group-hover:text-slate-400 flex-shrink-0 mt-0.5"/>
+                        </div>
+                        <p className={`text-lg font-extrabold tabular-nums ${k.c}`}>{k.v}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{k.sub}</p>
+                    </div>
+                ))}
+            </div>
+
+            {/* ── Service type breakdown ─────────────────── */}
+            {serviceBreakdown.length > 0 && (
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+                    <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2">
+                        <div className="w-2 h-5 bg-violet-500 rounded-full"/>
+                        Outstanding by Service Type
+                    </h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                        {serviceBreakdown.slice(0, 6).map(([type, data], i) => (
+                            <button key={i} onClick={() => setTypeFilter(typeFilter === type ? 'All' : type)}
+                                className={`rounded-2xl p-4 border-2 text-left transition-all hover:shadow-md ${typeFilter===type?'border-violet-400 bg-violet-50':'border-slate-100 bg-slate-50 hover:border-violet-200'}`}>
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 truncate">{type}</p>
+                                <p className="text-base font-extrabold" style={{color: VEN_COLORS[i % VEN_COLORS.length]}}>{data.count} vendor{data.count!==1?'s':''}</p>
+                                {data.outstanding > 0 && <p className="text-xs font-bold text-rose-500 mt-0.5">{formatCurrency(data.outstanding)} due</p>}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Toolbar ────────────────────────────────── */}
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+                <div className="flex flex-wrap gap-2 items-center">
+                    <div className="relative">
+                        <Search className="absolute left-3 top-2.5 text-slate-400" size={15}/>
+                        <input className="pl-8 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none w-48 transition-all"
+                            placeholder="Search vendors..." value={search} onChange={e => setSearch(e.target.value)}/>
+                    </div>
+                    {serviceTypes.length > 0 && (
+                        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
+                            className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 outline-none cursor-pointer">
+                            <option value="All">All Types</option>
+                            {serviceTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                    )}
+                    <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+                        className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 outline-none cursor-pointer">
+                        <option value="outstanding-desc">Highest Outstanding</option>
+                        <option value="outstanding-asc">Lowest Outstanding</option>
+                        <option value="total-desc">Highest Billed</option>
+                        <option value="bills-desc">Most Bills</option>
+                        <option value="name">Name A–Z</option>
+                    </select>
+                    <div className="flex bg-white border border-slate-200 rounded-xl overflow-hidden">
+                        <button onClick={() => setViewMode('cards')} title="Cards"
+                            className={`px-3 py-2 transition-all ${viewMode==='cards'?'bg-slate-800 text-white':'text-slate-400 hover:text-slate-600'}`}>
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="0" width="7" height="7" rx="1.5"/><rect x="9" y="0" width="7" height="7" rx="1.5"/><rect x="0" y="9" width="7" height="7" rx="1.5"/><rect x="9" y="9" width="7" height="7" rx="1.5"/></svg>
+                        </button>
+                        <button onClick={() => setViewMode('table')} title="Table"
+                            className={`px-3 py-2 transition-all ${viewMode==='table'?'bg-slate-800 text-white':'text-slate-400 hover:text-slate-600'}`}>
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="0" width="16" height="3" rx="1"/><rect x="0" y="5" width="16" height="3" rx="1"/><rect x="0" y="10" width="16" height="3" rx="1"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <button onClick={onNewVendor}
+                    className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all flex-shrink-0">
+                    <Plus size={16}/> Add Vendor
+                </button>
+            </div>
+
+            {(search || typeFilter !== 'All') && (
+                <p className="text-sm text-slate-500 font-medium -mt-2">
+                    Showing <span className="font-bold text-violet-600">{filtered.length}</span> of {vendors.length} vendors
+                    {filtered.length > 0 && kpis.totalPayable > 0 && <> · Outstanding: <span className="font-bold text-rose-600">{formatCurrency(filtered.reduce((a,v)=>a+v.outstanding,0))}</span></>}
+                </p>
+            )}
+
+            {/* ── Empty state ────────────────────────────── */}
+            {filtered.length === 0 && (
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-16 text-center">
+                    <div className="w-16 h-16 bg-violet-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <Truck className="text-violet-300" size={32}/>
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-700 mb-2">{vendors.length===0?'No vendors yet':'No vendors match your search'}</h3>
+                    <p className="text-sm text-slate-400 mb-6">{vendors.length===0?'Add your first supplier or service vendor.':'Try clearing your filters.'}</p>
+                    {vendors.length===0 && <button onClick={onNewVendor} className="bg-violet-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-violet-700 transition-colors">+ Add First Vendor</button>}
+                </div>
+            )}
+
+            {/* ── CARD VIEW ──────────────────────────────── */}
+            {viewMode === 'cards' && filtered.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {filtered.map(v => (
+                        <div key={v.id} className={`bg-white rounded-2xl border shadow-sm hover:shadow-lg transition-all duration-200 overflow-hidden group ${v.hasPending?'border-slate-200':'border-emerald-200'}`}>
+                            <div className={`h-1 w-full ${v.hasPending?'bg-gradient-to-r from-violet-500 to-rose-500':'bg-emerald-400'}`}/>
+                            <div className="p-5">
+                                <div className="flex justify-between items-start mb-3">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${v.hasPending?'bg-rose-100':'bg-emerald-100'}`}>
+                                                <Truck size={14} className={v.hasPending?'text-rose-600':'text-emerald-600'}/>
+                                            </div>
+                                            <p className="font-extrabold text-slate-900 truncate">{v.name}</p>
+                                        </div>
+                                        {v.serviceType && <p className="text-xs text-slate-400 font-medium ml-10">{v.serviceType}</p>}
+                                        {v.contact && <p className="text-xs text-violet-500 font-medium ml-10 mt-0.5">{v.contact}</p>}
+                                    </div>
+                                    {v.hasPending
+                                        ? <span className="text-xs font-extrabold px-2 py-1 bg-rose-50 text-rose-600 rounded-lg flex-shrink-0 ml-2">DUE</span>
+                                        : <span className="text-xs font-extrabold px-2 py-1 bg-emerald-50 text-emerald-600 rounded-lg flex-shrink-0 ml-2">CLEAR</span>}
+                                </div>
+
+                                {/* Payment progress bar */}
+                                {v.totalBills > 0 && (
+                                    <div className="mb-3">
+                                        <div className="flex justify-between text-xs font-bold mb-1">
+                                            <span className="text-slate-400">Paid {v.payRate.toFixed(0)}%</span>
+                                            <span className={v.hasPending?'text-rose-600':'text-emerald-600'}>{formatCurrency(v.outstanding)} {v.hasPending?'due':'settled'}</span>
+                                        </div>
+                                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                            <div className={`h-full rounded-full transition-all duration-500 ${v.hasPending?'bg-gradient-to-r from-violet-500 to-rose-400':'bg-emerald-400'}`}
+                                                style={{width:`${Math.min(100, v.payRate).toFixed(1)}%`}}/>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-3 gap-2 text-center bg-slate-50 rounded-xl p-2">
+                                    <div><p className="text-xs text-slate-400 font-medium">Bills</p><p className="font-extrabold text-slate-700 text-sm">{v.billCount}</p></div>
+                                    <div><p className="text-xs text-slate-400 font-medium">Paid</p><p className="font-extrabold text-emerald-700 text-sm">{formatCurrency(v.totalPaid)}</p></div>
+                                    <div><p className="text-xs text-slate-400 font-medium">Total</p><p className="font-extrabold text-slate-700 text-sm">{formatCurrency(v.totalBills)}</p></div>
+                                </div>
+                            </div>
+                            <div className="px-4 pb-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={() => onViewProfile(v)}
+                                    className="flex-1 py-2 text-xs font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 rounded-xl transition-colors flex items-center justify-center gap-1">
+                                    <FileText size={11}/> View Profile
+                                </button>
+                                {currentUser?.role === 'Admin' && <>
+                                    <button onClick={() => onEdit(v)} className="px-3 py-2 text-xs font-bold text-slate-500 hover:text-violet-600 bg-slate-50 hover:bg-violet-50 rounded-xl transition-colors"><Edit size={12}/></button>
+                                    <button onClick={() => onDelete(v.id)} className="px-3 py-2 text-xs font-bold text-slate-500 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 rounded-xl transition-colors"><Trash2 size={12}/></button>
+                                </>}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* ── TABLE VIEW ─────────────────────────────── */}
+            {viewMode === 'table' && filtered.length > 0 && (
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left min-w-[800px]">
+                            <thead className="bg-slate-50 border-b border-slate-100">
+                                <tr>
+                                    {['Vendor','Service Type','Contact','Bills','Total Billed','Paid','Outstanding',''].map((h,i) => (
+                                        <th key={i} className={`px-5 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider ${['Total Billed','Paid','Outstanding'].includes(h)?'text-right':''}`}>{h}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {filtered.map(v => (
+                                    <tr key={v.id} className={`hover:bg-slate-50/80 transition-colors group ${v.hasPending&&v.outstanding>0?'bg-rose-50/20':''}`}>
+                                        <td className="px-5 py-4">
+                                            <div className="flex items-center gap-2">
+                                                <div className={`w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 ${v.hasPending?'bg-rose-100':'bg-emerald-100'}`}>
+                                                    <Truck size={12} className={v.hasPending?'text-rose-600':'text-emerald-600'}/>
+                                                </div>
+                                                <p className="font-bold text-slate-800 text-sm">{v.name}</p>
+                                            </div>
+                                        </td>
+                                        <td className="px-5 py-4">
+                                            {v.serviceType
+                                                ? <span className="text-xs font-bold px-2.5 py-1 bg-violet-50 text-violet-700 rounded-lg">{v.serviceType}</span>
+                                                : <span className="text-slate-300 text-sm">—</span>}
+                                        </td>
+                                        <td className="px-5 py-4 text-sm text-slate-500 font-medium">{v.contact || '—'}</td>
+                                        <td className="px-5 py-4 text-sm text-slate-600 font-bold">{v.billCount}</td>
+                                        <td className="px-5 py-4 text-right font-bold text-slate-700 tabular-nums">{formatCurrency(v.totalBills)}</td>
+                                        <td className="px-5 py-4 text-right font-bold text-emerald-600 tabular-nums">{formatCurrency(v.totalPaid)}</td>
+                                        <td className="px-5 py-4 text-right">
+                                            <span className={`font-extrabold tabular-nums ${v.hasPending?'text-rose-600':'text-emerald-600'}`}>{formatCurrency(v.outstanding)}</span>
+                                            {v.totalBills > 0 && (
+                                                <div className="mt-1 h-1.5 w-20 bg-slate-100 rounded-full overflow-hidden ml-auto">
+                                                    <div className={`h-full rounded-full ${v.hasPending?'bg-rose-400':'bg-emerald-400'}`} style={{width:`${Math.min(100,v.payRate).toFixed(0)}%`}}/>
+                                                </div>
+                                            )}
+                                        </td>
+                                        <td className="px-5 py-4">
+                                            <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button onClick={() => onViewProfile(v)} className="p-1.5 bg-violet-50 text-violet-600 hover:bg-violet-100 rounded-lg transition-colors" title="View Profile"><FileText size={12}/></button>
+                                                {currentUser?.role === 'Admin' && <>
+                                                    <button onClick={() => onEdit(v)} className="p-1.5 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"><Edit size={12}/></button>
+                                                    <button onClick={() => onDelete(v.id)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"><Trash2 size={12}/></button>
+                                                </>}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                            <tfoot className="bg-gradient-to-r from-slate-50 to-violet-50/30 border-t-2 border-slate-200">
+                                <tr>
+                                    <td colSpan={4} className="px-5 py-4 text-xs font-extrabold text-slate-500 uppercase tracking-wider">TOTALS — {filtered.length} vendors</td>
+                                    <td className="px-5 py-4 text-right font-extrabold text-slate-800 tabular-nums">{formatCurrency(filtered.reduce((a,v)=>a+v.totalBills,0))}</td>
+                                    <td className="px-5 py-4 text-right font-extrabold text-emerald-600 tabular-nums">{formatCurrency(filtered.reduce((a,v)=>a+v.totalPaid,0))}</td>
+                                    <td className="px-5 py-4 text-right font-extrabold text-rose-600 tabular-nums">{formatCurrency(filtered.reduce((a,v)=>a+v.outstanding,0))}</td>
+                                    <td/>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ============================================================
+// VENDOR BILLS PAGE — Full module with KPIs & analytics
+// ============================================================
+const VendorBillsPage = ({ vendorBills, vendors, currentUser, onNewBill, onEdit, onDelete, onPayBill }) => {
+    const [search,       setSearch]       = useState('');
+    const [statusFilter, setStatusFilter] = useState('All'); // All | Paid | Pending | Overdue
+    const [vendorFilter, setVendorFilter] = useState('All');
+    const [monthFilter,  setMonthFilter]  = useState('All');
+    const [sortBy,       setSortBy]       = useState('date-desc');
+
+    const today = new Date(); today.setHours(0,0,0,0);
+
+    /* ── Enrich bills ─────────────────────────────────── */
+    const enriched = useMemo(() => vendorBills.map(b => {
+        const gross   = (Number(b.billAmount)||Number(b.amount)||0) + (Number(b.taxDeduction)||0);
+        const net     = Number(b.amount) || 0;
+        const wht     = Number(b.taxDeduction) || 0;
+        const paid    = Number(b.paidAmount) || 0;
+        const due     = Math.max(0, net - paid);
+        const isPaid  = b.status === 'Paid' || due <= 0;
+        const dueDate = b.dueDate ? new Date(b.dueDate) : null;
+        const isOverdue = !isPaid && dueDate && dueDate < today;
+        const daysOverdue = isOverdue ? Math.floor((today - dueDate) / 86400000) : 0;
+        const monthNum  = b.date ? b.date.slice(0,7) : '';
+        const monthName = (() => { try { return new Date(b.date).toLocaleString('default', { month: 'long', year: 'numeric' }); } catch { return b.date; } })();
+        const payPct    = net > 0 ? Math.min(100, (paid / net) * 100) : 0;
+        const statusLabel = isPaid ? 'Paid' : isOverdue ? 'Overdue' : paid > 0 ? 'Partial' : 'Pending';
+        return { ...b, gross, net, wht, paid, due, isPaid, isOverdue, daysOverdue, monthNum, monthName, payPct, statusLabel };
+    }), [vendorBills]);
+
+    /* ── KPIs ─────────────────────────────────────────── */
+    const kpis = useMemo(() => {
+        const totalGross    = enriched.reduce((a, b) => a + b.gross, 0);
+        const totalNet      = enriched.reduce((a, b) => a + b.net, 0);
+        const totalWHT      = enriched.reduce((a, b) => a + b.wht, 0);
+        const totalPaid     = enriched.reduce((a, b) => a + b.paid, 0);
+        const totalDue      = enriched.reduce((a, b) => a + b.due, 0);
+        const overdueAmt    = enriched.filter(b => b.isOverdue).reduce((a, b) => a + b.due, 0);
+        const overdueCount  = enriched.filter(b => b.isOverdue).length;
+        const pendingCount  = enriched.filter(b => !b.isPaid).length;
+        const curMonth      = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+        const thisMonthDue  = enriched.filter(b => b.monthNum === curMonth && !b.isPaid).reduce((a, b) => a + b.due, 0);
+        return { totalGross, totalNet, totalWHT, totalPaid, totalDue, overdueAmt, overdueCount, pendingCount, thisMonthDue, count: enriched.length };
+    }, [enriched]);
+
+    /* ── Monthly chart (6 months) ─────────────────────── */
+    const monthlyChart = useMemo(() => {
+        const now = new Date();
+        return Array.from({length: 6}, (_, i) => {
+            const d   = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
+            const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+            const lbl = d.toLocaleString('default', { month: 'short' });
+            const billed = enriched.filter(b => b.monthNum === key).reduce((a, b) => a + b.net, 0);
+            const paid   = enriched.filter(b => b.monthNum === key && b.isPaid).reduce((a, b) => a + b.net, 0);
+            return { name: lbl, Billed: billed, Paid: paid };
+        });
+    }, [enriched]);
+
+    /* ── Vendor breakdown ─────────────────────────────── */
+    const vendorBreakdown = useMemo(() => {
+        const map = {};
+        enriched.filter(b => !b.isPaid).forEach(b => {
+            const v = b.vendor || 'Unknown';
+            map[v] = (map[v] || 0) + b.due;
+        });
+        return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    }, [enriched]);
+
+    /* ── Unique filters ───────────────────────────────── */
+    const uniqueVendors = useMemo(() => [...new Set(enriched.map(b => b.vendor).filter(Boolean))].sort(), [enriched]);
+    const uniqueMonths  = useMemo(() => [...new Set(enriched.map(b => b.monthName).filter(Boolean))].reverse(), [enriched]);
+
+    /* ── Filtered + sorted ────────────────────────────── */
+    const filtered = useMemo(() => {
+        let res = [...enriched];
+        if (search)             res = res.filter(b => (b.vendor||'').toLowerCase().includes(search.toLowerCase()) || (b.billNumber||'').toLowerCase().includes(search.toLowerCase()) || (b.description||'').toLowerCase().includes(search.toLowerCase()));
+        if (statusFilter !== 'All') res = res.filter(b => b.statusLabel === statusFilter);
+        if (vendorFilter !== 'All') res = res.filter(b => b.vendor === vendorFilter);
+        if (monthFilter  !== 'All') res = res.filter(b => b.monthName === monthFilter);
+        if (sortBy === 'date-desc')    res = [...res].sort((a, b) => new Date(b.date) - new Date(a.date));
+        if (sortBy === 'date-asc')     res = [...res].sort((a, b) => new Date(a.date) - new Date(b.date));
+        if (sortBy === 'amount-desc')  res = [...res].sort((a, b) => b.net - a.net);
+        if (sortBy === 'due-desc')     res = [...res].sort((a, b) => b.due - a.due);
+        if (sortBy === 'overdue')      res = [...res].sort((a, b) => b.daysOverdue - a.daysOverdue);
+        return res;
+    }, [enriched, search, statusFilter, vendorFilter, monthFilter, sortBy]);
+
+    const statusBadge = {
+        Paid:    'bg-emerald-100 text-emerald-700',
+        Pending: 'bg-amber-100 text-amber-700',
+        Partial: 'bg-blue-100 text-blue-700',
+        Overdue: 'bg-rose-100 text-rose-700',
+    };
+    const VB_COLORS = ['#6366f1','#f59e0b','#10b981','#f43f5e','#06b6d4','#8b5cf6'];
+
+    return (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+
+            {/* ── KPI Cards ──────────────────────────────── */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                {[
+                    { l:'Total Bills',    v: kpis.count,                      sub:`${kpis.pendingCount} pending`,  c:'text-slate-800',  bg:'bg-white border-slate-200',      icon: FileText },
+                    { l:'Gross Billed',   v: formatCurrency(kpis.totalGross),  sub:'before WHT',                   c:'text-slate-700',  bg:'bg-white border-slate-200',       icon: Briefcase },
+                    { l:'WHT Deducted',   v: formatCurrency(kpis.totalWHT),    sub:'tax withheld',                 c:'text-amber-700',  bg:'bg-amber-50 border-amber-200',    icon: Percent },
+                    { l:'Net Payable',    v: formatCurrency(kpis.totalNet),    sub:'after WHT',                    c:'text-slate-700',  bg:'bg-white border-slate-200',       icon: DollarSign },
+                    { l:'Total Paid',     v: formatCurrency(kpis.totalPaid),   sub:'settled',                      c:'text-emerald-700',bg:'bg-emerald-50 border-emerald-200', icon: CheckCircle },
+                    { l:'Outstanding',    v: formatCurrency(kpis.totalDue),    sub:`${kpis.overdueCount} overdue`,c: kpis.totalDue>0?'text-rose-700':'text-emerald-700', bg: kpis.totalDue>0?'bg-rose-50 border-rose-200':'bg-emerald-50 border-emerald-200', icon: ArrowUpRight },
+                ].map((k, i) => (
+                    <div key={i} className={`${k.bg} border p-4 rounded-2xl shadow-sm hover:shadow-md transition-all group`}>
+                        <div className="flex justify-between items-start mb-2">
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-tight">{k.l}</p>
+                            <k.icon size={13} className="text-slate-300 group-hover:text-slate-400 flex-shrink-0 mt-0.5"/>
+                        </div>
+                        <p className={`text-lg font-extrabold tabular-nums ${k.c}`}>{k.v}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{k.sub}</p>
+                    </div>
+                ))}
+            </div>
+
+            {/* ── Charts ─────────────────────────────────── */}
+            {enriched.length > 0 && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                    <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+                        <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2">
+                            <div className="w-2 h-5 bg-violet-500 rounded-full"/>
+                            Bills vs Payments (6 Months)
+                        </h3>
+                        <ResponsiveContainer width="100%" height={180}>
+                            <BarChart data={monthlyChart} barCategoryGap="30%">
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false}/>
+                                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize:11,fontWeight:700,fill:'#94a3b8'}}/>
+                                <YAxis axisLine={false} tickLine={false} tick={{fontSize:10,fill:'#94a3b8'}} tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}/>
+                                <ChartTooltip formatter={v=>formatCurrency(v)} contentStyle={{borderRadius:'14px',border:'none',boxShadow:'0 8px 24px rgba(0,0,0,0.1)',padding:'10px 14px'}}/>
+                                <Bar dataKey="Billed" fill="#a78bfa" radius={[5,5,0,0]}/>
+                                <Bar dataKey="Paid"   fill="#34d399" radius={[5,5,0,0]}/>
+                            </BarChart>
+                        </ResponsiveContainer>
+                        <div className="flex gap-4 mt-2">
+                            <span className="flex items-center gap-1.5 text-xs font-bold text-violet-500"><span className="w-3 h-3 bg-violet-400 rounded-sm inline-block"/>Billed</span>
+                            <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-600"><span className="w-3 h-3 bg-emerald-400 rounded-sm inline-block"/>Paid</span>
+                        </div>
+                    </div>
+                    <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+                        <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2">
+                            <div className="w-2 h-5 bg-rose-500 rounded-full"/>
+                            Top Unpaid Balances
+                        </h3>
+                        {vendorBreakdown.length > 0 ? (
+                            <div className="space-y-3">
+                                {vendorBreakdown.map(([name, amt], i) => {
+                                    const pct = kpis.totalDue > 0 ? (amt / kpis.totalDue) * 100 : 0;
+                                    return (
+                                        <div key={i}>
+                                            <div className="flex justify-between items-center mb-1">
+                                                <span className="text-xs font-bold text-slate-700 truncate max-w-[120px]">{name}</span>
+                                                <span className="text-xs font-extrabold tabular-nums" style={{color: VB_COLORS[i % VB_COLORS.length]}}>{formatCurrency(amt)}</span>
+                                            </div>
+                                            <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                <div className="h-full rounded-full" style={{width:`${pct.toFixed(1)}%`, backgroundColor: VB_COLORS[i % VB_COLORS.length]}}/>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-32 text-center">
+                                <CheckCircle className="text-emerald-400 mb-2" size={32}/>
+                                <p className="text-sm font-bold text-emerald-600">All bills settled!</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Toolbar ────────────────────────────────── */}
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+                <div className="flex flex-wrap gap-2 items-center">
+                    <div className="relative">
+                        <Search className="absolute left-3 top-2.5 text-slate-400" size={15}/>
+                        <input className="pl-8 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none w-48 transition-all"
+                            placeholder="Search bills..." value={search} onChange={e => setSearch(e.target.value)}/>
+                    </div>
+                    <div className="flex bg-white border border-slate-200 rounded-xl overflow-hidden">
+                        {['All','Pending','Partial','Overdue','Paid'].map(s => (
+                            <button key={s} onClick={() => setStatusFilter(s)}
+                                className={`px-2.5 py-2 text-xs font-bold transition-all ${statusFilter===s?'bg-violet-600 text-white':'text-slate-500 hover:text-violet-600'}`}>{s}</button>
+                        ))}
+                    </div>
+                    {uniqueVendors.length > 1 && (
+                        <select value={vendorFilter} onChange={e => setVendorFilter(e.target.value)}
+                            className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 outline-none cursor-pointer">
+                            <option value="All">All Vendors</option>
+                            {uniqueVendors.map(v => <option key={v} value={v}>{v}</option>)}
+                        </select>
+                    )}
+                    {uniqueMonths.length > 1 && (
+                        <select value={monthFilter} onChange={e => setMonthFilter(e.target.value)}
+                            className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 outline-none cursor-pointer">
+                            <option value="All">All Months</option>
+                            {uniqueMonths.map(m => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                    )}
+                    <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+                        className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 outline-none cursor-pointer">
+                        <option value="date-desc">Newest First</option>
+                        <option value="date-asc">Oldest First</option>
+                        <option value="amount-desc">Highest Amount</option>
+                        <option value="due-desc">Highest Due</option>
+                        <option value="overdue">Most Overdue</option>
+                    </select>
+                </div>
+                <button onClick={onNewBill}
+                    className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all flex-shrink-0">
+                    <Plus size={16}/> New Bill
+                </button>
+            </div>
+
+            {(search || statusFilter !== 'All' || vendorFilter !== 'All' || monthFilter !== 'All') && (
+                <p className="text-sm text-slate-500 font-medium -mt-2">
+                    Showing <span className="font-bold text-violet-600">{filtered.length}</span> of {enriched.length} bills
+                    {filtered.length > 0 && <> · Net: <span className="font-bold text-slate-700">{formatCurrency(filtered.reduce((a,b)=>a+b.net,0))}</span> · Due: <span className="font-bold text-rose-600">{formatCurrency(filtered.reduce((a,b)=>a+b.due,0))}</span></>}
+                </p>
+            )}
+
+            {/* ── Empty state ────────────────────────────── */}
+            {filtered.length === 0 && (
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-16 text-center">
+                    <div className="w-16 h-16 bg-violet-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <FileText className="text-violet-300" size={32}/>
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-700 mb-2">{vendorBills.length===0?'No vendor bills yet':'No bills match your filters'}</h3>
+                    <p className="text-sm text-slate-400 mb-6">{vendorBills.length===0?'Record bills from your suppliers and track payment status.':'Try clearing your filters.'}</p>
+                    {vendorBills.length===0 && <button onClick={onNewBill} className="bg-violet-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-violet-700 transition-colors">+ Add First Bill</button>}
+                </div>
+            )}
+
+            {/* ── Bills Table ─────────────────────────────── */}
+            {filtered.length > 0 && (
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left min-w-[900px]">
+                            <thead className="bg-slate-50 border-b border-slate-100">
+                                <tr>
+                                    {['Bill #','Vendor','Date','Description','Gross','WHT','Net Payable','Paid','Balance','Status',''].map((h,i) => (
+                                        <th key={i} className={`px-4 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider ${['Gross','WHT','Net Payable','Paid','Balance'].includes(h)?'text-right':''}`}>{h}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {filtered.map(b => (
+                                    <tr key={b.id} className={`hover:bg-slate-50/80 transition-colors group ${b.isOverdue?'bg-rose-50/30':''}`}>
+                                        <td className="px-4 py-3.5">
+                                            <p className="font-mono font-bold text-violet-600 text-sm">{b.billNumber||'—'}</p>
+                                            {b.isOverdue && <p className="text-xs font-bold text-rose-500 mt-0.5">⚠ {b.daysOverdue}d overdue</p>}
+                                        </td>
+                                        <td className="px-4 py-3.5">
+                                            <p className="font-bold text-slate-800 text-sm">{b.vendor||'—'}</p>
+                                        </td>
+                                        <td className="px-4 py-3.5 text-sm text-slate-500 font-medium">{b.date}</td>
+                                        <td className="px-4 py-3.5">
+                                            <p className="text-sm text-slate-600 font-medium max-w-[140px] truncate">{b.description||'—'}</p>
+                                        </td>
+                                        <td className="px-4 py-3.5 text-right font-medium text-slate-500 tabular-nums">{formatCurrency(b.gross)}</td>
+                                        <td className="px-4 py-3.5 text-right">
+                                            {b.wht > 0
+                                                ? <span className="font-bold text-amber-600 tabular-nums">-{formatCurrency(b.wht)}</span>
+                                                : <span className="text-slate-200">—</span>}
+                                        </td>
+                                        <td className="px-4 py-3.5 text-right font-extrabold text-slate-800 tabular-nums">{formatCurrency(b.net)}</td>
+                                        <td className="px-4 py-3.5 text-right">
+                                            <p className="font-bold text-emerald-600 tabular-nums">{b.paid > 0 ? formatCurrency(b.paid) : '—'}</p>
+                                            {b.net > 0 && b.paid > 0 && !b.isPaid && (
+                                                <div className="mt-1 h-1.5 w-16 bg-slate-100 rounded-full overflow-hidden ml-auto">
+                                                    <div className="h-full bg-emerald-400 rounded-full" style={{width:`${b.payPct.toFixed(0)}%`}}/>
+                                                </div>
+                                            )}
+                                        </td>
+                                        <td className="px-4 py-3.5 text-right">
+                                            {b.isPaid
+                                                ? <span className="text-emerald-500 font-bold text-sm">✓ Settled</span>
+                                                : <span className="font-extrabold text-rose-600 tabular-nums">{formatCurrency(b.due)}</span>}
+                                        </td>
+                                        <td className="px-4 py-3.5">
+                                            <span className={`text-xs font-extrabold px-2.5 py-1 rounded-full ${statusBadge[b.statusLabel]||'bg-slate-100 text-slate-500'}`}>
+                                                {b.statusLabel}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3.5">
+                                            <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {!b.isPaid && (
+                                                    <button onClick={() => onPayBill(b, b.due)}
+                                                        className="p-1.5 bg-violet-600 text-white hover:bg-violet-700 rounded-lg transition-colors shadow-sm" title="Pay Now">
+                                                        <CreditCard size={12}/>
+                                                    </button>
+                                                )}
+                                                {currentUser?.role === 'Admin' && <>
+                                                    <button onClick={() => onEdit(b)} className="p-1.5 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"><Edit size={12}/></button>
+                                                    <button onClick={() => onDelete(b.id)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"><Trash2 size={12}/></button>
+                                                </>}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                            <tfoot className="bg-gradient-to-r from-slate-50 to-violet-50/30 border-t-2 border-slate-200">
+                                <tr>
+                                    <td colSpan={4} className="px-4 py-4 text-xs font-extrabold text-slate-500 uppercase tracking-wider">TOTALS — {filtered.length} bills</td>
+                                    <td className="px-4 py-4 text-right font-extrabold text-slate-600 tabular-nums">{formatCurrency(filtered.reduce((a,b)=>a+b.gross,0))}</td>
+                                    <td className="px-4 py-4 text-right font-extrabold text-amber-600 tabular-nums">{filtered.reduce((a,b)=>a+b.wht,0)>0?`-${formatCurrency(filtered.reduce((a,b)=>a+b.wht,0))}`:'—'}</td>
+                                    <td className="px-4 py-4 text-right font-extrabold text-slate-800 tabular-nums">{formatCurrency(filtered.reduce((a,b)=>a+b.net,0))}</td>
+                                    <td className="px-4 py-4 text-right font-extrabold text-emerald-600 tabular-nums">{formatCurrency(filtered.reduce((a,b)=>a+b.paid,0))}</td>
+                                    <td className="px-4 py-4 text-right font-extrabold text-rose-600 tabular-nums">{formatCurrency(filtered.reduce((a,b)=>a+b.due,0))}</td>
+                                    <td colSpan={2}/>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 
 // --- VENDOR PROFILE COMPONENT ---
 const VendorProfile = ({ vendor, vendorBills, bankRecords, pettyCash, onBack }) => {
@@ -4631,14 +5247,16 @@ function App() {
                      view === 'tax-report' ? 'Tax Liability' :
                      view === 'salaries' ? 'Team Salaries' :
                      view === 'expenses' ? 'Expenses' :
+                     view === 'vendors' ? 'Vendors' :
+                     view === 'vendor-bills' ? 'Vendor Bills' :
                      view === 'petty-cash' ? 'Petty Cash' :
                      view.replace(/-/g, ' ')}
                 </h2>
-                <p className="text-slate-500 font-medium">{view === 'salaries' ? 'Payroll, payslips & employee analytics' : view === 'expenses' ? 'Business expenses, categories & tax credits' : view === 'petty-cash' ? 'Cash float, ledger & expense tracking' : 'Overview & Management'}</p>
+                <p className="text-slate-500 font-medium">{view === 'salaries' ? 'Payroll, payslips & employee analytics' : view === 'expenses' ? 'Business expenses, categories & tax credits' : view === 'petty-cash' ? 'Cash float, ledger & expense tracking' : view === 'vendors' ? 'Suppliers, service vendors & payables' : view === 'vendor-bills' ? 'Bills, WHT tracking & payment status' : 'Overview & Management'}</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-4 w-full xl:w-auto">
-                {!['dashboard','receivables-payables','client-profile','vendor-profile','tax-report','reports','statements','clients','salaries','petty-cash','expenses'].includes(view) && <div className="relative flex-1 sm:w-72 group"><Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/><input className="w-full pl-12 pr-4 py-3 rounded-2xl border-none bg-white shadow-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-violet-500 outline-none transition-all font-medium text-slate-600" placeholder="Search records..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
-                {['clients','bank','vendor-bills','vendors'].includes(view) && (
+                {!['dashboard','receivables-payables','client-profile','vendor-profile','tax-report','reports','statements','clients','salaries','petty-cash','expenses','vendors','vendor-bills'].includes(view) && <div className="relative flex-1 sm:w-72 group"><Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/><input className="w-full pl-12 pr-4 py-3 rounded-2xl border-none bg-white shadow-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-violet-500 outline-none transition-all font-medium text-slate-600" placeholder="Search records..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
+                {['clients','bank'].includes(view) && (
                     <div className="flex gap-3">
                         <label className="bg-white px-4 py-3 rounded-2xl font-bold text-sm text-slate-600 shadow-sm ring-1 ring-slate-200 hover:ring-violet-300 hover:text-violet-600 transition-all cursor-pointer flex items-center gap-2">
                             <Upload size={18}/> <span className="hidden sm:inline">Import</span> <input type="file" className="hidden" accept=".csv" onChange={(e) => handleGenericImport(e, view === 'petty-cash' ? 'petty_cash' : view === 'vendor-bills' ? 'vendor_bills' : view)}/>
@@ -4648,14 +5266,14 @@ function App() {
                         </button>
                     </div>
                 )}
-                {['bank','vendor-bills'].includes(view) && (
+                {['bank'].includes(view) && (
                     <div className="flex gap-3 bg-white p-1.5 rounded-2xl shadow-sm ring-1 ring-slate-200">
                         <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}><option value="All">All Months</option>{['January','February','March','April','May','June','July','August','September','October','November','December'].map(m=><option key={m}>{m}</option>)}</select>
                         <div className="w-px bg-slate-200 my-1"></div>
                         <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={selectedYear} onChange={e=>setSelectedYear(e.target.value)}><option value="All">All Years</option>{availableYears.map(y=><option key={y}>{y}</option>)}</select>
                     </div>
                 )}
-                {!['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report','clients','salaries','petty-cash','expenses'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
+                {!['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report','clients','salaries','petty-cash','expenses','vendors','vendor-bills'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
             </div>
         </header>
 
@@ -4863,9 +5481,13 @@ function App() {
 
         {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => handleDelete(id, 'invoice')} onGenerateRecurring={handleGenerateRecurring} onReceivePayment={(inv, amt) => initiatePayment(inv, 'invoice', amt)} />}
 
+        {view === 'vendors' && <VendorsPage vendors={vendors} vendorBills={vendorBills} currentUser={currentUser} onNewVendor={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(v) => { setFormData({...v}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => handleDelete(id, 'vendor')} onViewProfile={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
+
+        {view === 'vendor-bills' && <VendorBillsPage vendorBills={vendorBills} vendors={vendors} currentUser={currentUser} onNewBill={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(b) => { setFormData({...b}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => handleDelete(id, 'bill')} onPayBill={(b, amt) => initiatePayment(b, 'bill', amt)} />}
+
         {/* GENERIC TABLE RENDERER */}
-        {['vendors','bank','manage-users','vendor-bills'].includes(view) && (() => {
-            const currentData = view==='vendors'?filteredVendors:view==='vendor-bills'?filteredBills:view==='bank'?bankRecords:users;
+        {['bank','manage-users'].includes(view) && (() => {
+            const currentData = view==='bank'?bankRecords:users;
             if (currentData.length === 0) {
                 return (
                     <div className="bg-white p-16 rounded-3xl shadow-sm border border-slate-100 text-center animate-in fade-in zoom-in-95 duration-300">
@@ -4892,7 +5514,7 @@ function App() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                            {(view==='vendors'?filteredVendors:view==='vendor-bills'?filteredBills:view==='bank'?bankRecords:users).map((item, idx, arr) => {
+                            {(view==='bank'?bankRecords:users).map((item, idx, arr) => {
                                 // Calculate running balance for petty cash
                                 const pettyCashBalance = view === 'petty-cash' ? arr.slice(0, idx + 1).reduce((bal, r) => bal + (Number(r.cashIn)||0) - (Number(r.cashOut)||0), 0) : null;
                                 return (
@@ -4979,7 +5601,7 @@ function App() {
         {showForm && (
             <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                 <div className="bg-white p-8 md:p-10 rounded-3xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
-                    <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-6"><h3 className="text-2xl font-bold text-slate-800">{view==='clients' ? (isEditingRecord ? 'Edit Client' : 'New Client') : view==='salaries' ? (isEditingRecord ? 'Edit Payslip' : 'New Payslip') : view==='petty-cash' ? (isEditingRecord ? 'Edit Entry' : 'New Cash Entry') : view==='expenses' ? (isEditingRecord ? 'Edit Expense' : 'New Expense') : 'Record Details'}</h3><button onClick={()=>setShowForm(false)} className="p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"><X size={20}/></button></div>
+                    <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-6"><h3 className="text-2xl font-bold text-slate-800">{view==='clients' ? (isEditingRecord ? 'Edit Client' : 'New Client') : view==='salaries' ? (isEditingRecord ? 'Edit Payslip' : 'New Payslip') : view==='petty-cash' ? (isEditingRecord ? 'Edit Entry' : 'New Cash Entry') : view==='expenses' ? (isEditingRecord ? 'Edit Expense' : 'New Expense') : view==='vendors' ? (isEditingRecord ? 'Edit Vendor' : 'New Vendor') : view==='vendor-bills' ? (isEditingRecord ? 'Edit Bill' : 'New Vendor Bill') : 'Record Details'}</h3><button onClick={()=>setShowForm(false)} className="p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"><X size={20}/></button></div>
                     <form onSubmit={handleAddSubmit} className="space-y-6">
                          {/* DYNAMIC FORM FIELDS BASED ON VIEW - STYLED CONSISTENTLY */}
                         {view==='manage-users' && <><input required placeholder="Username" className="form-input" value={formData.username||''} onChange={e=>setFormData({...formData,username:e.target.value})}/><input type="email" required placeholder="Email" className="form-input" value={formData.email||''} onChange={e=>setFormData({...formData,email:e.target.value})}/><input type="password" placeholder="Password (leave blank to keep)" className="form-input" value={formData.password||''} onChange={e=>setFormData({...formData,password:e.target.value})}/><select className="form-select" value={formData.role||'Viewer'} onChange={e=>setFormData({...formData,role:e.target.value})}><option>Viewer</option><option>Editor</option><option>Admin</option></select></>}
@@ -5075,7 +5697,50 @@ function App() {
                                 )}
                             </div>
                         )}
-                        {view==='vendors' && <><input required placeholder="Vendor / Supplier Name" className="form-input" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/><input placeholder="Service Type (e.g. Printing, Media)" className="form-input" value={formData.serviceType||''} onChange={e=>setFormData({...formData,serviceType:e.target.value})}/><input placeholder="Contact / Phone" className="form-input" value={formData.contact||''} onChange={e=>setFormData({...formData,contact:e.target.value})}/><input type="number" placeholder="Total Amount Payable" className="form-input" value={formData.amountPayable||''} onChange={e=>setFormData({...formData,amountPayable:e.target.value})}/><input type="number" placeholder="Amount Paid So Far" className="form-input" value={formData.amountPaid||''} onChange={e=>setFormData({...formData,amountPaid:e.target.value})}/></>}
+                        {view==='vendors' && (
+                            <div className="space-y-4">
+                                <div className="pb-2 border-b border-slate-100"><p className="text-xs font-extrabold text-violet-600 uppercase tracking-widest">Vendor Details</p></div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Vendor / Supplier Name *</label>
+                                    <input required placeholder="e.g. Ali Printers, MediaEdge" className="form-input" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Service Type</label>
+                                        <input placeholder="e.g. Printing, Media, IT" className="form-input" value={formData.serviceType||''} onChange={e=>setFormData({...formData,serviceType:e.target.value})}/>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Contact / Phone</label>
+                                        <input placeholder="e.g. 0300-1234567" className="form-input" value={formData.contact||''} onChange={e=>setFormData({...formData,contact:e.target.value})}/>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Email (optional)</label>
+                                    <input type="email" placeholder="vendor@email.com" className="form-input" value={formData.email||''} onChange={e=>setFormData({...formData,email:e.target.value})}/>
+                                </div>
+                                <div className="pb-2 border-b border-slate-100 pt-1"><p className="text-xs font-extrabold text-violet-600 uppercase tracking-widest">Financials (optional)</p></div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Total Amount Payable</label>
+                                        <input type="number" placeholder="0" className="form-input" value={formData.amountPayable||''} onChange={e=>setFormData({...formData,amountPayable:e.target.value})}/>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Amount Paid So Far</label>
+                                        <input type="number" placeholder="0" className="form-input" value={formData.amountPaid||''} onChange={e=>setFormData({...formData,amountPaid:e.target.value})}/>
+                                    </div>
+                                </div>
+                                {(Number(formData.amountPayable) > 0) && (
+                                    <div className="bg-violet-50 border border-violet-100 rounded-xl p-3 flex justify-between items-center">
+                                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Outstanding Balance</span>
+                                        <span className="text-xl font-extrabold text-rose-600 tabular-nums">{formatCurrency(Math.max(0,(Number(formData.amountPayable)||0)-(Number(formData.amountPaid)||0)))}</span>
+                                    </div>
+                                )}
+                                <div>
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Notes (optional)</label>
+                                    <textarea rows={2} placeholder="Any additional notes about this vendor..." className="form-input resize-none" value={formData.notes||''} onChange={e=>setFormData({...formData,notes:e.target.value})}/>
+                                </div>
+                            </div>
+                        )}}
                         {view === 'salaries' && (
                             <>
                                 {/* Section: Employee Info */}
@@ -5156,35 +5821,91 @@ function App() {
                             </>
                         )}
                         {view === 'vendor-bills' && (
-                            <>
-                                <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})} />
-                                <select className="form-select" value={formData.vendor||''} onChange={e=>setFormData({...formData,vendor:e.target.value})}><option value="">Select Vendor</option>{vendors.map(v=><option key={v.id} value={v.name}>{v.name}</option>)}</select>
-                                <input placeholder="Bill # / Ref" className="form-input" value={formData.billNumber||''} onChange={e=>setFormData({...formData,billNumber:e.target.value})} />
-                                <input placeholder="Description" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})} />
+                            <div className="space-y-4">
+                                <div className="pb-2 border-b border-slate-100"><p className="text-xs font-extrabold text-rose-600 uppercase tracking-widest">Bill Details</p></div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Total Bill Amount</label>
-                                        <input type="number" placeholder="0" className="form-input" value={formData.billAmount||''} onChange={e=> {
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Bill Date *</label>
+                                        <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Due Date</label>
+                                        <input type="date" className="form-input" value={formData.dueDate||''} onChange={e=>setFormData({...formData,dueDate:e.target.value})} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Vendor *</label>
+                                    <select className="form-select" value={formData.vendor||''} onChange={e=>setFormData({...formData,vendor:e.target.value})}>
+                                        <option value="">Select Vendor</option>
+                                        {vendors.map(v=><option key={v.id} value={v.name}>{v.name}</option>)}
+                                    </select>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Bill # / Ref</label>
+                                        <input placeholder="e.g. BILL-001" className="form-input" value={formData.billNumber||''} onChange={e=>setFormData({...formData,billNumber:e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Status</label>
+                                        <select className="form-select" value={formData.status||'Pending'} onChange={e=>setFormData({...formData,status:e.target.value})}>
+                                            <option>Pending</option><option>Partial</option><option>Paid</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Description</label>
+                                    <input placeholder="e.g. Printing charges for Q1 campaign" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})} />
+                                </div>
+                                <div className="pb-2 border-b border-slate-100 pt-1"><p className="text-xs font-extrabold text-rose-600 uppercase tracking-widest">Amounts</p></div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Gross Bill Amount *</label>
+                                        <input type="number" placeholder="0" className="form-input" value={formData.billAmount||''} onChange={e=>{
                                             const amt = Number(e.target.value);
-                                            const tax = Number(formData.taxDeduction || 0);
+                                            const tax = Number(formData.taxDeduction||0);
                                             setFormData({...formData, billAmount: amt, amount: amt - tax});
                                         }} />
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Tax Deducted (WHT)</label>
-                                        <input type="number" placeholder="0" className="form-input text-rose-600" value={formData.taxDeduction||''} onChange={e=> {
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block flex items-center gap-1.5">
+                                            <span className="w-2 h-2 bg-amber-400 rounded-full inline-block"/>WHT Deducted
+                                        </label>
+                                        <input type="number" placeholder="0" className="form-input" value={formData.taxDeduction||''} onChange={e=>{
                                             const tax = Number(e.target.value);
-                                            const amt = Number(formData.billAmount || 0);
+                                            const amt = Number(formData.billAmount||0);
                                             setFormData({...formData, taxDeduction: tax, amount: amt - tax});
                                         }} />
                                     </div>
                                 </div>
-                                <div className="bg-slate-50 p-4 rounded-xl flex justify-between items-center border border-slate-200 mt-2">
-                                    <span className="text-sm font-bold text-slate-600">Net Payable:</span>
-                                    <span className="text-xl font-bold text-indigo-600">{formatCurrency(formData.amount || 0)}</span>
+                                <div className="bg-violet-50 border border-violet-100 rounded-xl p-3 flex justify-between items-center">
+                                    <div>
+                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Net Payable</p>
+                                        <p className="text-2xl font-extrabold text-violet-700 tabular-nums">{formatCurrency(Number(formData.amount)||0)}</p>
+                                    </div>
+                                    {Number(formData.taxDeduction)>0 && (
+                                        <div className="text-right">
+                                            <p className="text-xs font-bold text-amber-500 uppercase">WHT Saved</p>
+                                            <p className="text-sm font-extrabold text-amber-600 tabular-nums">{formatCurrency(Number(formData.taxDeduction)||0)}</p>
+                                        </div>
+                                    )}
                                 </div>
-                                <input type="number" placeholder="Paid So Far" className="form-input mt-2" value={formData.paidAmount||''} onChange={e=>setFormData({...formData,paidAmount:e.target.value})} />
-                            </>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Amount Paid So Far</label>
+                                    <input type="number" placeholder="0" className="form-input" value={formData.paidAmount||''} onChange={e=>setFormData({...formData,paidAmount:e.target.value})} />
+                                </div>
+                                {Number(formData.amount)>0 && Number(formData.paidAmount)>0 && (
+                                    <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
+                                        <div className="flex justify-between items-center mb-1.5">
+                                            <span className="text-xs font-bold text-slate-500 uppercase">Payment Progress</span>
+                                            <span className="text-xs font-extrabold text-emerald-600">{Math.min(100,((Number(formData.paidAmount)||0)/(Number(formData.amount)||1)*100)).toFixed(0)}%</span>
+                                        </div>
+                                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                            <div className="h-full bg-emerald-400 rounded-full" style={{width:`${Math.min(100,((Number(formData.paidAmount)||0)/(Number(formData.amount)||1)*100)).toFixed(0)}%`}}/>
+                                        </div>
+                                        <p className="text-xs text-rose-600 font-bold mt-1.5">Balance: {formatCurrency(Math.max(0,(Number(formData.amount)||0)-(Number(formData.paidAmount)||0)))}</p>
+                                    </div>
+                                )}
+                            </div>
                         )}
                         {view === 'expenses' && (
                             <div className="space-y-4">
