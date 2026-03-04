@@ -4,24 +4,171 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LeanAxis Accounts Manager</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!--
+        CRITICAL ORDER:
+        1. importmap MUST be first — before any module scripts
+        2. Babel loads next (synchronous, classic script)
+        3. html2pdf loads (synchronous, classic script)  
+        4. Tailwind loads
+        5. App.js loads last as type="text/babel" data-type="module"
+           Babel intercepts, transforms JSX, then browser resolves imports via importmap
+    -->
+
+    <!-- 1. Import map — MUST be first in <head> -->
     <script type="importmap">
-      {
+    {
         "imports": {
-          "react": "https://esm.sh/react@18.2.0",
-          "react-dom": "https://esm.sh/react-dom@18.2.0",
-          "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-          "lucide-react": "https://esm.sh/lucide-react@0.263.1",
-          "recharts": "https://esm.sh/recharts@2.12.0?external=react,react-dom",
-          "papaparse": "https://esm.sh/papaparse@5.4.1"
+            "react":             "https://esm.sh/react@18.2.0",
+            "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
+            "react-dom":         "https://esm.sh/react-dom@18.2.0",
+            "react-dom/client":  "https://esm.sh/react-dom@18.2.0/client",
+            "lucide-react":      "https://esm.sh/lucide-react@0.263.1",
+            "recharts":          "https://esm.sh/recharts@2.12.0?external=react,react-dom",
+            "papaparse":         "https://esm.sh/papaparse@5.4.1"
         }
-      }
+    }
     </script>
+
+    <!-- 2. Babel standalone (jsDelivr — avoids unpkg/cdnjs tracking blocks in Edge) -->
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"
+            crossorigin="anonymous"></script>
+
+    <!-- 3. html2pdf (jsDelivr) -->
+    <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"
+            crossorigin="anonymous"></script>
+
+    <!-- 4. Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        body { margin: 0; background: #f8fafc; }
+
+        /* Loading screen */
+        #loading-screen {
+            position: fixed; inset: 0;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            background: #f8fafc; z-index: 9999;
+        }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid #e2e8f0;
+            border-top-color: #7c3aed;
+            border-radius: 50%;
+            animation: spin 0.75s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Form inputs used across the app */
+        .form-input {
+            width: 100%;
+            padding: 0.6rem 0.9rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.75rem;
+            font-size: 0.875rem;
+            outline: none;
+            background: white;
+            transition: border-color 0.15s, box-shadow 0.15s;
+            box-sizing: border-box;
+        }
+        .form-input:focus {
+            border-color: #7c3aed;
+            box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
+        }
+        .form-select {
+            width: 100%;
+            padding: 0.6rem 0.9rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.75rem;
+            font-size: 0.875rem;
+            outline: none;
+            background: white;
+            cursor: pointer;
+            transition: border-color 0.15s, box-shadow 0.15s;
+            box-sizing: border-box;
+        }
+        .form-select:focus {
+            border-color: #7c3aed;
+            box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
+        }
+
+        /* Animate-in utility classes (Tailwind plugin equivalent) */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(1rem); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes zoomIn95 {
+            from { opacity: 0; transform: scale(0.95); }
+            to   { opacity: 1; transform: scale(1); }
+        }
+        .animate-in { animation-fill-mode: both; }
+        .fade-in                  { animation-name: fadeIn; }
+        .slide-in-from-bottom-4   { animation-name: slideUp; }
+        .zoom-in-95               { animation-name: zoomIn95; }
+        .duration-200 { animation-duration: 200ms; }
+        .duration-300 { animation-duration: 300ms; }
+        .duration-500 { animation-duration: 500ms; }
+        .delay-100    { animation-delay: 100ms; }
+
+        /* Print */
+        @media print {
+            .no-print { display: none !important; }
+        }
+    </style>
 </head>
-<body class="bg-gray-50">
+<body>
+
+    <!-- Loading indicator -->
+    <div id="loading-screen">
+        <div class="spinner"></div>
+        <p style="margin-top:1rem;color:#64748b;font-size:0.85rem;font-weight:600;letter-spacing:0.02em;">
+            Loading LeanAxis…
+        </p>
+    </div>
+
+    <!-- App root -->
     <div id="root"></div>
+
+    <!-- Runtime error display (for window.onerror in App.js) -->
+    <div id="global-error" style="display:none;position:fixed;bottom:1rem;left:1rem;right:1rem;
+         background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:1rem;
+         border-radius:0.75rem;font-size:0.85rem;z-index:99999;font-weight:600;"></div>
+
+    <!-- 5. App — loaded last, after all dependencies are ready -->
     <script type="text/babel" data-type="module" src="./App.js"></script>
+
+    <script>
+        // Hide loading screen once React has mounted content into #root
+        var _hideInterval = setInterval(function () {
+            var root = document.getElementById('root');
+            if (root && root.firstChild) {
+                var ls = document.getElementById('loading-screen');
+                if (ls) {
+                    ls.style.transition = 'opacity 0.3s';
+                    ls.style.opacity = '0';
+                    setTimeout(function () { if (ls.parentNode) ls.parentNode.removeChild(ls); }, 350);
+                }
+                clearInterval(_hideInterval);
+            }
+        }, 100);
+
+        // Fallback: remove loading screen after 20 seconds no matter what
+        setTimeout(function () {
+            clearInterval(_hideInterval);
+            var ls = document.getElementById('loading-screen');
+            if (ls && ls.parentNode) ls.parentNode.removeChild(ls);
+        }, 20000);
+
+        // Global toast bridge so App.js helper functions can show toasts
+        window._toast = function (msg, type) {
+            console.info('[Toast]', type, msg);
+        };
+    </script>
+
 </body>
 </html>
