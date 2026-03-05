@@ -139,6 +139,53 @@ const loadPdfLibrary = () => {
   });
 };
 
+// ── Shared: open a focused print window with ONLY the target element ──────────
+// Fixes window.print() printing the entire app (sidebar, all pages, 9 pages etc.)
+const printDocument = (elementId, title = 'LeanAxis') => {
+  const source = document.getElementById(elementId);
+  if (!source) { console.warn('printDocument: element not found:', elementId); return; }
+  const pw = window.open('', '_blank', 'width=960,height=700');
+  pw.document.write(`<!DOCTYPE html><html><head>
+    <meta charset="UTF-8"/>
+    <title>${title}</title>
+    <script src="https://cdn.tailwindcss.com"><\/script>
+    <style>
+      @page { margin: 0.5in; }
+      @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#fff; padding: 24px; }
+    </style>
+  </head><body>${source.outerHTML}</body></html>`);
+  pw.document.close();
+  pw.focus();
+  setTimeout(() => { pw.print(); pw.close(); }, 900);
+};
+
+// ── Shared: download element as PDF using clone (fixes blank PDF from scrollable containers) ─
+const downloadElementAsPDF = async (elementId, filename = 'document.pdf') => {
+  try {
+    await loadPdfLibrary();
+    const source = document.getElementById(elementId);
+    if (!source) { console.warn('downloadElementAsPDF: element not found:', elementId); return false; }
+    const clone = source.cloneNode(true);
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:#fff;z-index:-1;';
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
+    await window.html2pdf().set({
+      margin: [0.4, 0.4, 0.4, 0.4],
+      filename,
+      image: { type: 'jpeg', quality: 0.99 },
+      html2canvas: { scale: 2, useCORS: true, logging: false, windowWidth: 794 },
+      jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
+    }).from(wrapper).save();
+    document.body.removeChild(wrapper);
+    return true;
+  } catch (e) {
+    console.error('downloadElementAsPDF error:', e);
+    return false;
+  }
+};
+
 // --- HOOKS ---
 function useFirebaseSync(collectionName, defaultValue = []) {
     const [data, setData] = useState(defaultValue);
@@ -282,6 +329,8 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
             <div className="flex justify-between items-center mb-8">
                 <button onClick={() => setViewMode('list')} className="text-slate-400 hover:text-amber-600 flex items-center gap-2 text-sm font-bold transition-colors group"><ArrowDownLeft className="rotate-90 group-hover:-translate-x-1 transition-transform" size={16}/> Back to List</button>
             </div>
+            {/* Printable quotation body */}
+            <div id="quotation-printable">
             <div className="flex flex-col md:flex-row justify-between items-start mb-10 border-b border-slate-100 pb-8 gap-6">
                 <div>
                     <img src="./logo.png" alt="LeanAxis" className="h-14 object-contain mb-4" onError={(e)=>{e.target.style.display='none'}}/>
@@ -305,8 +354,10 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
             </div>
             <button onClick={addItem} className="flex items-center gap-2 text-sm font-bold text-amber-600 hover:text-amber-800 mb-10 px-4 py-2 hover:bg-amber-50 rounded-lg transition-colors w-max"><Plus size={16}/> Add Line Item</button>
             <div className="flex justify-end mb-10"><div className="w-full md:w-80 space-y-4 bg-slate-50 p-6 rounded-2xl border border-slate-100"><div className="flex justify-between text-sm text-slate-500 font-medium"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div><div className="flex justify-between text-sm text-slate-500 font-medium"><span>Tax ({quoteData.taxRate}%)</span><span>{formatCurrency(tax)}</span></div><div className="flex justify-between text-2xl font-bold text-slate-800 border-t border-slate-200 pt-4 mt-2"><span>Estimate Total</span><span className="text-amber-600">{formatCurrency(total)}</span></div></div></div>
-            <div className="flex flex-col md:flex-row gap-4 print:hidden">
-                <button onClick={() => window.print()} className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 py-4 rounded-xl font-bold hover:bg-slate-50 transition-colors"><Printer size={18}/> Print / PDF</button>
+            </div>{/* end quotation-printable */}
+            <div className="flex flex-col md:flex-row gap-4 mt-4">
+                <button onClick={() => printDocument('quotation-printable', `Quotation — ${quoteData.client || 'LeanAxis'}`)} className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 py-4 rounded-xl font-bold hover:bg-slate-50 transition-colors"><Printer size={18}/> Print</button>
+                <button onClick={() => downloadElementAsPDF('quotation-printable', `Quotation_${quoteData.client}_${quoteData.date}.pdf`)} className="flex-1 flex items-center justify-center gap-2 bg-slate-800 text-white py-4 rounded-xl font-bold hover:bg-slate-700 transition-colors"><Download size={18}/> Download PDF</button>
                 <button onClick={handleShareWhatsApp} className="flex-1 flex items-center justify-center gap-2 bg-[#25D366] text-white py-4 rounded-xl font-bold hover:bg-[#20bd5a] transition-colors shadow-lg shadow-green-200"><Share2 size={18}/> WhatsApp</button>
                 <button onClick={() => { onSave(quoteData); setViewMode('list'); }} className="flex-1 flex items-center justify-center gap-2 bg-amber-500 text-white py-4 rounded-xl font-bold hover:bg-amber-600 transition-colors shadow-lg shadow-amber-200"><CheckCircle size={18}/> Save Quote</button>
             </div>
@@ -393,20 +444,17 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
     };
 
     /* ── PDF download ───────────────────────────────────── */
-    const handleDownloadPDF = async (elId = 'invoice-preview-content') => {
-        try {
-            await loadPdfLibrary();
-            const element = document.getElementById(elId);
-            if (!element) return toast('Preview not found. Please open preview first.', 'warning');
-            await window.html2pdf().set({
-                margin: [0.3, 0.3, 0.3, 0.3],
-                filename: `Invoice_${invoiceNumber}_${invoiceData.client}_${invoiceData.date}.pdf`,
-                image: { type: 'jpeg', quality: 0.99 },
-                html2canvas: { scale: 2.5, useCORS: true, logging: false },
-                jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
-            }).from(element).save();
-            toast('PDF downloaded!', 'success');
-        } catch (e) { toast('PDF export failed. Try Ctrl+P to print.', 'error'); }
+    const handleDownloadPDF = async () => {
+        const ok = await downloadElementAsPDF(
+            'invoice-preview-content',
+            `Invoice_${invoiceNumber}_${invoiceData.client}_${invoiceData.date}.pdf`
+        );
+        if (ok) toast('PDF downloaded!', 'success');
+        else toast('PDF export failed. Please try again.', 'error');
+    };
+
+    const handlePrintInvoice = () => {
+        printDocument('invoice-preview-content', `Invoice ${invoiceNumber} — ${invoiceData.client}`);
     };
 
     /* ── Stats ──────────────────────────────────────────── */
@@ -760,6 +808,10 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                         className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 transition-all shadow-sm">
                         <Printer size={15}/> PDF
                     </button>
+                    <button onClick={handlePrintInvoice}
+                        className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 transition-all shadow-sm">
+                        <Printer size={15}/> Print
+                    </button>
                     <button onClick={() => handleShareWhatsApp()}
                         className="px-4 py-2 bg-[#25D366] text-white rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-[#20bd5a] transition-all shadow-lg shadow-green-200">
                         <Share2 size={15}/> WhatsApp
@@ -910,9 +962,8 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                     </div>
                 </div>
 
-                {/* ── LIVE PREVIEW ────────────────────────── */}
-                {showPreview && (
-                    <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden sticky top-4 self-start">
+                {/* ── LIVE PREVIEW — always in DOM so PDF/Print work without toggling ── */}
+                <div className={`bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden sticky top-4 self-start ${showPreview ? '' : 'hidden'}`}>
                         <div className="flex justify-between items-center px-6 py-4 bg-slate-50 border-b border-slate-100">
                             <div className="flex items-center gap-2">
                                 <div className="w-2 h-2 bg-emerald-500 rounded-full"/>
@@ -922,7 +973,9 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                                 <Download size={12}/> Download
                             </button>
                         </div>
-                        <div className="overflow-y-auto max-h-[80vh]" id="invoice-preview-content">
+                        {/* always rendered so PDF/Print work even when preview panel is hidden */}
+                        <div className="overflow-y-auto max-h-[80vh]">
+                        <div id="invoice-preview-content">
                             {/* Dark header */}
                             <div className="bg-gradient-to-br from-slate-900 to-slate-800 px-8 py-8 relative overflow-hidden">
                                 <div className="absolute top-0 right-0 w-48 h-48 bg-violet-500/10 rounded-full blur-3xl translate-x-1/2 -translate-y-1/2 pointer-events-none"/>
@@ -1014,9 +1067,9 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                                     <p className="text-xs font-bold text-slate-700">LeanAxis Creative Agency</p>
                                 </div>
                             </div>
-                        </div>
+                        </div>{/* end invoice-preview-content */}
+                        </div>{/* end overflow-y-auto */}
                     </div>
-                )}
             </div>
         </div>
     );
@@ -2649,6 +2702,7 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
 
             {selectedClient && (
                 <>
+                    <div id="client-statement-printable">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
                         <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
                             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Total Billed</p>
@@ -2691,10 +2745,16 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
                             </tbody>
                         </table>
                     </div>
+                    </div>{/* end client-statement-printable */}
 
-                    <div className="flex justify-end print:hidden">
-                        <button onClick={() => window.print()} className="bg-violet-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-violet-700 transition-colors shadow-lg shadow-violet-200">
-                            <Printer size={18}/> Print Statement
+                    <div className="flex justify-end gap-3">
+                        <button onClick={() => printDocument('client-statement-printable', `Statement — ${selectedClient}`)}
+                            className="bg-white border border-slate-200 text-slate-700 px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-slate-50 transition-colors shadow-sm">
+                            <Printer size={16}/> Print
+                        </button>
+                        <button onClick={() => downloadElementAsPDF('client-statement-printable', `Statement_${selectedClient}.pdf`)}
+                            className="bg-violet-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-violet-700 transition-colors shadow-lg shadow-violet-200">
+                            <Download size={16}/> Download PDF
                         </button>
                     </div>
                 </>
@@ -3315,7 +3375,7 @@ const ClientProfile = ({ client, invoices, bankRecords, pettyCash, onBack, onCre
                                     Email
                                 </a>
                             )}
-                            <button onClick={() => window.print()}
+                            <button onClick={() => printDocument('client-profile-statement-printable', `Profile — ${client.name}`)}
                                 className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2.5 rounded-xl font-bold text-sm transition-all border border-white/10 hover:scale-105 active:scale-95">
                                 <Printer size={14}/>Print
                             </button>
@@ -3649,8 +3709,7 @@ const ClientProfile = ({ client, invoices, bankRecords, pettyCash, onBack, onCre
                     return { ...r, balance: runningBalance };
                 });
                 return (
-                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                        {/* Statement Header */}
+                    <div id="client-profile-statement-printable" className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
                         <div className="bg-gradient-to-r from-slate-50 to-slate-100 p-6 border-b border-slate-200">
                             <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
                                 <div>
@@ -3706,9 +3765,14 @@ const ClientProfile = ({ client, invoices, bankRecords, pettyCash, onBack, onCre
                                 </tfoot>
                             </table>
                         </div>
-                        <div className="p-4 text-center border-t border-slate-100">
-                            <button onClick={() => window.print()} className="bg-slate-800 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-slate-700 transition-colors flex items-center gap-2 mx-auto">
-                                <Printer size={14}/> Print / Export Statement
+                        <div className="p-4 flex justify-center gap-3 border-t border-slate-100">
+                            <button onClick={() => printDocument('client-profile-statement-printable', `Statement — ${client.name}`)}
+                                className="bg-white border border-slate-200 text-slate-700 px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-slate-50 transition-colors flex items-center gap-2 shadow-sm">
+                                <Printer size={14}/> Print
+                            </button>
+                            <button onClick={() => downloadElementAsPDF('client-profile-statement-printable', `Statement_${client.name}.pdf`)}
+                                className="bg-slate-800 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-slate-700 transition-colors flex items-center gap-2">
+                                <Download size={14}/> Download PDF
                             </button>
                         </div>
                     </div>
