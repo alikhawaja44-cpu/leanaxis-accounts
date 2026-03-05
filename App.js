@@ -34,16 +34,15 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
 };
 
 // --- LOGO COMPONENT ---
-const Logo = ({ className, white = false }) => (
+const Logo = ({ className, white = false, companyName, tagline }) => (
     <div className={`flex items-center gap-3 ${className}`}>
-        {/* Try to load the image first, fallback to text */}
-        <img src="./logo.png" alt="LeanAxis" className="h-10 object-contain" onError={(e) => {
+        <img src="./logo.png" alt={companyName || 'Company'} className="h-10 object-contain" onError={(e) => {
             e.target.style.display = 'none';
             e.target.nextSibling.style.display = 'flex';
         }} />
         <div className="hidden flex-col leading-none">
-            <span className={`text-xl font-bold tracking-tight ${white ? 'text-white' : 'text-slate-800'}`}>LEAN<span className="text-violet-500">AXIS</span></span>
-            <span className={`text-[0.6rem] font-bold uppercase tracking-[0.2em] ${white ? 'text-slate-400' : 'text-slate-500'}`}>Creative Agency</span>
+            <span className={`text-xl font-bold tracking-tight ${white ? 'text-white' : 'text-slate-800'}`}>{companyName || <><span>LEAN</span><span className="text-violet-500">AXIS</span></>}</span>
+            <span className={`text-[0.6rem] font-bold uppercase tracking-[0.2em] ${white ? 'text-slate-400' : 'text-slate-500'}`}>{tagline || 'Creative Agency'}</span>
         </div>
     </div>
 );
@@ -66,9 +65,11 @@ class ErrorBoundary extends React.Component {
 }
 
 // --- HELPER FUNCTIONS ---
+// Currency formatter — updated at runtime by App when settings change
+let _currencyFormatter = new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 });
 const formatCurrency = (amount) => {
-  if (amount === undefined || amount === null || isNaN(Number(amount))) return 'Rs0';
-  return new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 }).format(amount);
+  if (amount === undefined || amount === null || isNaN(Number(amount))) return _currencyFormatter.format(0);
+  return _currencyFormatter.format(amount);
 };
 const hashPassword = async (password) => {
   if (!password) return '';
@@ -214,6 +215,26 @@ function useExpenseCategories() {
     const [storedCats, setStoredCats] = useStickyState(categories, 'leanaxis_expense_categories');
     return [storedCats, setStoredCats];
 }
+function useCompanyProfile() {
+    return useStickyState({
+        name: 'LeanAxis',
+        tagline: 'Creative Agency & Solutions',
+        address: '',
+        phone: '',
+        email: '',
+        website: '',
+    }, 'leanaxis_company_profile');
+}
+function useAppSettings() {
+    return useStickyState({
+        currency: 'PKR',
+        locale: 'en-PK',
+        invoicePrefix: 'INV',
+        invoiceCounter: 1,
+        defaultTaxRate: 0,
+        defaultPaymentTerms: 'Payment due within 30 days.',
+    }, 'leanaxis_app_settings');
+}
 
 // --- LOGIN COMPONENT ---
 const LoginView = ({ onLogin, loading: externalLoading, error }) => {
@@ -264,7 +285,7 @@ const LoginView = ({ onLogin, loading: externalLoading, error }) => {
 };
 
 // --- QUOTATION GENERATOR ---
-const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotation, onConvertToInvoice }) => {
+const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotation, onConvertToInvoice, companyProfile = {} }) => {
     const toast = useToast();
     const [viewMode, setViewMode] = useState('list'); 
     const [quoteData, setQuoteData] = useState({ client: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0, status: 'Pending' });
@@ -275,7 +296,7 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
 
     const handleShareWhatsApp = () => {
         if (!quoteData.client || total === 0) return toast("Please select a client and add items first.", "warning");
-        const message = `*QUOTATION* from LeanAxis Agency%0A` + `To: ${quoteData.client}%0A` + `Date: ${quoteData.date}%0A%0A` + quoteData.items.map(item => `- ${item.desc}: Rs ${item.rate * item.qty}`).join('%0A') + `%0A%0A*Total Estimate: ${formatCurrency(total)}*`;
+        const message = `*QUOTATION* from ${companyProfile.name || 'Our Company'}%0A` + `To: ${quoteData.client}%0A` + `Date: ${quoteData.date}%0A%0A` + quoteData.items.map(item => `- ${item.desc}: Rs ${item.rate * item.qty}`).join('%0A') + `%0A%0A*Total Estimate: ${formatCurrency(total)}*`;
         window.open(`https://wa.me/?text=${message}`, '_blank');
     };
 
@@ -366,15 +387,20 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
 };
 
 // --- INVOICE GENERATOR ---
-const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onGenerateRecurring, onReceivePayment }) => {
+const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onGenerateRecurring, onReceivePayment, companyProfile = {}, appSettings = {}, onUpdateSettings }) => {
     const toast = useToast();
     const [viewMode, setViewMode] = useState('list'); // 'list' | 'create' | 'preview'
     const [invoiceData, setInvoiceData] = useState({
         client: '', date: new Date().toISOString().split('T')[0],
         dueDate: '', items: [{ desc: '', qty: 1, rate: 0 }],
-        taxRate: 0, discount: 0, notes: '', terms: '', status: 'Draft'
+        taxRate: appSettings.defaultTaxRate || 0, discount: 0, notes: '', terms: appSettings.defaultPaymentTerms || '', status: 'Draft'
     });
-    const [invoiceNumber, setInvoiceNumber] = useState(() => `INV-${Date.now().toString().slice(-6)}`);
+    const nextInvNumber = () => {
+        const prefix = appSettings.invoicePrefix || 'INV';
+        const counter = Number(appSettings.invoiceCounter || 1);
+        return `${prefix}-${String(counter).padStart(3, '0')}`;
+    };
+    const [invoiceNumber, setInvoiceNumber] = useState(() => nextInvNumber());
     const [invSearch, setInvSearch]           = useState('');
     const [invStatusFilter, setInvStatusFilter] = useState('All');
     const [invClientFilter, setInvClientFilter] = useState('All');
@@ -429,7 +455,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
         const balance  = st.total - received;
         const msg = encodeURIComponent(
             `*INVOICE #${invNum}*\n` +
-            `LeanAxis Creative Agency\n\n` +
+            `${companyProfile.name || 'Our Company'}\n\n` +
             `To: ${data.client}\n` +
             `Date: ${data.date}${data.dueDate ? `\nDue: ${data.dueDate}` : ''}\n\n` +
             `*Items:*\n` + (data.items||[]).map(i=>`• ${i.desc}: ${formatCurrency((Number(i.qty)||0)*(Number(i.rate)||0))}`).join('\n') + '\n\n' +
@@ -665,8 +691,8 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                     <button onClick={() => exportToCSV(savedInvoices,'Invoices_Export')} className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-slate-50 transition-all shadow-sm"><Download size={14}/> Export</button>
                     <button onClick={onGenerateRecurring} className="bg-white border border-violet-200 text-violet-600 px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-violet-50 transition-all shadow-sm"><RefreshCw size={14}/> Retainers</button>
                     <button onClick={() => {
-                        setInvoiceData({ client:'', date: new Date().toISOString().split('T')[0], dueDate:'', items:[{desc:'',qty:1,rate:0}], taxRate:0, discount:0, notes:'', terms:'', status:'Draft' });
-                        setInvoiceNumber(`INV-${Date.now().toString().slice(-6)}`);
+                        setInvoiceData({ client:'', date: new Date().toISOString().split('T')[0], dueDate:'', items:[{desc:'',qty:1,rate:0}], taxRate: appSettings.defaultTaxRate||0, discount:0, notes:'', terms: appSettings.defaultPaymentTerms||'', status:'Draft' });
+                        setInvoiceNumber(nextInvNumber());
                         setViewMode('create');
                     }} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:shadow-lg hover:shadow-violet-200 transition-all hover:scale-105 active:scale-95 shadow-sm">
                         <Plus size={14}/> New Invoice
@@ -688,7 +714,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                     <div className="bg-violet-50 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-5"><FileText className="text-violet-300" size={40}/></div>
                     <h3 className="text-lg font-bold text-slate-800 mb-2">{savedInvoices.length===0?'No invoices yet':'No invoices match your filters'}</h3>
                     <p className="text-slate-400 text-sm mb-6">{savedInvoices.length===0?'Create your first invoice to start billing clients.':'Try clearing your filters.'}</p>
-                    {savedInvoices.length===0 && <button onClick={()=>{ setInvoiceData({client:'',date:new Date().toISOString().split('T')[0],dueDate:'',items:[{desc:'',qty:1,rate:0}],taxRate:0,discount:0,notes:'',terms:'',status:'Draft'}); setInvoiceNumber(`INV-${Date.now().toString().slice(-6)}`); setViewMode('create'); }} className="bg-violet-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-violet-700 transition-colors">+ Create First Invoice</button>}
+                    {savedInvoices.length===0 && <button onClick={()=>{ setInvoiceData({client:'',date:new Date().toISOString().split('T')[0],dueDate:'',items:[{desc:'',qty:1,rate:0}],taxRate:appSettings.defaultTaxRate||0,discount:0,notes:'',terms:appSettings.defaultPaymentTerms||'',status:'Draft'}); setInvoiceNumber(nextInvNumber()); setViewMode('create'); }} className="bg-violet-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-violet-700 transition-colors">+ Create First Invoice</button>}
                 </div>
             )}
 
@@ -758,7 +784,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                                                 </button>
                                                 <button onClick={() => {
                                                     setInvoiceData(inv);
-                                                    setInvoiceNumber(inv.invoiceNumber || `INV-${Date.now().toString().slice(-6)}`);
+                                                    setInvoiceNumber(inv.invoiceNumber || nextInvNumber());
                                                     setShowPreview(true);
                                                     setViewMode('create');
                                                 }} className="p-1.5 bg-violet-50 text-violet-500 hover:bg-violet-100 rounded-lg transition-colors" title="View / Edit">
@@ -816,7 +842,14 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                         className="px-4 py-2 bg-[#25D366] text-white rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-[#20bd5a] transition-all shadow-lg shadow-green-200">
                         <Share2 size={15}/> WhatsApp
                     </button>
-                    <button onClick={() => { onSave({...invoiceData, invoiceNumber}); setViewMode('list'); }}
+                    <button onClick={() => {
+                        const isNew = !invoiceData.id;
+                        onSave({...invoiceData, invoiceNumber});
+                        if (isNew && onUpdateSettings) {
+                            onUpdateSettings(prev => ({...prev, invoiceCounter: (Number(prev.invoiceCounter)||1) + 1}));
+                        }
+                        setViewMode('list');
+                    }}
                         className="px-5 py-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white rounded-xl font-bold text-sm flex items-center gap-2 hover:shadow-lg hover:shadow-violet-200 hover:scale-105 active:scale-95 transition-all">
                         <CheckCircle size={15}/> Save Invoice
                     </button>
@@ -982,7 +1015,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                                 <div className="relative z-10 flex justify-between items-start">
                                     <div>
                                         <Logo white/>
-                                        <p className="text-slate-400 text-xs mt-2 font-medium">Creative Agency & Solutions</p>
+                                        <p className="text-slate-400 text-xs mt-2 font-medium">{companyProfile.tagline || 'Creative Agency & Solutions'}</p>
                                     </div>
                                     <div className="text-right">
                                         <div className="bg-violet-500/20 border border-violet-400/30 text-violet-300 text-xs font-extrabold uppercase tracking-widest px-3 py-1.5 rounded-lg mb-2">Invoice</div>
@@ -1064,7 +1097,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                                 {/* Footer */}
                                 <div className="mt-6 pt-4 border-t border-slate-100 flex justify-between items-end">
                                     <p className="text-xs text-slate-400 italic">Computer-generated invoice.</p>
-                                    <p className="text-xs font-bold text-slate-700">LeanAxis Creative Agency</p>
+                                    <p className="text-xs font-bold text-slate-700">{companyProfile.name || 'Our Company'}</p>
                                 </div>
                             </div>
                         </div>{/* end invoice-preview-content */}
@@ -1080,7 +1113,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
 // ============================================================
 // SALARY SLIP MODAL — Professional Payslip
 // ============================================================
-const SalarySlip = ({ data, onClose }) => {
+const SalarySlip = ({ data, onClose, companyProfile = {} }) => {
     const toast = useToast();
     if (!data) return null;
 
@@ -1097,7 +1130,7 @@ const SalarySlip = ({ data, onClose }) => {
             (data.taxDeduction > 0 ? `• Tax Deducted: -${formatCurrency(data.taxDeduction)}\n` : '') +
             `• *Net Pay: ${formatCurrency(data.totalPayable)}*\n\n` +
             `Payment via: ${data.bankName || 'Cash'}${data.chequeNumber ? ` (Cheque #${data.chequeNumber})` : ''}\n\n` +
-            `Thank you!\nLeanAxis Creative Agency`
+            `Thank you!\n${companyProfile.name || 'Our Company'}`
         );
         const url = phone ? `https://wa.me/${phone}?text=${msg}` : `https://wa.me/?text=${msg}`;
         window.open(url, '_blank');
@@ -1296,7 +1329,7 @@ const SalarySlip = ({ data, onClose }) => {
                                 <p className="text-xs text-slate-400 mt-0.5">Generated on {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
                             </div>
                             <div className="text-right">
-                                <p className="text-sm font-extrabold text-slate-800">LeanAxis Creative Agency</p>
+                                <p className="text-sm font-extrabold text-slate-800">{companyProfile.name || 'Our Company'}</p>
                                 <p className="text-xs text-slate-400 mt-0.5">Authorized Signature</p>
                                 <div className="mt-3 border-t-2 border-slate-300 w-32 ml-auto"></div>
                             </div>
@@ -5685,12 +5718,24 @@ function App() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentConfig, setPaymentConfig] = useState(null);
   const [paymentAccount, setPaymentAccount] = useState('bank');
-  const [clientWHT, setClientWHT] = useState(''); // New state for client WHT
+  const [clientWHT, setClientWHT] = useState('');
+  const [partialAmount, setPartialAmount] = useState('');
   
   const [showSalarySlip, setShowSalarySlip] = useState(false);
   const [selectedClientProfile, setSelectedClientProfile] = useState(null);
   const [selectedVendorProfile, setSelectedVendorProfile] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null); // { id, type, label }
+  const [companyProfile, setCompanyProfile] = useCompanyProfile();
+  const [appSettings, setAppSettings] = useAppSettings();
+
+  // Keep currency formatter in sync with settings
+  React.useEffect(() => {
+    try {
+      _currencyFormatter = new Intl.NumberFormat(appSettings.locale || 'en-PK', {
+        style: 'currency', currency: appSettings.currency || 'PKR', maximumFractionDigits: 0
+      });
+    } catch(e) { /* keep existing formatter if invalid */ }
+  }, [appSettings.currency, appSettings.locale]);
 
   const [pettyCash] = useFirebaseSync('petty_cash');
   const [expenses] = useFirebaseSync('expenses');
@@ -5879,23 +5924,37 @@ function App() {
     let col = { 'manage-users': 'users', 'petty-cash': 'petty_cash', 'expenses': 'expenses', 'salaries': 'salaries', 'bank': 'bank_records', 'clients': 'clients', 'vendors': 'vendors', 'vendor-bills': 'vendor_bills' }[view];
     if (col) saveToFirebase(col, formData, (isEditingRecord || isEditingUser) ? formData.id : null);
   };
-  const initiatePayment = (item, type, amount) => { setPaymentConfig({ data: item, type, amount }); setPaymentAccount('bank'); setClientWHT(''); setShowPaymentModal(true); };
+  const initiatePayment = (item, type, amount) => { setPaymentConfig({ data: item, type, amount }); setPaymentAccount('bank'); setClientWHT(''); setPartialAmount(String(amount)); setShowPaymentModal(true); };
   const executePayment = async () => {
       if (!paymentConfig) return;
-      const { data, type, amount } = paymentConfig; const date = new Date().toISOString().split('T')[0]; const batch = writeBatch(db);
+      const { data, type } = paymentConfig;
+      const date = new Date().toISOString().split('T')[0];
+      const batch = writeBatch(db);
       try {
           if (type === 'bill') {
-              batch.update(doc(db, 'vendor_bills', data.id), { paidAmount: amount, status: 'Paid' });
-              const recordData = { date, description: `Bill Payment: ${data.vendor} (#${data.billNumber})`, amount: Number(amount), createdAt: new Date().toISOString() };
-              if (paymentAccount === 'bank') batch.set(doc(collection(db, 'bank_records')), { ...recordData, amount: -Number(amount), bank: 'Linked Payment', status: 'Cleared' });
-              else batch.set(doc(collection(db, 'petty_cash')), { ...recordData, cashOut: Number(amount), cashIn: 0 });
+              const paying = Number(partialAmount) || paymentConfig.amount;
+              const alreadyPaid = Number(data.paidAmount) || 0;
+              const newPaid = alreadyPaid + paying;
+              const billNet = Number(data.amount) || 0;
+              const newStatus = newPaid >= billNet ? 'Paid' : 'Partial';
+              batch.update(doc(db, 'vendor_bills', data.id), { paidAmount: newPaid, status: newStatus });
+              const recordData = { date, description: `Bill Payment: ${data.vendor} (#${data.billNumber})`, amount: paying, createdAt: new Date().toISOString() };
+              if (paymentAccount === 'bank') batch.set(doc(collection(db, 'bank_records')), { ...recordData, amount: -paying, bank: 'Linked Payment', status: 'Cleared' });
+              else batch.set(doc(collection(db, 'petty_cash')), { ...recordData, cashOut: paying, cashIn: 0 });
           } else if (type === 'invoice') {
+              const paying = Number(partialAmount) || paymentConfig.amount;
               const wht = Number(clientWHT) || 0;
-              const netReceived = amount - wht;
-              
-              batch.update(doc(db, 'invoices', data.id), { status: 'Paid', whtDeducted: wht, amountReceived: netReceived });
+              const netReceived = paying - wht;
+              const alreadyReceived = Number(data.amountReceived) || 0;
+              const totalReceived = alreadyReceived + netReceived;
+              const invoiceTotal = paymentConfig.amount + alreadyReceived; // original full balance + already received = total
+              const newStatus = totalReceived >= invoiceTotal ? 'Paid' : 'Partial';
+              batch.update(doc(db, 'invoices', data.id), {
+                  status: newStatus,
+                  whtDeducted: (Number(data.whtDeducted)||0) + wht,
+                  amountReceived: totalReceived
+              });
               const recordData = { date, description: `Inv Payment: ${data.client}`, createdAt: new Date().toISOString() };
-              
               if (paymentAccount === 'bank') batch.set(doc(collection(db, 'bank_records')), { ...recordData, amount: netReceived, bank: 'Linked Payment', status: 'Cleared' });
               else batch.set(doc(collection(db, 'petty_cash')), { ...recordData, cashIn: netReceived, cashOut: 0 });
           }
@@ -6055,10 +6114,12 @@ function App() {
   const ActionButtons = ({ item, type }) => (
       <div className="flex gap-2 justify-center items-center">
           {item.proofUrl && <a href={item.proofUrl} target="_blank" className="p-2 bg-sky-50 text-sky-600 rounded-xl hover:bg-sky-100 transition-colors shadow-sm"><LinkIcon size={16} /></a>}
-          {type !== 'user' && <button onClick={() => handleDuplicate(item)} className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors shadow-sm" title="Duplicate"><Copy size={16} /></button>}
-          {currentUser.role === 'Admin' && (
-             <><button onClick={() => type === 'user' ? (setFormData({...item}), setIsEditingUser(true), setShowForm(true)) : handleEdit(item)} className="p-2 text-violet-600 bg-violet-50 hover:bg-violet-100 rounded-xl transition-colors shadow-sm"><Edit size={16} /></button>
-             <button onClick={() => type === 'user' ? handleDelete(item.id, 'user', item.username) : handleDelete(item.id, type, item.name || item.employeeName || item.description || '')} className="p-2 text-rose-500 bg-rose-50 hover:bg-rose-100 rounded-xl transition-colors shadow-sm"><Trash2 size={16} /></button></>
+          {type !== 'user' && canWrite && <button onClick={() => handleDuplicate(item)} className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors shadow-sm" title="Duplicate"><Copy size={16} /></button>}
+          {canWrite && (
+             <button onClick={() => type === 'user' ? (setFormData({...item}), setIsEditingUser(true), setShowForm(true)) : handleEdit(item)} className="p-2 text-violet-600 bg-violet-50 hover:bg-violet-100 rounded-xl transition-colors shadow-sm"><Edit size={16} /></button>
+          )}
+          {canDelete && (
+             <button onClick={() => type === 'user' ? handleDelete(item.id, 'user', item.username) : handleDelete(item.id, type, item.name || item.employeeName || item.description || '')} className="p-2 text-rose-500 bg-rose-50 hover:bg-rose-100 rounded-xl transition-colors shadow-sm"><Trash2 size={16} /></button>
           )}
       </div>
   );
@@ -6069,12 +6130,16 @@ function App() {
 
   if (!isAuthenticated) return <LoginView onLogin={handleLogin} loading={isSubmitting} error={authError} />;
 
+  // Role gates — Viewer cannot write at all; Editor can write but not delete
+  const canWrite = currentUser?.role === 'Admin' || currentUser?.role === 'Editor';
+  const canDelete = currentUser?.role === 'Admin';
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900 selection:bg-violet-100 selection:text-violet-900">
       
       {/* MOBILE HEADER */}
       <div className="md:hidden fixed top-0 w-full bg-[#0F172A]/95 backdrop-blur-md border-b border-white/5 p-4 z-50 flex justify-between items-center shadow-lg">
-        <Logo white={true} />
+        <Logo white={true} companyName={companyProfile?.name} tagline={companyProfile?.tagline} />
         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-slate-300 hover:text-white p-2 rounded-lg hover:bg-white/5"><Menu size={24}/></button>
       </div>
 
@@ -6083,7 +6148,7 @@ function App() {
         {/* Abstract shapes for visual interest */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-violet-600/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
         <div className="p-8 pb-4 relative z-10">
-            <Logo white={true} className="mb-8" />
+            <Logo white={true} className="mb-8" companyName={companyProfile?.name} tagline={companyProfile?.tagline} />
             <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 pl-4">Main Menu</div>
         </div>
         <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto relative z-10 py-2">
@@ -6161,7 +6226,7 @@ function App() {
                         </button>
                     </div>
                 )}
-                {!['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report','clients','salaries','petty-cash','expenses','vendors','vendor-bills','manage-users','bank'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
+                {canWrite && !['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report','clients','salaries','petty-cash','expenses','vendors','vendor-bills','manage-users','bank'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
             </div>
         </header>
 
@@ -6178,6 +6243,46 @@ function App() {
                         <button onClick={() => setView('invoices')} className="bg-rose-600 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-rose-700 transition-colors flex-shrink-0">View →</button>
                     </div>
                 )}
+
+                {/* Due This Week */}
+                {(() => {
+                    const today = new Date(); today.setHours(0,0,0,0);
+                    const in7 = new Date(today); in7.setDate(today.getDate() + 7);
+                    const dueSoon = invoices.filter(inv => {
+                        if (inv.status === 'Paid') return false;
+                        if (!inv.dueDate) return false;
+                        const d = new Date(inv.dueDate);
+                        return d >= today && d <= in7;
+                    }).sort((a,b) => new Date(a.dueDate) - new Date(b.dueDate));
+                    if (dueSoon.length === 0) return null;
+                    return (
+                        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+                            <div className="flex items-center gap-3 mb-3">
+                                <div className="bg-amber-100 p-2 rounded-xl"><Calendar className="text-amber-600" size={18}/></div>
+                                <p className="font-bold text-amber-800">{dueSoon.length} invoice{dueSoon.length !== 1 ? 's' : ''} due in the next 7 days</p>
+                            </div>
+                            <div className="space-y-2">
+                                {dueSoon.slice(0,4).map(inv => {
+                                    const total = calculateTax((inv.items||[]).reduce((s,it)=>s+((it.qty||0)*(it.rate||0)),0), inv.taxRate).total;
+                                    const balance = total - (Number(inv.amountReceived)||0);
+                                    const daysLeft = Math.ceil((new Date(inv.dueDate) - today) / 86400000);
+                                    return (
+                                        <div key={inv.id} onClick={() => setView('invoices')} className="flex justify-between items-center bg-white rounded-xl px-4 py-2.5 cursor-pointer hover:bg-amber-50 transition-colors">
+                                            <div>
+                                                <span className="font-bold text-slate-800 text-sm">{inv.client}</span>
+                                                {inv.invoiceNumber && <span className="text-slate-400 text-xs ml-2">#{inv.invoiceNumber}</span>}
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <span className="font-extrabold text-amber-700 text-sm">{formatCurrency(balance)}</span>
+                                                <span className="text-xs font-bold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">{daysLeft === 0 ? 'Today' : `${daysLeft}d`}</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })()}
 
                 {/* KPI Cards — 6 cards: P&L + Receivables/Payables */}
                 <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -6353,25 +6458,25 @@ function App() {
 
         {view === 'receivables-payables' && <ReceivablesPayables clients={clients} invoices={invoices} vendors={vendors} vendorBills={vendorBills} bankRecords={bankRecords} pettyCash={pettyCash} onViewClient={(c) => { setSelectedClientProfile(c); setView('client-profile'); }} onViewVendor={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
 
-        {view === 'clients' && <ClientsPage clients={clients} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} currentUser={currentUser} onViewProfile={(c) => { setSelectedClientProfile(c); setView('client-profile'); }} onEdit={(c) => { setFormData({...c}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = clients.find(x=>x.id===id); handleDelete(id, 'client', r?.name||''); }} onNewClient={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} />}
+        {view === 'clients' && <ClientsPage clients={clients} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onViewProfile={(c) => { setSelectedClientProfile(c); setView('client-profile'); }} onEdit={(c) => { if(!canWrite) return; setFormData({...c}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = clients.find(x=>x.id===id); handleDelete(id, 'client', r?.name||''); }} onNewClient={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} />}
 
         {view === 'client-profile' && selectedClientProfile && <ClientProfile client={selectedClientProfile} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('clients')} onCreateInvoice={() => setView('invoices')} onRecordPayment={(inv) => initiatePayment(inv, 'invoice', calculateTax((inv.items||[]).reduce((s,it)=>s+((it.qty||0)*(it.rate||0)),0), inv.taxRate).total - (Number(inv.amountReceived)||0))} />}
 
         {view === 'vendor-profile' && selectedVendorProfile && <VendorProfile vendor={selectedVendorProfile} vendorBills={vendorBills} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('vendors')} />}
 
-        {view === 'expenses' && <ExpensesPage expenses={expenses} expenseCategories={expenseCategories} currentUser={currentUser} onNewExpense={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = expenses.find(x=>x.id===id); handleDelete(id, 'expense', r?.description||''); }} />}
+        {view === 'expenses' && <ExpensesPage expenses={expenses} expenseCategories={expenseCategories} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewExpense={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { if(!canWrite) return; setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = expenses.find(x=>x.id===id); handleDelete(id, 'expense', r?.description||''); }} />}
 
-        {view === 'petty-cash' && <PettyCashPage pettyCash={pettyCash} currentUser={currentUser} onNewEntry={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = pettyCash.find(x=>x.id===id); handleDelete(id, 'petty', r?.description||''); }} />}
+        {view === 'petty-cash' && <PettyCashPage pettyCash={pettyCash} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewEntry={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { if(!canWrite) return; setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = pettyCash.find(x=>x.id===id); handleDelete(id, 'petty', r?.description||''); }} />}
 
-        {view === 'salaries' && <SalariesPage salaries={salaries} currentUser={currentUser} onNewSalary={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(s) => { setFormData({...s}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = salaries.find(x=>x.id===id); handleDelete(id, 'salary', r?.employeeName||''); }} onViewSlip={(s) => { if (s) { setFormData(s); setShowSalarySlip(true); } }} />}
+        {view === 'salaries' && <SalariesPage salaries={salaries} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewSalary={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(s) => { if(!canWrite) return; setFormData({...s}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = salaries.find(x=>x.id===id); handleDelete(id, 'salary', r?.employeeName||''); }} onViewSlip={(s) => { if (s) { setFormData(s); setShowSalarySlip(true); } }} />}
 
-        {view === 'quotations' && <QuotationGenerator clients={clients} onSave={(q) => saveToFirebase('quotations', q, q.id)} savedQuotations={quotations} onDeleteQuotation={(id) => { const r = quotations.find(x=>x.id===id); handleDelete(id, 'quotation', r?.client||''); }} onConvertToInvoice={handleConvertToInvoice} />}
+        {view === 'quotations' && <QuotationGenerator clients={clients} onSave={(q) => saveToFirebase('quotations', q, q.id)} savedQuotations={quotations} onDeleteQuotation={(id) => { const r = quotations.find(x=>x.id===id); handleDelete(id, 'quotation', r?.client||''); }} onConvertToInvoice={handleConvertToInvoice} companyProfile={companyProfile} canWrite={canWrite} />}
 
-        {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => { const r = invoices.find(x=>x.id===id); handleDelete(id, 'invoice', r?.client ? `Invoice #${r.invoiceNumber} — ${r.client}` : ''); }} onGenerateRecurring={handleGenerateRecurring} onReceivePayment={(inv, amt) => initiatePayment(inv, 'invoice', amt)} />}
+        {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => { const r = invoices.find(x=>x.id===id); handleDelete(id, 'invoice', r?.client ? `Invoice #${r.invoiceNumber} — ${r.client}` : ''); }} onGenerateRecurring={handleGenerateRecurring} onReceivePayment={(inv, amt) => initiatePayment(inv, 'invoice', amt)} companyProfile={companyProfile} appSettings={appSettings} onUpdateSettings={setAppSettings} canWrite={canWrite} />}
 
-        {view === 'vendors' && <VendorsPage vendors={vendors} vendorBills={vendorBills} currentUser={currentUser} onNewVendor={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(v) => { setFormData({...v}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendors.find(x=>x.id===id); handleDelete(id, 'vendor', r?.name||''); }} onViewProfile={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
+        {view === 'vendors' && <VendorsPage vendors={vendors} vendorBills={vendorBills} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewVendor={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(v) => { if(!canWrite) return; setFormData({...v}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendors.find(x=>x.id===id); handleDelete(id, 'vendor', r?.name||''); }} onViewProfile={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
 
-        {view === 'vendor-bills' && <VendorBillsPage vendorBills={vendorBills} vendors={vendors} currentUser={currentUser} onNewBill={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(b) => { setFormData({...b}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendorBills.find(x=>x.id===id); handleDelete(id, 'bill', r?.vendor ? `${r.vendor} — ${r.billNumber||r.description||''}` : ''); }} onPayBill={(b, amt) => initiatePayment(b, 'bill', amt)} />}
+        {view === 'vendor-bills' && <VendorBillsPage vendorBills={vendorBills} vendors={vendors} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewBill={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(b) => { if(!canWrite) return; setFormData({...b}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendorBills.find(x=>x.id===id); handleDelete(id, 'bill', r?.vendor ? `${r.vendor} — ${r.billNumber||r.description||''}` : ''); }} onPayBill={(b, amt) => initiatePayment(b, 'bill', amt)} />}
 
         {view === 'manage-users' && <ManageUsersPage
             users={users}
@@ -6391,24 +6496,124 @@ function App() {
 
 
         {view === 'settings' && (
-            <div className="bg-white p-10 rounded-3xl shadow-sm border border-slate-100 max-w-2xl mx-auto mt-10">
-                <h3 className="text-2xl font-bold mb-8 text-slate-800 flex items-center gap-3"><div className="p-3 bg-violet-100 rounded-xl text-violet-600"><Settings size={24}/></div> Configuration</h3>
-                <div className="space-y-8">
-                    <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Expense Categories</label>
-                        <div className="flex flex-wrap gap-2 mb-4">{expenseCategories.map(cat => (<span key={cat} className="bg-slate-50 border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2">{cat} <button onClick={() => setExpenseCategories(expenseCategories.filter(c => c !== cat))} className="hover:text-rose-500 transition-colors"><X size={14}/></button></span>))}</div>
-                        <div className="relative"><Plus size={18} className="absolute left-4 top-4 text-slate-400"/><input className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none transition-all" placeholder="Add new category... (Press Enter)" onKeyDown={e => { if(e.key === 'Enter' && e.target.value) { setExpenseCategories([...expenseCategories, e.target.value]); e.target.value = ''; } }}/></div>
+            <div className="space-y-6 max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+                {/* Company Profile */}
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                    <h3 className="text-lg font-extrabold text-slate-800 mb-6 flex items-center gap-3">
+                        <div className="p-2 bg-violet-100 rounded-xl text-violet-600"><Briefcase size={20}/></div>
+                        Company Profile
+                    </h3>
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Company Name *</label>
+                                <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={companyProfile.name||''} onChange={e=>setCompanyProfile(p=>({...p,name:e.target.value}))} placeholder="e.g. LeanAxis" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Tagline</label>
+                                <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={companyProfile.tagline||''} onChange={e=>setCompanyProfile(p=>({...p,tagline:e.target.value}))} placeholder="e.g. Creative Agency & Solutions" />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Phone</label>
+                                <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={companyProfile.phone||''} onChange={e=>setCompanyProfile(p=>({...p,phone:e.target.value}))} placeholder="+92 300 0000000" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Email</label>
+                                <input type="email" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={companyProfile.email||''} onChange={e=>setCompanyProfile(p=>({...p,email:e.target.value}))} placeholder="hello@company.com" />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Address</label>
+                            <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={companyProfile.address||''} onChange={e=>setCompanyProfile(p=>({...p,address:e.target.value}))} placeholder="Office address" />
+                        </div>
+                        <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-xs font-medium text-emerald-700 flex items-center gap-2">
+                            <CheckCircle size={14}/> Company name and tagline appear on all invoices, quotations, and salary slips.
+                        </div>
                     </div>
-                    <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">ImgBB API Key (Image Hosting)</label>
-                        <div className="flex gap-3"><input type="password" className="flex-1 bg-slate-50 border border-slate-200 p-4 rounded-xl text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none" value={imgbbKey} onChange={e => setImgbbKey(e.target.value)} placeholder="Enter API key..." /><a href="https://api.imgbb.com/" target="_blank" className="bg-slate-100 text-slate-600 px-6 py-4 rounded-xl text-sm font-bold hover:bg-slate-200 transition-colors">Get Key</a></div>
+                </div>
+
+                {/* Currency & Locale */}
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                    <h3 className="text-lg font-extrabold text-slate-800 mb-6 flex items-center gap-3">
+                        <div className="p-2 bg-emerald-100 rounded-xl text-emerald-600"><DollarSign size={20}/></div>
+                        Currency & Locale
+                    </h3>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Currency Code</label>
+                            <select className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500 appearance-none" value={appSettings.currency||'PKR'} onChange={e=>{
+                                const cur = e.target.value;
+                                const localeMap = {PKR:'en-PK', USD:'en-US', AED:'ar-AE', GBP:'en-GB', EUR:'en-DE', SAR:'ar-SA', INR:'en-IN'};
+                                setAppSettings(p=>({...p, currency: cur, locale: localeMap[cur]||'en-US'}));
+                            }}>
+                                {['PKR','USD','AED','GBP','EUR','SAR','INR'].map(c=><option key={c} value={c}>{c}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Preview</label>
+                            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700">{formatCurrency(1234567)}</div>
+                        </div>
                     </div>
-                    <div>
-                         <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Data Management</label>
-                         <div className="grid grid-cols-2 gap-4">
-                             <button onClick={handleMasterExport} className="bg-violet-50 text-violet-700 py-4 rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-violet-100 transition-colors"><Download size={20} /> Backup Data</button>
-                             <label className="bg-slate-50 text-slate-700 py-4 rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-slate-100 transition-colors cursor-pointer border border-slate-200"><Upload size={20} /> Restore Data <input type="file" accept=".json" onChange={handleImport} className="hidden" /></label>
-                         </div>
+                </div>
+
+                {/* Invoice Settings */}
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                    <h3 className="text-lg font-extrabold text-slate-800 mb-6 flex items-center gap-3">
+                        <div className="p-2 bg-sky-100 rounded-xl text-sky-600"><FileText size={20}/></div>
+                        Invoice Settings
+                    </h3>
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-3 gap-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Invoice Prefix</label>
+                                <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={appSettings.invoicePrefix||'INV'} onChange={e=>setAppSettings(p=>({...p,invoicePrefix:e.target.value}))} placeholder="INV" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Next Number</label>
+                                <input type="number" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={appSettings.invoiceCounter||1} onChange={e=>setAppSettings(p=>({...p,invoiceCounter:Number(e.target.value)}))} min="1" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Default Tax %</label>
+                                <input type="number" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={appSettings.defaultTaxRate||0} onChange={e=>setAppSettings(p=>({...p,defaultTaxRate:Number(e.target.value)}))} min="0" max="100" />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Default Payment Terms</label>
+                            <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={appSettings.defaultPaymentTerms||''} onChange={e=>setAppSettings(p=>({...p,defaultPaymentTerms:e.target.value}))} placeholder="e.g. Payment due within 30 days." />
+                        </div>
+                        <div className="bg-sky-50 border border-sky-100 rounded-xl p-3 text-xs font-medium text-sky-700">
+                            Next invoice will be numbered: <span className="font-extrabold">{appSettings.invoicePrefix||'INV'}-{String(appSettings.invoiceCounter||1).padStart(3,'0')}</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Expense Categories */}
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                    <h3 className="text-lg font-extrabold text-slate-800 mb-6 flex items-center gap-3">
+                        <div className="p-2 bg-rose-100 rounded-xl text-rose-600"><Receipt size={20}/></div>
+                        Expense Categories
+                    </h3>
+                    <div className="flex flex-wrap gap-2 mb-4">{expenseCategories.map(cat => (<span key={cat} className="bg-slate-50 border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2">{cat} <button onClick={() => setExpenseCategories(expenseCategories.filter(c => c !== cat))} className="hover:text-rose-500 transition-colors"><X size={14}/></button></span>))}</div>
+                    <div className="relative"><Plus size={18} className="absolute left-4 top-4 text-slate-400"/><input className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none transition-all" placeholder="Add new category... (Press Enter)" onKeyDown={e => { if(e.key === 'Enter' && e.target.value) { setExpenseCategories([...expenseCategories, e.target.value]); e.target.value = ''; } }}/></div>
+                </div>
+
+                {/* ImgBB + Data */}
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                    <h3 className="text-lg font-extrabold text-slate-800 mb-6 flex items-center gap-3">
+                        <div className="p-2 bg-amber-100 rounded-xl text-amber-600"><Database size={20}/></div>
+                        System & Data
+                    </h3>
+                    <div className="space-y-5">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">ImgBB API Key (Receipt Uploads)</label>
+                            <div className="flex gap-3"><input type="password" className="flex-1 bg-slate-50 border border-slate-200 p-3.5 rounded-xl text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none" value={imgbbKey} onChange={e => setImgbbKey(e.target.value)} placeholder="Enter API key..." /><a href="https://api.imgbb.com/" target="_blank" className="bg-slate-100 text-slate-600 px-5 py-3.5 rounded-xl text-sm font-bold hover:bg-slate-200 transition-colors">Get Key</a></div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <button onClick={handleMasterExport} className="bg-violet-50 text-violet-700 py-4 rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-violet-100 transition-colors"><Download size={20} /> Backup Data</button>
+                            <label className="bg-slate-50 text-slate-700 py-4 rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-slate-100 transition-colors cursor-pointer border border-slate-200"><Upload size={20} /> Restore Data <input type="file" accept=".json" onChange={handleImport} className="hidden" /></label>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -6419,23 +6624,31 @@ function App() {
             <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-6 animate-in fade-in duration-200">
                 <div className="bg-white p-10 rounded-3xl w-full max-w-md shadow-2xl scale-100 animate-in zoom-in-95">
                     <h3 className="text-2xl font-bold text-slate-900 mb-6 text-center">{paymentConfig.type === 'bill' ? 'Pay Bill' : 'Receive Payment'}</h3>
-                    <div className="bg-slate-50 p-6 rounded-2xl text-center mb-8 border border-slate-100">
+                    <div className="bg-slate-50 p-6 rounded-2xl text-center mb-6 border border-slate-100">
                         <p className="text-xs text-slate-400 uppercase font-bold tracking-widest mb-1">{paymentConfig.data.vendor || paymentConfig.data.client}</p>
                         <p className="text-4xl font-extrabold text-slate-800">{formatCurrency(paymentConfig.amount)}</p>
+                        <p className="text-xs text-slate-400 mt-1">Outstanding balance</p>
                     </div>
-                    <div className="space-y-6">
+                    <div className="space-y-5">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Amount to Pay Now *</label>
+                            <input type="number" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 text-lg outline-none focus:ring-2 focus:ring-violet-500" value={partialAmount} onChange={e => setPartialAmount(e.target.value)} />
+                            {Number(partialAmount) < paymentConfig.amount && Number(partialAmount) > 0 && (
+                                <p className="text-xs text-amber-600 font-bold mt-1.5">Partial payment — {formatCurrency(paymentConfig.amount - Number(partialAmount))} will remain outstanding</p>
+                            )}
+                        </div>
                         {paymentConfig.type === 'invoice' && (
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tax Deducted by Client (WHT)</label>
                                 <input type="number" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold text-rose-600 outline-none focus:ring-2 focus:ring-rose-500" placeholder="0" value={clientWHT} onChange={e => setClientWHT(e.target.value)} />
                                 <div className="flex justify-between mt-2 px-1 text-sm font-medium">
                                     <span className="text-slate-500">Net Receiving:</span>
-                                    <span className="text-emerald-600 font-bold">{formatCurrency(paymentConfig.amount - (Number(clientWHT) || 0))}</span>
+                                    <span className="text-emerald-600 font-bold">{formatCurrency((Number(partialAmount)||paymentConfig.amount) - (Number(clientWHT) || 0))}</span>
                                 </div>
                             </div>
                         )}
                         <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Method</label><div className="flex gap-3"><button onClick={() => setPaymentAccount('bank')} className={`flex-1 py-4 rounded-xl font-bold text-sm border-2 transition-all ${paymentAccount === 'bank' ? 'bg-violet-50 border-violet-500 text-violet-700' : 'bg-white border-slate-100 text-slate-500 hover:border-slate-200'}`}>Bank Transfer</button><button onClick={() => setPaymentAccount('cash')} className={`flex-1 py-4 rounded-xl font-bold text-sm border-2 transition-all ${paymentAccount === 'cash' ? 'bg-violet-50 border-violet-500 text-violet-700' : 'bg-white border-slate-100 text-slate-500 hover:border-slate-200'}`}>Petty Cash</button></div></div>
-                        <div className="flex gap-4 pt-4"><button onClick={() => setShowPaymentModal(false)} className="flex-1 py-4 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition-colors">Cancel</button><button onClick={executePayment} className="flex-1 py-4 rounded-xl font-bold bg-violet-600 text-white hover:bg-violet-700 shadow-lg shadow-violet-200 transition-all flex justify-center items-center gap-2">Confirm</button></div>
+                        <div className="flex gap-4 pt-2"><button onClick={() => setShowPaymentModal(false)} className="flex-1 py-4 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition-colors">Cancel</button><button onClick={executePayment} className="flex-1 py-4 rounded-xl font-bold bg-violet-600 text-white hover:bg-violet-700 shadow-lg shadow-violet-200 transition-all flex justify-center items-center gap-2">Confirm Payment</button></div>
                     </div>
                 </div>
             </div>
@@ -6919,7 +7132,7 @@ function App() {
         )}
 
         {/* SALARY SLIP MODAL */}
-        {showSalarySlip && formData && <SalarySlip data={formData} onClose={() => setShowSalarySlip(false)} />}
+        {showSalarySlip && formData && <SalarySlip data={formData} onClose={() => setShowSalarySlip(false)} companyProfile={companyProfile} />}
       </main>
     </div>
   );
