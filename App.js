@@ -2,13 +2,12 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
   LayoutDashboard, Wallet, Receipt, Users, Building2, Briefcase, Truck,
-  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, FileInput, Settings, FileDown, Search, Filter, FileText, Printer, DollarSign, Percent, CreditCard, Check, Share2, Database, BookOpen, FileCheck, Landmark
+  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, Settings, Search, Filter, FileText, Printer, DollarSign, Percent, CreditCard, Check, Share2, Database, BookOpen, FileCheck, Landmark
 } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip as ChartTooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import Papa from "papaparse";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js";
-import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, query, orderBy, setDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore.js";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-storage.js";
+import { getFirestore, collection, addDoc, deleteDoc, doc, updateDoc, onSnapshot, query, orderBy, writeBatch } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore.js";
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
@@ -23,7 +22,6 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-const storage = getStorage(app);
 
 // --- GLOBAL ERROR HANDLER ---
 window.onerror = function(msg, url, lineNo, columnNo, error) {
@@ -5623,7 +5621,6 @@ function App() {
   const [clientWHT, setClientWHT] = useState(''); // New state for client WHT
   
   const [showSalarySlip, setShowSalarySlip] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState('');
   const [selectedClientProfile, setSelectedClientProfile] = useState(null);
   const [selectedVendorProfile, setSelectedVendorProfile] = useState(null);
 
@@ -5666,12 +5663,10 @@ function App() {
       setIsSubmitting(false);
   };
 
-  const handleLogout = () => { if (confirm('Are you sure you want to sign out?')) { setIsAuthenticated(false); setCurrentUser(null); setView('dashboard'); } };
+  const handleLogout = () => { setIsAuthenticated(false); setCurrentUser(null); setView('dashboard'); };
   const deleteRecord = async (collectionName, id) => { 
-    if(confirm('Are you sure you want to delete this record? This cannot be undone.')) {
       await deleteDoc(doc(db, collectionName, id));
       toast('Record deleted.', 'info');
-    }
   };
   const handleDelete = (id, type) => {
     if (currentUser.role !== 'Admin') return toast('Access denied. Admin role required.', 'error');
@@ -5690,7 +5685,6 @@ function App() {
   };
   const handleImport = async (event) => {
     const file = event.target.files[0]; if (!file) return;
-    if (!confirm("Merge imported data into current database?")) return;
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
@@ -5705,7 +5699,6 @@ function App() {
     reader.readAsText(file);
   };
   const handleGenerateRecurring = async () => {
-      if(!confirm("Generate draft invoices for retainers?")) return;
       const currentMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' }); let count = 0;
       for (const client of clients) {
           if (Number(client.retainerAmount) > 0) {
@@ -5720,7 +5713,6 @@ function App() {
   };
   
   const handleConvertToInvoice = async (quote) => {
-      if(!confirm("Convert this quotation to a draft invoice?")) return;
       try {
           // 1. Create Invoice
           const { id, status, createdAt, ...invoiceData } = quote;
@@ -5736,9 +5728,9 @@ function App() {
   };
 
   const uploadFile = async (file) => {
-      if (!file || !imgbbKey) return null; setUploadProgress('Uploading...');
+      if (!file || !imgbbKey) return null;
       const fd = new FormData(); fd.append("image", file);
-      try { const res = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbKey}`, { method: "POST", body: fd }); const d = await res.json(); if (d.success) { setUploadProgress('Done!'); return d.data.url; } } catch (e) { toast("File upload failed. Check your ImgBB API key.", 'error'); } return null;
+      try { const res = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbKey}`, { method: "POST", body: fd }); const d = await res.json(); if (d.success) { return d.data.url; } } catch (e) { toast("File upload failed. Check your ImgBB API key.", 'error'); } return null;
   };
   const saveToFirebase = async (collectionName, data, id = null) => {
       setIsSubmitting(true);
@@ -5934,7 +5926,7 @@ function App() {
   const ActionButtons = ({ item, type }) => (
       <div className="flex gap-2 justify-center items-center">
           {item.proofUrl && <a href={item.proofUrl} target="_blank" className="p-2 bg-sky-50 text-sky-600 rounded-xl hover:bg-sky-100 transition-colors shadow-sm"><LinkIcon size={16} /></a>}
-          <button onClick={() => handleDuplicate(item)} className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors shadow-sm" title="Duplicate"><Copy size={16} /></button>
+          {type !== 'user' && <button onClick={() => handleDuplicate(item)} className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors shadow-sm" title="Duplicate"><Copy size={16} /></button>}
           {currentUser.role === 'Admin' && (
              <><button onClick={() => type === 'user' ? (setFormData({...item}), setIsEditingUser(true), setShowForm(true)) : handleEdit(item)} className="p-2 text-violet-600 bg-violet-50 hover:bg-violet-100 rounded-xl transition-colors shadow-sm"><Edit size={16} /></button>
              <button onClick={() => type === 'user' ? deleteRecord('users', item.id) : handleDelete(item.id, type)} className="p-2 text-rose-500 bg-rose-50 hover:bg-rose-100 rounded-xl transition-colors shadow-sm"><Trash2 size={16} /></button></>
@@ -5943,7 +5935,7 @@ function App() {
   );
   const handleGenericImport = (event, collectionName) => {
       const file = event.target.files[0]; if (!file) return;
-      Papa.parse(file, { header: true, complete: async (results) => { if (results.data.length === 0) return toast("File is empty!", 'warning'); if (!confirm(`Import ${results.data.length} records?`)) return; const batch = writeBatch(db); results.data.forEach(row => { if (Object.values(row).some(v => v)) { const ref = doc(collection(db, collectionName)); batch.set(ref, { ...row, createdAt: new Date().toISOString() }); } }); await batch.commit(); toast("Import successful!", 'success'); } });
+      Papa.parse(file, { header: true, complete: async (results) => { if (results.data.length === 0) return toast("File is empty!", 'warning'); const batch = writeBatch(db); results.data.forEach(row => { if (Object.values(row).some(v => v)) { const ref = doc(collection(db, collectionName)); batch.set(ref, { ...row, createdAt: new Date().toISOString() }); } }); await batch.commit(); toast("Import successful!", 'success'); } });
   };
 
   if (!isAuthenticated) return <LoginView onLogin={handleLogin} loading={isSubmitting} error={authError} />;
@@ -6030,14 +6022,6 @@ function App() {
                         <button onClick={() => { const dataMap = { 'clients': filteredClients, 'vendors': filteredVendors, 'petty-cash': filteredPetty, 'expenses': filteredExp, 'salaries': filteredSal, 'bank': bankRecords, 'vendor-bills': filteredBills }; exportToCSV(dataMap[view], `${view}_Export`); }} className="bg-white px-4 py-3 rounded-2xl font-bold text-sm text-slate-600 shadow-sm ring-1 ring-slate-200 hover:ring-violet-300 hover:text-violet-600 transition-all flex items-center gap-2">
                             <Download size={18}/> <span className="hidden sm:inline">Export</span>
                         </button>
-                    </div>
-                )}
-                {false && (() => 'bank month/year moved into BankAccountsPage')()}
-                {['_disabled_bank'].includes(view) && (
-                    <div className="flex gap-3 bg-white p-1.5 rounded-2xl shadow-sm ring-1 ring-slate-200">
-                        <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}><option value="All">All Months</option>{['January','February','March','April','May','June','July','August','September','October','November','December'].map(m=><option key={m}>{m}</option>)}</select>
-                        <div className="w-px bg-slate-200 my-1"></div>
-                        <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={selectedYear} onChange={e=>setSelectedYear(e.target.value)}><option value="All">All Years</option>{availableYears.map(y=><option key={y}>{y}</option>)}</select>
                     </div>
                 )}
                 {!['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report','clients','salaries','petty-cash','expenses','vendors','vendor-bills','manage-users','bank'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
@@ -6268,67 +6252,6 @@ function App() {
             onDelete={(id) => handleDelete(id, 'bank')}
         />}
 
-        {/* GENERIC TABLE RENDERER - bank removed, only legacy views remain */}
-        {false && (() => {
-            const currentData = [];
-            if (currentData.length === 0) {
-                return (
-                    <div className="bg-white p-16 rounded-3xl shadow-sm border border-slate-100 text-center animate-in fade-in zoom-in-95 duration-300">
-                        <div className="bg-slate-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"><FileText className="text-slate-300" size={40} /></div>
-                        <h3 className="text-lg font-bold text-slate-800 mb-1">No records found</h3>
-                        <p className="text-slate-500 text-sm">Click "New Entry" to add your first record.</p>
-                    </div>
-                );
-            }
-            return (
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-300">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left min-w-[900px]">
-                        <thead className="bg-slate-50/80 border-b border-slate-100">
-                            <tr>
-                                {view==='vendors' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Vendor</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Type</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Total</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Paid</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Due</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Profile</th></>}
-                                {view==='vendor-bills' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Bill #</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Vendor</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Desc</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Bill Total</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">WHT</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Net Payable</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Paid</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Due</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th></>}
-                                {view==='expenses' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Category</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Desc</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Amount</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Payment Details</th></>}
-                                {view==='petty-cash' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Desc</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Out</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">In</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Balance</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Details</th></>}
-                                {view==='salaries' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Employee</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Net Salary</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Tax Deducted</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Basic Salary</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th></>}
-                                {view==='bank' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Bank</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Amount</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th></>}
-                                {view==='manage-users' && <><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Username</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Email</th><th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Role</th></>}
-                                <th className="p-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                            {bankRecords.map((item, idx, arr) => {
-                                // Calculate running balance for petty cash
-                                const pettyCashBalance = view === 'petty-cash' ? arr.slice(0, idx + 1).reduce((bal, r) => bal + (Number(r.cashIn)||0) - (Number(r.cashOut)||0), 0) : null;
-                                return (
-                                <tr key={item.id} className="hover:bg-slate-50/80 transition-colors group">
-                                    {view==='vendors' && <><td className="p-6"><p className="font-bold text-slate-800">{item.name}</p></td><td className="p-6 text-sm text-slate-500">{item.serviceType}</td><td className="p-6 text-right font-medium text-slate-600">{formatCurrency(item.amountPayable)}</td><td className="p-6 text-right text-emerald-600 font-medium">{formatCurrency(item.amountPaid)}</td><td className="p-6 text-right text-rose-600 font-bold">{formatCurrency((item.amountPayable||0)-(item.amountPaid||0))}</td><td className="p-6"><button onClick={() => { setSelectedVendorProfile(item); setView('vendor-profile'); }} className="text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-2 rounded-xl transition-colors whitespace-nowrap">View Profile →</button></td></>}
-                                    {view==='vendor-bills' && (() => { const due = Number(item.amount) - Number(item.paidAmount); const isPaid = due <= 0; const wht = Number(item.taxDeduction) || 0; const gross = (Number(item.amount) + wht); return (<><td className="p-6 text-sm text-slate-500">{item.date}</td><td className="p-6 font-bold text-slate-800">{item.billNumber}</td><td className="p-6 font-bold text-violet-600">{item.vendor}</td><td className="p-6 text-sm text-slate-500">{item.description}</td><td className="p-6 text-right font-medium text-slate-600">{formatCurrency(gross)}</td><td className="p-6 text-right font-medium text-rose-600">{wht > 0 ? `-${formatCurrency(wht)}` : '-'}</td><td className="p-6 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-6 text-right text-emerald-600 font-medium">{formatCurrency(item.paidAmount)}</td><td className="p-6 text-right text-rose-600 font-bold">{formatCurrency(due)}</td><td className="p-6"><span className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase ${isPaid ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700'}`}>{isPaid ? 'Paid' : 'Due'}</span></td><td className="p-6 text-center flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">{!isPaid && <button onClick={() => initiatePayment(item, 'bill', due)} className="p-2 bg-violet-600 text-white rounded-xl hover:bg-violet-700 transition-colors shadow-sm" title="Pay Now"><CreditCard size={16}/></button>}<ActionButtons item={item} type="bill" /></td></>); })()}
-                                    {view==='expenses' && <><td className="p-6 text-sm text-slate-500">{item.date}</td><td className="p-6"><span className="px-3 py-1.5 bg-fuchsia-50 text-fuchsia-700 rounded-lg text-xs font-bold tracking-wide">{item.category}</span></td><td className="p-6 text-sm font-medium text-slate-700">{item.description}</td><td className="p-6 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-6 text-xs text-slate-500 font-medium">{item.bankName ? <span className="flex items-center gap-1"><CreditCard size={12}/> {item.bankName} - {item.chequeNumber}</span> : 'Cash'}</td></>}
-                                    {view==='manage-users' && <><td className="p-6 font-bold text-slate-800">{item.username}</td><td className="p-6 text-sm text-slate-600">{item.email}</td><td className="p-6"><span className="px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg text-xs font-bold">{item.role}</span></td></>}
-                                    {view==='petty-cash' && <><td className="p-6 text-sm text-slate-500">{item.date}</td><td className="p-6 text-sm font-bold text-slate-700">{item.description}</td><td className="p-6 text-right font-bold text-rose-600">{item.cashOut?formatCurrency(item.cashOut):'-'}</td><td className="p-6 text-right font-bold text-emerald-600">{item.cashIn?formatCurrency(item.cashIn):'-'}</td><td className="p-6 text-right font-bold text-violet-600">{formatCurrency(pettyCashBalance)}</td><td className="p-6 text-xs font-medium text-slate-500">{item.bankName ? `${item.bankName} - ${item.chequeNumber}` : 'Cash'}</td></>}
-                                    {view==='salaries' && <><td className="p-6 text-sm text-slate-500">{item.date}</td><td className="p-6 font-bold text-slate-800">{item.employeeName}</td><td className="p-6 text-right"><div className="font-bold text-slate-800">{formatCurrency(item.totalPayable)}</div><div className="text-xs text-slate-400">Net Salary</div></td><td className="p-6 text-right"><div className="font-medium text-rose-600">-{formatCurrency(item.taxDeduction || 0)}</div><div className="text-xs text-slate-400">Tax</div></td><td className="p-6 text-right"><div className="font-medium text-slate-600">{formatCurrency(item.basicSalary || item.totalPayable)}</div><div className="text-xs text-slate-400">Basic</div></td><td className="p-6"><span className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase ${item.status==='Paid'?'bg-emerald-100 text-emerald-700':item.status==='Pending'?'bg-amber-100 text-amber-700':'bg-slate-100 text-slate-600'}`}>{item.status || 'Unpaid'}</span></td></>}
-                                    {view==='bank' && <><td className="p-6 text-sm text-slate-500">{item.date}</td><td className="p-6 font-bold text-blue-600">{item.bank}</td><td className="p-6 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td><td className="p-6"><span className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase ${item.status==='Cleared'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'}`}>{item.status}</span></td></>}
-                                    
-                                    {!['vendor-bills'].includes(view) && (
-                                        <td className="p-6 text-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                            {view === 'salaries' && (
-                                                <button onClick={() => { setFormData(item); setShowSalarySlip(true); }} className="p-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors mr-1" title="Print Slip">
-                                                    <Printer size={16}/>
-                                                </button>
-                                            )}
-                                            <ActionButtons item={item} type={view === 'manage-users' ? 'user' : view === 'salaries' ? 'salary' : view === 'expenses' ? 'expense' : view === 'clients' ? 'client' : view === 'vendors' ? 'vendor' : view === 'petty-cash' ? 'petty' : view === 'bank' ? 'bank' : view.replace('s', '')} />
-                                        </td>
-                                    )}
-                                </tr>
-                            );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            );
-        })()}
 
         {view === 'settings' && (
             <div className="bg-white p-10 rounded-3xl shadow-sm border border-slate-100 max-w-2xl mx-auto mt-10">
