@@ -4382,6 +4382,352 @@ const VendorBillsPage = ({ vendorBills, vendors, currentUser, onNewBill, onEdit,
 };
 
 
+
+// ============================================================
+// MANAGE USERS PAGE — Full module with role management & analytics
+// ============================================================
+const ROLE_CONFIG = {
+    Admin:  { bg: 'bg-violet-100',  text: 'text-violet-700',  border: 'border-violet-200',  dot: 'bg-violet-500',  desc: 'Full access — can create, edit & delete all records' },
+    Editor: { bg: 'bg-sky-100',     text: 'text-sky-700',     border: 'border-sky-200',     dot: 'bg-sky-500',     desc: 'Can create & edit records, cannot delete' },
+    Viewer: { bg: 'bg-slate-100',   text: 'text-slate-600',   border: 'border-slate-200',   dot: 'bg-slate-400',   desc: 'Read-only access — can view but not modify data' },
+};
+
+const ManageUsersPage = ({ users, currentUser, onNewUser, onEdit, onDelete }) => {
+    const [search,      setSearch]      = useState('');
+    const [roleFilter,  setRoleFilter]  = useState('All');
+    const [sortBy,      setSortBy]      = useState('createdAt-desc');
+    const [showConfirm, setShowConfirm] = useState(null); // { id, username }
+
+    /* ── Stats ─────────────────────────────────────────── */
+    const stats = useMemo(() => {
+        const total   = users.length;
+        const admins  = users.filter(u => u.role === 'Admin').length;
+        const editors = users.filter(u => u.role === 'Editor').length;
+        const viewers = users.filter(u => u.role === 'Viewer').length;
+        return { total, admins, editors, viewers };
+    }, [users]);
+
+    /* ── Filtered + sorted ────────────────────────────── */
+    const filtered = useMemo(() => {
+        let res = [...users];
+        if (search)           res = res.filter(u =>
+            (u.username||'').toLowerCase().includes(search.toLowerCase()) ||
+            (u.email||'').toLowerCase().includes(search.toLowerCase()) ||
+            (u.role||'').toLowerCase().includes(search.toLowerCase())
+        );
+        if (roleFilter !== 'All') res = res.filter(u => u.role === roleFilter);
+        if (sortBy === 'createdAt-desc') res = [...res].sort((a, b) => new Date(b.createdAt||0) - new Date(a.createdAt||0));
+        if (sortBy === 'createdAt-asc')  res = [...res].sort((a, b) => new Date(a.createdAt||0) - new Date(b.createdAt||0));
+        if (sortBy === 'name')           res = [...res].sort((a, b) => (a.username||'').localeCompare(b.username||''));
+        if (sortBy === 'role')           res = [...res].sort((a, b) => (a.role||'').localeCompare(b.role||''));
+        return res;
+    }, [users, search, roleFilter, sortBy]);
+
+    const handleDeleteClick = (user) => {
+        if (user.username === currentUser?.username) return;
+        setShowConfirm({ id: user.id, username: user.username });
+    };
+
+    const confirmDelete = () => {
+        if (showConfirm) { onDelete(showConfirm.id); setShowConfirm(null); }
+    };
+
+    const formatDate = (iso) => {
+        if (!iso) return '—';
+        try { return new Date(iso).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }); }
+        catch { return '—'; }
+    };
+
+    const getInitials = (username) => (username||'?').slice(0,2).toUpperCase();
+
+    const avatarColors = ['bg-violet-500','bg-sky-500','bg-emerald-500','bg-amber-500','bg-rose-500','bg-fuchsia-500','bg-indigo-500','bg-teal-500'];
+    const getAvatarColor = (username) => avatarColors[(username||'').charCodeAt(0) % avatarColors.length];
+
+    return (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+
+            {/* ── Role Overview Cards ─────────────────────── */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                    { label: 'Total Users',    value: stats.total,   icon: Users,    bg: 'bg-white border-slate-200',         text: 'text-slate-800',  sub: 'registered accounts' },
+                    { label: 'Admins',         value: stats.admins,  icon: Lock,     bg: 'bg-violet-50 border-violet-200',    text: 'text-violet-700', sub: 'full access' },
+                    { label: 'Editors',        value: stats.editors, icon: Edit,     bg: 'bg-sky-50 border-sky-200',          text: 'text-sky-700',    sub: 'can edit records' },
+                    { label: 'Viewers',        value: stats.viewers, icon: FileText, bg: 'bg-slate-50 border-slate-200',      text: 'text-slate-600',  sub: 'read-only access' },
+                ].map((k, i) => (
+                    <div key={i} className={`${k.bg} border p-5 rounded-2xl shadow-sm hover:shadow-md transition-all group`}>
+                        <div className="flex justify-between items-start mb-3">
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{k.label}</p>
+                            <k.icon size={14} className="text-slate-300 group-hover:text-slate-400 flex-shrink-0"/>
+                        </div>
+                        <p className={`text-3xl font-extrabold tabular-nums ${k.text}`}>{k.value}</p>
+                        <p className="text-xs text-slate-400 mt-1 font-medium">{k.sub}</p>
+                    </div>
+                ))}
+            </div>
+
+            {/* ── Role Permission Guide ───────────────────── */}
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+                <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2 text-sm">
+                    <div className="w-2 h-5 bg-violet-500 rounded-full"/>
+                    Role Permissions
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {Object.entries(ROLE_CONFIG).map(([role, cfg]) => (
+                        <div key={role} className={`${cfg.bg} ${cfg.border} border rounded-2xl p-4`}>
+                            <div className="flex items-center gap-2 mb-2">
+                                <div className={`w-2 h-2 rounded-full ${cfg.dot}`}/>
+                                <span className={`font-extrabold text-sm ${cfg.text}`}>{role}</span>
+                            </div>
+                            <p className="text-xs text-slate-500 leading-relaxed">{cfg.desc}</p>
+                            <div className="mt-3 flex flex-wrap gap-1">
+                                {role === 'Admin'  && ['View','Create','Edit','Delete','Manage Users'].map(p => <span key={p} className="text-xs font-bold bg-violet-200 text-violet-800 px-2 py-0.5 rounded-full">{p}</span>)}
+                                {role === 'Editor' && ['View','Create','Edit'].map(p => <span key={p} className="text-xs font-bold bg-sky-200 text-sky-800 px-2 py-0.5 rounded-full">{p}</span>)}
+                                {role === 'Viewer' && ['View'].map(p => <span key={p} className="text-xs font-bold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">{p}</span>)}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* ── Toolbar ─────────────────────────────────── */}
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+                <div className="flex flex-wrap gap-2 items-center">
+                    {/* Search */}
+                    <div className="relative">
+                        <Search className="absolute left-3 top-2.5 text-slate-400" size={15}/>
+                        <input
+                            className="pl-8 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none w-48 transition-all"
+                            placeholder="Search users..."
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                        />
+                    </div>
+
+                    {/* Role filter */}
+                    <div className="flex bg-white border border-slate-200 rounded-xl overflow-hidden">
+                        {['All','Admin','Editor','Viewer'].map(r => (
+                            <button key={r} onClick={() => setRoleFilter(r)}
+                                className={`px-3 py-2 text-xs font-bold transition-all ${roleFilter===r ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-700'}`}>
+                                {r}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Sort */}
+                    <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+                        className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 outline-none cursor-pointer">
+                        <option value="createdAt-desc">Newest First</option>
+                        <option value="createdAt-asc">Oldest First</option>
+                        <option value="name">Name A–Z</option>
+                        <option value="role">Role</option>
+                    </select>
+                </div>
+
+                {currentUser?.role === 'Admin' && (
+                    <button onClick={onNewUser}
+                        className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all flex-shrink-0">
+                        <UserPlus size={16}/> Add User
+                    </button>
+                )}
+            </div>
+
+            {(search || roleFilter !== 'All') && (
+                <p className="text-sm text-slate-500 font-medium -mt-2">
+                    Showing <span className="font-bold text-violet-600">{filtered.length}</span> of {users.length} users
+                    <button onClick={() => { setSearch(''); setRoleFilter('All'); }}
+                        className="ml-3 text-xs font-bold text-slate-400 hover:text-violet-600 bg-slate-100 hover:bg-violet-50 px-2 py-0.5 rounded-lg transition-colors">
+                        ✕ Clear
+                    </button>
+                </p>
+            )}
+
+            {/* ── Empty state ─────────────────────────────── */}
+            {filtered.length === 0 && (
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-16 text-center">
+                    <div className="w-16 h-16 bg-violet-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <Users className="text-violet-300" size={32}/>
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-700 mb-2">
+                        {users.length === 0 ? 'No users yet' : 'No users match your search'}
+                    </h3>
+                    <p className="text-sm text-slate-400 mb-6">
+                        {users.length === 0 ? 'Add your first team member.' : 'Try clearing your filters.'}
+                    </p>
+                    {users.length === 0 && currentUser?.role === 'Admin' && (
+                        <button onClick={onNewUser} className="bg-violet-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-violet-700 transition-colors">
+                            + Add First User
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* ── Users Grid ─────────────────────────────── */}
+            {filtered.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {filtered.map(user => {
+                        const cfg = ROLE_CONFIG[user.role] || ROLE_CONFIG.Viewer;
+                        const isSelf = user.username === currentUser?.username;
+                        const avatarColor = getAvatarColor(user.username);
+                        return (
+                            <div key={user.id}
+                                className={`bg-white rounded-2xl border shadow-sm hover:shadow-lg transition-all duration-200 overflow-hidden group ${isSelf ? 'border-violet-300 ring-2 ring-violet-100' : 'border-slate-200'}`}>
+                                {/* Top accent stripe */}
+                                <div className={`h-1 w-full ${cfg.dot}`}
+                                    style={{background: user.role==='Admin' ? 'linear-gradient(90deg,#7c3aed,#d946ef)' : user.role==='Editor' ? 'linear-gradient(90deg,#0284c7,#38bdf8)' : '#cbd5e1'}}/>
+
+                                <div className="p-5">
+                                    {/* Avatar + name row */}
+                                    <div className="flex items-start justify-between mb-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className={`${avatarColor} w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-sm`}>
+                                                <span className="text-white font-extrabold text-sm tracking-wider">{getInitials(user.username)}</span>
+                                            </div>
+                                            <div>
+                                                <p className="font-extrabold text-slate-900 leading-tight">
+                                                    {user.username}
+                                                    {isSelf && <span className="ml-2 text-xs font-bold text-violet-500 bg-violet-50 px-1.5 py-0.5 rounded-full">You</span>}
+                                                </p>
+                                                <p className="text-xs text-slate-400 font-medium mt-0.5 truncate max-w-[160px]">{user.email || '—'}</p>
+                                            </div>
+                                        </div>
+
+                                        {/* Role badge */}
+                                        <span className={`${cfg.bg} ${cfg.text} ${cfg.border} border text-xs font-extrabold px-2.5 py-1 rounded-xl flex-shrink-0`}>
+                                            {user.role || 'Viewer'}
+                                        </span>
+                                    </div>
+
+                                    {/* Meta info */}
+                                    <div className="space-y-1.5 mb-4">
+                                        <div className="flex items-center gap-2 text-xs text-slate-400">
+                                            <Calendar size={11} className="flex-shrink-0"/>
+                                            <span className="font-medium">Joined {formatDate(user.createdAt)}</span>
+                                        </div>
+                                        {user.addedBy && (
+                                            <div className="flex items-center gap-2 text-xs text-slate-400">
+                                                <UserPlus size={11} className="flex-shrink-0"/>
+                                                <span className="font-medium">Added by <span className="text-slate-600 font-bold">{user.addedBy}</span></span>
+                                            </div>
+                                        )}
+                                        {user.lastEditedBy && (
+                                            <div className="flex items-center gap-2 text-xs text-slate-400">
+                                                <Edit size={11} className="flex-shrink-0"/>
+                                                <span className="font-medium">Last edited by <span className="text-slate-600 font-bold">{user.lastEditedBy}</span></span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Permission pills */}
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {user.role === 'Admin' && (
+                                            <>
+                                                <span className="text-xs font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">✓ View</span>
+                                                <span className="text-xs font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">✓ Create</span>
+                                                <span className="text-xs font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">✓ Edit</span>
+                                                <span className="text-xs font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">✓ Delete</span>
+                                                <span className="text-xs font-bold bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full">✓ Admin</span>
+                                            </>
+                                        )}
+                                        {user.role === 'Editor' && (
+                                            <>
+                                                <span className="text-xs font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">✓ View</span>
+                                                <span className="text-xs font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">✓ Create</span>
+                                                <span className="text-xs font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">✓ Edit</span>
+                                                <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-0.5 rounded-full">✗ Delete</span>
+                                            </>
+                                        )}
+                                        {(!user.role || user.role === 'Viewer') && (
+                                            <>
+                                                <span className="text-xs font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">✓ View</span>
+                                                <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-0.5 rounded-full">✗ Create</span>
+                                                <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-0.5 rounded-full">✗ Edit</span>
+                                                <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-0.5 rounded-full">✗ Delete</span>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Action footer */}
+                                {currentUser?.role === 'Admin' && (
+                                    <div className="px-4 pb-4 pt-0 flex gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200">
+                                        <button onClick={() => onEdit(user)}
+                                            className="flex-1 py-2 text-xs font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 rounded-xl transition-colors flex items-center justify-center gap-1.5">
+                                            <Edit size={11}/> Edit User
+                                        </button>
+                                        {!isSelf && (
+                                            <button onClick={() => handleDeleteClick(user)}
+                                                className="px-3 py-2 text-xs font-bold text-rose-500 bg-rose-50 hover:bg-rose-100 rounded-xl transition-colors flex items-center justify-center gap-1">
+                                                <Trash2 size={11}/>
+                                            </button>
+                                        )}
+                                        {isSelf && (
+                                            <div className="px-3 py-2 text-xs font-bold text-slate-300 bg-slate-50 rounded-xl flex items-center justify-center" title="Cannot delete your own account">
+                                                <Lock size={11}/>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* ── Security Tips ───────────────────────────── */}
+            <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-6 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-48 h-48 bg-violet-500/10 rounded-full blur-3xl translate-x-1/2 -translate-y-1/2 pointer-events-none"/>
+                <div className="relative z-10">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="bg-violet-500/20 p-2.5 rounded-xl"><Lock className="text-violet-300" size={18}/></div>
+                        <h3 className="font-extrabold text-white text-base">Security Guidelines</h3>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {[
+                            { icon: '🔐', title: 'Least Privilege', desc: 'Assign the minimum role needed. Use Viewer for read-only staff.' },
+                            { icon: '🔑', title: 'Strong Passwords', desc: 'Use unique passwords per user. Change defaults immediately.' },
+                            { icon: '👥', title: 'Audit Regularly', desc: 'Review user accounts periodically and remove inactive accounts.' },
+                        ].map((tip, i) => (
+                            <div key={i} className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                                <p className="text-lg mb-1.5">{tip.icon}</p>
+                                <p className="font-bold text-white text-sm mb-1">{tip.title}</p>
+                                <p className="text-xs text-slate-400 leading-relaxed">{tip.desc}</p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            {/* ── Delete Confirmation Modal ───────────────── */}
+            {showConfirm && (
+                <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+                    onClick={() => setShowConfirm(null)}>
+                    <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-sm w-full animate-in zoom-in-95 duration-200"
+                        onClick={e => e.stopPropagation()}>
+                        <div className="w-14 h-14 bg-rose-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                            <Trash2 className="text-rose-600" size={24}/>
+                        </div>
+                        <h3 className="text-xl font-extrabold text-slate-800 text-center mb-2">Delete User?</h3>
+                        <p className="text-sm text-slate-500 text-center mb-6">
+                            This will permanently remove <span className="font-bold text-slate-800">@{showConfirm.username}</span> from the system. This cannot be undone.
+                        </p>
+                        <div className="flex gap-3">
+                            <button onClick={() => setShowConfirm(null)}
+                                className="flex-1 py-3 rounded-xl font-bold text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">
+                                Cancel
+                            </button>
+                            <button onClick={confirmDelete}
+                                className="flex-1 py-3 rounded-xl font-bold text-sm text-white bg-rose-600 hover:bg-rose-700 transition-colors shadow-lg shadow-rose-200">
+                                Delete User
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+
 // --- VENDOR PROFILE COMPONENT ---
 const VendorProfile = ({ vendor, vendorBills, bankRecords, pettyCash, onBack }) => {
     const bills = useMemo(() => vendorBills.filter(b =>
@@ -5249,13 +5595,14 @@ function App() {
                      view === 'expenses' ? 'Expenses' :
                      view === 'vendors' ? 'Vendors' :
                      view === 'vendor-bills' ? 'Vendor Bills' :
+                     view === 'manage-users' ? 'User Management' :
                      view === 'petty-cash' ? 'Petty Cash' :
                      view.replace(/-/g, ' ')}
                 </h2>
-                <p className="text-slate-500 font-medium">{view === 'salaries' ? 'Payroll, payslips & employee analytics' : view === 'expenses' ? 'Business expenses, categories & tax credits' : view === 'petty-cash' ? 'Cash float, ledger & expense tracking' : view === 'vendors' ? 'Suppliers, service vendors & payables' : view === 'vendor-bills' ? 'Bills, WHT tracking & payment status' : 'Overview & Management'}</p>
+                <p className="text-slate-500 font-medium">{view === 'salaries' ? 'Payroll, payslips & employee analytics' : view === 'expenses' ? 'Business expenses, categories & tax credits' : view === 'petty-cash' ? 'Cash float, ledger & expense tracking' : view === 'vendors' ? 'Suppliers, service vendors & payables' : view === 'vendor-bills' ? 'Bills, WHT tracking & payment status' : view === 'manage-users' ? 'Team accounts, roles & access control' : 'Overview & Management'}</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-4 w-full xl:w-auto">
-                {!['dashboard','receivables-payables','client-profile','vendor-profile','tax-report','reports','statements','clients','salaries','petty-cash','expenses','vendors','vendor-bills'].includes(view) && <div className="relative flex-1 sm:w-72 group"><Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/><input className="w-full pl-12 pr-4 py-3 rounded-2xl border-none bg-white shadow-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-violet-500 outline-none transition-all font-medium text-slate-600" placeholder="Search records..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
+                {!['dashboard','receivables-payables','client-profile','vendor-profile','tax-report','reports','statements','clients','salaries','petty-cash','expenses','vendors','vendor-bills','manage-users'].includes(view) && <div className="relative flex-1 sm:w-72 group"><Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/><input className="w-full pl-12 pr-4 py-3 rounded-2xl border-none bg-white shadow-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-violet-500 outline-none transition-all font-medium text-slate-600" placeholder="Search records..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
                 {['clients','bank'].includes(view) && (
                     <div className="flex gap-3">
                         <label className="bg-white px-4 py-3 rounded-2xl font-bold text-sm text-slate-600 shadow-sm ring-1 ring-slate-200 hover:ring-violet-300 hover:text-violet-600 transition-all cursor-pointer flex items-center gap-2">
@@ -5273,7 +5620,7 @@ function App() {
                         <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={selectedYear} onChange={e=>setSelectedYear(e.target.value)}><option value="All">All Years</option>{availableYears.map(y=><option key={y}>{y}</option>)}</select>
                     </div>
                 )}
-                {!['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report','clients','salaries','petty-cash','expenses','vendors','vendor-bills'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
+                {!['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report','clients','salaries','petty-cash','expenses','vendors','vendor-bills','manage-users'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
             </div>
         </header>
 
@@ -5485,9 +5832,17 @@ function App() {
 
         {view === 'vendor-bills' && <VendorBillsPage vendorBills={vendorBills} vendors={vendors} currentUser={currentUser} onNewBill={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(b) => { setFormData({...b}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => handleDelete(id, 'bill')} onPayBill={(b, amt) => initiatePayment(b, 'bill', amt)} />}
 
+        {view === 'manage-users' && <ManageUsersPage
+            users={users}
+            currentUser={currentUser}
+            onNewUser={() => { setFormData({}); setIsEditingUser(false); setIsEditingRecord(false); setShowForm(true); }}
+            onEdit={(u) => { setFormData({...u}); setIsEditingUser(true); setShowForm(true); }}
+            onDelete={(id) => deleteRecord('users', id)}
+        />}
+
         {/* GENERIC TABLE RENDERER */}
-        {['bank','manage-users'].includes(view) && (() => {
-            const currentData = view==='bank'?bankRecords:users;
+        {['bank'].includes(view) && (() => {
+            const currentData = bankRecords;
             if (currentData.length === 0) {
                 return (
                     <div className="bg-white p-16 rounded-3xl shadow-sm border border-slate-100 text-center animate-in fade-in zoom-in-95 duration-300">
@@ -5514,7 +5869,7 @@ function App() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                            {(view==='bank'?bankRecords:users).map((item, idx, arr) => {
+                            {bankRecords.map((item, idx, arr) => {
                                 // Calculate running balance for petty cash
                                 const pettyCashBalance = view === 'petty-cash' ? arr.slice(0, idx + 1).reduce((bal, r) => bal + (Number(r.cashIn)||0) - (Number(r.cashOut)||0), 0) : null;
                                 return (
@@ -5601,10 +5956,54 @@ function App() {
         {showForm && (
             <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                 <div className="bg-white p-8 md:p-10 rounded-3xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
-                    <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-6"><h3 className="text-2xl font-bold text-slate-800">{view==='clients' ? (isEditingRecord ? 'Edit Client' : 'New Client') : view==='salaries' ? (isEditingRecord ? 'Edit Payslip' : 'New Payslip') : view==='petty-cash' ? (isEditingRecord ? 'Edit Entry' : 'New Cash Entry') : view==='expenses' ? (isEditingRecord ? 'Edit Expense' : 'New Expense') : view==='vendors' ? (isEditingRecord ? 'Edit Vendor' : 'New Vendor') : view==='vendor-bills' ? (isEditingRecord ? 'Edit Bill' : 'New Vendor Bill') : 'Record Details'}</h3><button onClick={()=>setShowForm(false)} className="p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"><X size={20}/></button></div>
+                    <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-6"><h3 className="text-2xl font-bold text-slate-800">{view==='clients' ? (isEditingRecord ? 'Edit Client' : 'New Client') : view==='salaries' ? (isEditingRecord ? 'Edit Payslip' : 'New Payslip') : view==='petty-cash' ? (isEditingRecord ? 'Edit Entry' : 'New Cash Entry') : view==='expenses' ? (isEditingRecord ? 'Edit Expense' : 'New Expense') : view==='vendors' ? (isEditingRecord ? 'Edit Vendor' : 'New Vendor') : view==='vendor-bills' ? (isEditingRecord ? 'Edit Bill' : 'New Vendor Bill') : view==='manage-users' ? (isEditingUser ? 'Edit User' : 'Add New User') : 'Record Details'}</h3><button onClick={()=>setShowForm(false)} className="p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"><X size={20}/></button></div>
                     <form onSubmit={handleAddSubmit} className="space-y-6">
                          {/* DYNAMIC FORM FIELDS BASED ON VIEW - STYLED CONSISTENTLY */}
-                        {view==='manage-users' && <><input required placeholder="Username" className="form-input" value={formData.username||''} onChange={e=>setFormData({...formData,username:e.target.value})}/><input type="email" required placeholder="Email" className="form-input" value={formData.email||''} onChange={e=>setFormData({...formData,email:e.target.value})}/><input type="password" placeholder="Password (leave blank to keep)" className="form-input" value={formData.password||''} onChange={e=>setFormData({...formData,password:e.target.value})}/><select className="form-select" value={formData.role||'Viewer'} onChange={e=>setFormData({...formData,role:e.target.value})}><option>Viewer</option><option>Editor</option><option>Admin</option></select></>}
+                        {view==='manage-users' && (
+                            <div className="space-y-4">
+                                <div className="pb-2 border-b border-slate-100">
+                                    <p className="text-xs font-extrabold text-violet-600 uppercase tracking-widest">Account Details</p>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Username *</label>
+                                    <input required placeholder="e.g. ahmed.khan" className="form-input" value={formData.username||''} onChange={e=>setFormData({...formData,username:e.target.value})}/>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Email Address *</label>
+                                    <input type="email" required placeholder="user@company.com" className="form-input" value={formData.email||''} onChange={e=>setFormData({...formData,email:e.target.value})}/>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">
+                                        Password {isEditingUser && <span className="text-slate-300 normal-case font-medium">(leave blank to keep current)</span>}
+                                    </label>
+                                    <input type="password" placeholder={isEditingUser ? "Leave blank to keep current" : "Set a strong password"} className="form-input" value={formData.password||''} onChange={e=>setFormData({...formData,password:e.target.value})}/>
+                                </div>
+                                <div className="pb-2 border-b border-slate-100 pt-1">
+                                    <p className="text-xs font-extrabold text-violet-600 uppercase tracking-widest">Role & Access</p>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Assign Role *</label>
+                                    <div className="space-y-2">
+                                        {['Admin','Editor','Viewer'].map(role => {
+                                            const roleCfg = {Admin:{bg:'bg-violet-50',border:'border-violet-300',text:'text-violet-700',dot:'bg-violet-600',desc:'Full access — create, edit & delete everything'},Editor:{bg:'bg-sky-50',border:'border-sky-300',text:'text-sky-700',dot:'bg-sky-600',desc:'Can create & edit records, cannot delete'},Viewer:{bg:'bg-slate-50',border:'border-slate-300',text:'text-slate-600',dot:'bg-slate-500',desc:'Read-only — can view but not modify data'}}[role];
+                                            const isSelected = (formData.role||'Viewer') === role;
+                                            return (
+                                                <div key={role} onClick={() => setFormData({...formData, role})}
+                                                    className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${isSelected ? roleCfg.bg + ' ' + roleCfg.border : 'border-slate-200 hover:border-slate-300 bg-white'}`}>
+                                                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isSelected ? roleCfg.border : 'border-slate-300'}`}>
+                                                        {isSelected && <div className={`w-2 h-2 rounded-full ${roleCfg.dot}`}/>}
+                                                    </div>
+                                                    <div>
+                                                        <p className={`text-sm font-extrabold ${isSelected ? roleCfg.text : 'text-slate-600'}`}>{role}</p>
+                                                        <p className="text-xs text-slate-400">{roleCfg.desc}</p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                         {view==='clients' && (
                             <div className="space-y-5">
                                 <div className="pb-2 border-b border-slate-100"><p className="text-xs font-bold text-violet-600 uppercase tracking-widest">Identity</p></div>
