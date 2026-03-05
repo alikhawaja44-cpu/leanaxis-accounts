@@ -4728,6 +4728,424 @@ const ManageUsersPage = ({ users, currentUser, onNewUser, onEdit, onDelete }) =>
 };
 
 
+
+// ============================================================
+// BANK ACCOUNTS PAGE — Full module with KPIs, ledger & analytics
+// ============================================================
+const BANK_COLORS = ['#6366f1','#0ea5e9','#10b981','#f59e0b','#f43f5e','#8b5cf6','#06b6d4','#ec4899'];
+
+const BankAccountsPage = ({ bankRecords, currentUser, onNewEntry, onEdit, onDelete }) => {
+    const [search,       setSearch]       = useState('');
+    const [bankFilter,   setBankFilter]   = useState('All');
+    const [typeFilter,   setTypeFilter]   = useState('All');   // All | Credit | Debit
+    const [statusFilter, setStatusFilter] = useState('All');   // All | Cleared | Pending
+    const [monthFilter,  setMonthFilter]  = useState('All');
+    const [yearFilter,   setYearFilter]   = useState('All');
+    const [sortBy,       setSortBy]       = useState('date-desc');
+    const [activeBank,   setActiveBank]   = useState('All');   // for bank-tab switcher
+
+    const today = new Date(); today.setHours(0,0,0,0);
+
+    /* ── Enrich every record ─────────────────────────── */
+    const enriched = useMemo(() => bankRecords.map(r => {
+        const amt      = Number(r.amount) || 0;
+        const isCredit = amt >= 0;
+        const absAmt   = Math.abs(amt);
+        const monthNum  = r.date ? r.date.slice(0, 7) : '';
+        const monthName = (() => { try { return new Date(r.date).toLocaleString('default', { month: 'long', year: 'numeric' }); } catch { return r.date; } })();
+        const monthShort = (() => { try { return new Date(r.date).toLocaleString('default', { month: 'short' }); } catch { return ''; } })();
+        const year      = r.date ? r.date.slice(0, 4) : '';
+        return { ...r, amt, isCredit, absAmt, monthNum, monthName, monthShort, year };
+    }), [bankRecords]);
+
+    /* ── Unique banks ────────────────────────────────── */
+    const uniqueBanks = useMemo(() =>
+        [...new Set(enriched.map(r => r.bank).filter(Boolean))].sort()
+    , [enriched]);
+
+    /* ── Unique months & years ───────────────────────── */
+    const uniqueMonths = useMemo(() =>
+        [...new Set(enriched.map(r => r.monthName).filter(Boolean))].sort((a, b) => new Date(b) - new Date(a))
+    , [enriched]);
+    const uniqueYears = useMemo(() =>
+        [...new Set(enriched.map(r => r.year).filter(Boolean))].sort((a, b) => b - a)
+    , [enriched]);
+
+    /* ── Per-bank summaries (for account cards) ──────── */
+    const bankSummaries = useMemo(() => {
+        const map = {};
+        enriched.forEach(r => {
+            const b = r.bank || 'Unknown';
+            if (!map[b]) map[b] = { bank: b, credits: 0, debits: 0, count: 0, cleared: 0, pending: 0 };
+            if (r.isCredit) map[b].credits += r.absAmt;
+            else            map[b].debits  += r.absAmt;
+            map[b].count++;
+            if (r.status === 'Cleared') map[b].cleared++; else map[b].pending++;
+        });
+        return Object.values(map).sort((a, b) => (b.credits - b.debits) - (a.credits - a.debits))
+            .map((s, i) => ({ ...s, balance: s.credits - s.debits, color: BANK_COLORS[i % BANK_COLORS.length] }));
+    }, [enriched]);
+
+    /* ── KPIs ────────────────────────────────────────── */
+    const kpis = useMemo(() => {
+        const totalCredits  = enriched.filter(r => r.isCredit).reduce((a, r) => a + r.absAmt, 0);
+        const totalDebits   = enriched.filter(r => !r.isCredit).reduce((a, r) => a + r.absAmt, 0);
+        const netBalance    = totalCredits - totalDebits;
+        const pendingCount  = enriched.filter(r => r.status === 'Pending').length;
+        const pendingAmt    = enriched.filter(r => r.status === 'Pending').reduce((a, r) => a + Math.abs(r.amt), 0);
+        const curMonth      = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+        const thisMonthIn   = enriched.filter(r => r.monthNum === curMonth && r.isCredit).reduce((a, r) => a + r.absAmt, 0);
+        const thisMonthOut  = enriched.filter(r => r.monthNum === curMonth && !r.isCredit).reduce((a, r) => a + r.absAmt, 0);
+        return { totalCredits, totalDebits, netBalance, pendingCount, pendingAmt, thisMonthIn, thisMonthOut };
+    }, [enriched]);
+
+    /* ── Monthly chart (6 months) ────────────────────── */
+    const monthlyChart = useMemo(() => {
+        return Array.from({ length: 6 }, (_, i) => {
+            const d   = new Date(today.getFullYear(), today.getMonth() - 5 + i, 1);
+            const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+            const lbl = d.toLocaleString('default', { month: 'short' });
+            const src = activeBank === 'All' ? enriched : enriched.filter(r => r.bank === activeBank);
+            const credits = src.filter(r => r.monthNum === key && r.isCredit).reduce((a, r) => a + r.absAmt, 0);
+            const debits  = src.filter(r => r.monthNum === key && !r.isCredit).reduce((a, r) => a + r.absAmt, 0);
+            return { name: lbl, Credits: credits, Debits: debits };
+        });
+    }, [enriched, activeBank]);
+
+    /* ── Running balance for table ───────────────────── */
+    const filteredAndSorted = useMemo(() => {
+        let res = [...enriched];
+        if (search)             res = res.filter(r => (r.bank||'').toLowerCase().includes(search.toLowerCase()) || (r.description||'').toLowerCase().includes(search.toLowerCase()));
+        if (bankFilter !== 'All')   res = res.filter(r => r.bank === bankFilter);
+        if (activeBank !== 'All')   res = res.filter(r => r.bank === activeBank);
+        if (typeFilter === 'Credit') res = res.filter(r => r.isCredit);
+        if (typeFilter === 'Debit')  res = res.filter(r => !r.isCredit);
+        if (statusFilter !== 'All')  res = res.filter(r => r.status === statusFilter);
+        if (monthFilter !== 'All')   res = res.filter(r => r.monthName === monthFilter);
+        if (yearFilter  !== 'All')   res = res.filter(r => r.year === yearFilter);
+        res = [...res].sort((a, b) => {
+            if (sortBy === 'date-desc')   return new Date(b.date) - new Date(a.date);
+            if (sortBy === 'date-asc')    return new Date(a.date) - new Date(b.date);
+            if (sortBy === 'amount-desc') return b.absAmt - a.absAmt;
+            if (sortBy === 'amount-asc')  return a.absAmt - b.absAmt;
+            return 0;
+        });
+        // Running balance (chronological order)
+        const chron = [...res].sort((a, b) => new Date(a.date) - new Date(b.date));
+        let running = 0;
+        const balMap = {};
+        chron.forEach(r => { running += r.amt; balMap[r.id] = running; });
+        return res.map(r => ({ ...r, runningBalance: balMap[r.id] }));
+    }, [enriched, search, bankFilter, activeBank, typeFilter, statusFilter, monthFilter, yearFilter, sortBy]);
+
+    const clearFilters = () => { setSearch(''); setBankFilter('All'); setTypeFilter('All'); setStatusFilter('All'); setMonthFilter('All'); setYearFilter('All'); };
+    const hasFilters = search || bankFilter !== 'All' || typeFilter !== 'All' || statusFilter !== 'All' || monthFilter !== 'All' || yearFilter !== 'All';
+
+    const fmtDate = (d) => { try { return new Date(d).toLocaleDateString('en-GB', {day:'2-digit',month:'short',year:'numeric'}); } catch { return d||'—'; } };
+
+    return (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+
+            {/* ── KPI Cards ──────────────────────────────── */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                {[
+                    { l:'Total Inflows',    v: formatCurrency(kpis.totalCredits),  sub:`${enriched.filter(r=>r.isCredit).length} credits`, c:'text-emerald-700', bg:'bg-emerald-50 border-emerald-200', icon: ArrowDownLeft },
+                    { l:'Total Outflows',   v: formatCurrency(kpis.totalDebits),   sub:`${enriched.filter(r=>!r.isCredit).length} debits`, c:'text-rose-700',    bg:'bg-rose-50 border-rose-200',       icon: ArrowUpRight },
+                    { l:'Net Balance',      v: formatCurrency(kpis.netBalance),    sub:'across all banks', c: kpis.netBalance >= 0 ? 'text-emerald-700' : 'text-rose-700', bg: kpis.netBalance >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200', icon: Landmark },
+                    { l:'This Month In',    v: formatCurrency(kpis.thisMonthIn),   sub:'credits this month', c:'text-sky-700',      bg:'bg-sky-50 border-sky-200',         icon: ArrowDownLeft },
+                    { l:'This Month Out',   v: formatCurrency(kpis.thisMonthOut),  sub:'debits this month',  c:'text-amber-700',    bg:'bg-amber-50 border-amber-200',     icon: ArrowUpRight },
+                    { l:'Pending',          v: kpis.pendingCount,                  sub: formatCurrency(kpis.pendingAmt), c: kpis.pendingCount > 0 ? 'text-amber-700' : 'text-emerald-700', bg: kpis.pendingCount > 0 ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200', icon: Clock },
+                ].map((k, i) => (
+                    <div key={i} className={`${k.bg} border p-4 rounded-2xl shadow-sm hover:shadow-md transition-all group`}>
+                        <div className="flex justify-between items-start mb-2">
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-tight">{k.l}</p>
+                            <k.icon size={13} className="text-slate-300 group-hover:text-slate-400 flex-shrink-0 mt-0.5"/>
+                        </div>
+                        <p className={`text-lg font-extrabold tabular-nums ${k.c}`}>{k.v}</p>
+                        <p className="text-xs text-slate-400 mt-0.5 font-medium">{k.sub}</p>
+                    </div>
+                ))}
+            </div>
+
+            {/* ── Bank Account Cards + Chart ─────────────── */}
+            {bankSummaries.length > 0 && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                    {/* Account cards */}
+                    <div className="space-y-3">
+                        <h3 className="font-extrabold text-slate-800 flex items-center gap-2 text-sm">
+                            <div className="w-2 h-5 bg-sky-500 rounded-full"/>
+                            Accounts
+                        </h3>
+                        {/* "All" card */}
+                        <button onClick={() => setActiveBank('All')}
+                            className={`w-full text-left p-4 rounded-2xl border-2 transition-all ${activeBank==='All' ? 'border-violet-400 bg-violet-50' : 'border-slate-200 bg-white hover:border-violet-200'}`}>
+                            <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-xl flex items-center justify-center flex-shrink-0">
+                                        <Landmark size={16} className="text-white"/>
+                                    </div>
+                                    <div>
+                                        <p className="font-extrabold text-slate-800 text-sm">All Accounts</p>
+                                        <p className="text-xs text-slate-400">{enriched.length} transactions</p>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <p className={`font-extrabold tabular-nums text-sm ${kpis.netBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(kpis.netBalance)}</p>
+                                    <p className="text-xs text-slate-400">net</p>
+                                </div>
+                            </div>
+                        </button>
+                        {bankSummaries.map((b, i) => (
+                            <button key={b.bank} onClick={() => setActiveBank(b.bank)}
+                                className={`w-full text-left p-4 rounded-2xl border-2 transition-all ${activeBank===b.bank ? 'border-violet-400 bg-violet-50' : 'border-slate-200 bg-white hover:border-violet-200'}`}>
+                                <div className="flex justify-between items-center mb-2">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-white font-extrabold text-sm" style={{background: b.color}}>
+                                            {b.bank.slice(0,2).toUpperCase()}
+                                        </div>
+                                        <div>
+                                            <p className="font-extrabold text-slate-800 text-sm">{b.bank}</p>
+                                            <p className="text-xs text-slate-400">{b.count} transactions</p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className={`font-extrabold tabular-nums text-sm ${b.balance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(b.balance)}</p>
+                                        {b.pending > 0 && <p className="text-xs text-amber-500 font-bold">{b.pending} pending</p>}
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 text-xs">
+                                    <span className="text-emerald-600 font-bold flex items-center gap-1"><ArrowDownLeft size={10}/> {formatCurrency(b.credits)}</span>
+                                    <span className="text-rose-600 font-bold flex items-center gap-1"><ArrowUpRight size={10}/> {formatCurrency(b.debits)}</span>
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Monthly chart */}
+                    <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-extrabold text-slate-800 flex items-center gap-2 text-sm">
+                                <div className="w-2 h-5 bg-violet-500 rounded-full"/>
+                                Cash Flow — Last 6 Months
+                                {activeBank !== 'All' && <span className="text-violet-600 bg-violet-50 px-2 py-0.5 rounded-lg text-xs">{activeBank}</span>}
+                            </h3>
+                        </div>
+                        <div className="flex-1">
+                            <ResponsiveContainer width="100%" height={200}>
+                                <BarChart data={monthlyChart} barCategoryGap="30%">
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false}/>
+                                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize:11,fontWeight:700,fill:'#94a3b8'}}/>
+                                    <YAxis axisLine={false} tickLine={false} tick={{fontSize:10,fill:'#94a3b8'}} tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}/>
+                                    <ChartTooltip formatter={v=>formatCurrency(v)} contentStyle={{borderRadius:'14px',border:'none',boxShadow:'0 8px 24px rgba(0,0,0,0.1)',padding:'10px 14px'}}/>
+                                    <Bar dataKey="Credits" fill="#34d399" radius={[5,5,0,0]}/>
+                                    <Bar dataKey="Debits"  fill="#fb7185" radius={[5,5,0,0]}/>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                        <div className="flex gap-4 mt-2">
+                            <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-600"><span className="w-3 h-3 bg-emerald-400 rounded-sm inline-block"/>Credits</span>
+                            <span className="flex items-center gap-1.5 text-xs font-bold text-rose-500"><span className="w-3 h-3 bg-rose-400 rounded-sm inline-block"/>Debits</span>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Toolbar ────────────────────────────────── */}
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+                <div className="flex flex-wrap gap-2 items-center">
+                    <div className="relative">
+                        <Search className="absolute left-3 top-2.5 text-slate-400" size={15}/>
+                        <input className="pl-8 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none w-48 transition-all"
+                            placeholder="Search transactions…" value={search} onChange={e => setSearch(e.target.value)}/>
+                    </div>
+
+                    {/* Credit / Debit toggle */}
+                    <div className="flex bg-white border border-slate-200 rounded-xl overflow-hidden">
+                        {['All','Credit','Debit'].map(t => (
+                            <button key={t} onClick={() => setTypeFilter(t)}
+                                className={`px-3 py-2 text-xs font-bold transition-all ${typeFilter===t
+                                    ? t==='Credit' ? 'bg-emerald-600 text-white' : t==='Debit' ? 'bg-rose-600 text-white' : 'bg-slate-800 text-white'
+                                    : 'text-slate-500 hover:text-slate-700'}`}>{t}</button>
+                        ))}
+                    </div>
+
+                    {/* Status toggle */}
+                    <div className="flex bg-white border border-slate-200 rounded-xl overflow-hidden">
+                        {['All','Cleared','Pending'].map(s => (
+                            <button key={s} onClick={() => setStatusFilter(s)}
+                                className={`px-3 py-2 text-xs font-bold transition-all ${statusFilter===s
+                                    ? s==='Cleared' ? 'bg-emerald-600 text-white' : s==='Pending' ? 'bg-amber-500 text-white' : 'bg-slate-800 text-white'
+                                    : 'text-slate-500 hover:text-slate-700'}`}>{s}</button>
+                        ))}
+                    </div>
+
+                    {uniqueBanks.length > 1 && (
+                        <select value={bankFilter} onChange={e => setBankFilter(e.target.value)}
+                            className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 outline-none cursor-pointer">
+                            <option value="All">All Banks</option>
+                            {uniqueBanks.map(b => <option key={b} value={b}>{b}</option>)}
+                        </select>
+                    )}
+
+                    {uniqueMonths.length > 1 && (
+                        <select value={monthFilter} onChange={e => setMonthFilter(e.target.value)}
+                            className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 outline-none cursor-pointer">
+                            <option value="All">All Months</option>
+                            {uniqueMonths.map(m => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                    )}
+
+                    {uniqueYears.length > 1 && (
+                        <select value={yearFilter} onChange={e => setYearFilter(e.target.value)}
+                            className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 outline-none cursor-pointer">
+                            <option value="All">All Years</option>
+                            {uniqueYears.map(y => <option key={y} value={y}>{y}</option>)}
+                        </select>
+                    )}
+
+                    <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+                        className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 outline-none cursor-pointer">
+                        <option value="date-desc">Newest First</option>
+                        <option value="date-asc">Oldest First</option>
+                        <option value="amount-desc">Highest Amount</option>
+                        <option value="amount-asc">Lowest Amount</option>
+                    </select>
+
+                    {hasFilters && (
+                        <button onClick={clearFilters} className="text-xs font-bold text-slate-400 hover:text-violet-600 bg-slate-100 hover:bg-violet-50 px-3 py-2 rounded-xl transition-colors">
+                            ✕ Clear
+                        </button>
+                    )}
+                </div>
+
+                <button onClick={onNewEntry}
+                    className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all flex-shrink-0">
+                    <Plus size={16}/> New Entry
+                </button>
+            </div>
+
+            {hasFilters && (
+                <div className="flex items-center gap-3 text-sm font-medium text-slate-500 -mt-2 flex-wrap">
+                    <span>Showing <span className="font-bold text-violet-600">{filteredAndSorted.length}</span> of {bankRecords.length} transactions</span>
+                    {filteredAndSorted.length > 0 && (
+                        <>
+                            <span className="text-slate-300">·</span>
+                            <span className="text-emerald-600 font-bold">In: {formatCurrency(filteredAndSorted.filter(r=>r.isCredit).reduce((a,r)=>a+r.absAmt,0))}</span>
+                            <span className="text-rose-600 font-bold">Out: {formatCurrency(filteredAndSorted.filter(r=>!r.isCredit).reduce((a,r)=>a+r.absAmt,0))}</span>
+                        </>
+                    )}
+                </div>
+            )}
+
+            {/* ── Empty state ────────────────────────────── */}
+            {filteredAndSorted.length === 0 && (
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-16 text-center">
+                    <div className="w-16 h-16 bg-sky-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <Landmark className="text-sky-300" size={32}/>
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-700 mb-2">
+                        {bankRecords.length === 0 ? 'No bank transactions yet' : 'No transactions match your filters'}
+                    </h3>
+                    <p className="text-sm text-slate-400 mb-6">
+                        {bankRecords.length === 0
+                            ? 'Add bank credits and debits to track your cash flow.'
+                            : 'Try clearing your filters to see all transactions.'}
+                    </p>
+                    {bankRecords.length === 0 && (
+                        <button onClick={onNewEntry} className="bg-sky-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-sky-700 transition-colors">
+                            + Add First Transaction
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* ── Ledger Table ────────────────────────────── */}
+            {filteredAndSorted.length > 0 && (
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left min-w-[820px]">
+                            <thead className="bg-slate-50 border-b border-slate-100">
+                                <tr>
+                                    {['Date','Bank','Description','Type','Amount','Running Balance','Status',''].map((h,i) => (
+                                        <th key={i} className={`px-4 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider ${['Amount','Running Balance'].includes(h)?'text-right':''}`}>{h}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {filteredAndSorted.map(r => (
+                                    <tr key={r.id} className={`hover:bg-slate-50/80 transition-colors group ${r.status==='Pending'?'bg-amber-50/20':''}`}>
+                                        <td className="px-4 py-3.5">
+                                            <p className="text-sm font-bold text-slate-700">{fmtDate(r.date)}</p>
+                                            <p className="text-xs text-slate-400 mt-0.5">{r.monthShort}</p>
+                                        </td>
+                                        <td className="px-4 py-3.5">
+                                            <span className="text-xs font-extrabold px-2.5 py-1 rounded-lg text-white"
+                                                style={{background: BANK_COLORS[uniqueBanks.indexOf(r.bank) % BANK_COLORS.length] || '#6366f1'}}>
+                                                {r.bank || '—'}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3.5">
+                                            <p className="text-sm text-slate-700 font-medium max-w-[200px] truncate">{r.description || '—'}</p>
+                                        </td>
+                                        <td className="px-4 py-3.5">
+                                            <span className={`flex items-center gap-1 text-xs font-extrabold w-fit px-2 py-1 rounded-full ${r.isCredit ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                                {r.isCredit ? <ArrowDownLeft size={10}/> : <ArrowUpRight size={10}/>}
+                                                {r.isCredit ? 'Credit' : 'Debit'}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3.5 text-right">
+                                            <p className={`font-extrabold tabular-nums text-base ${r.isCredit ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                                {r.isCredit ? '+' : '-'}{formatCurrency(r.absAmt)}
+                                            </p>
+                                        </td>
+                                        <td className="px-4 py-3.5 text-right">
+                                            <p className={`font-bold tabular-nums text-sm ${r.runningBalance >= 0 ? 'text-slate-700' : 'text-rose-600'}`}>
+                                                {formatCurrency(r.runningBalance)}
+                                            </p>
+                                        </td>
+                                        <td className="px-4 py-3.5">
+                                            <span className={`text-xs font-extrabold px-2.5 py-1 rounded-full ${r.status==='Cleared' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                {r.status || 'Pending'}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3.5">
+                                            {currentUser?.role === 'Admin' && (
+                                                <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <button onClick={() => onEdit(r)} className="p-1.5 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"><Edit size={12}/></button>
+                                                    <button onClick={() => onDelete(r.id)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"><Trash2 size={12}/></button>
+                                                </div>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                            <tfoot className="bg-gradient-to-r from-slate-50 to-sky-50/30 border-t-2 border-slate-200">
+                                <tr>
+                                    <td colSpan={4} className="px-4 py-4 text-xs font-extrabold text-slate-500 uppercase tracking-wider">
+                                        TOTALS — {filteredAndSorted.length} transactions
+                                    </td>
+                                    <td className="px-4 py-4 text-right">
+                                        <p className="font-extrabold text-emerald-600 tabular-nums text-sm">+{formatCurrency(filteredAndSorted.filter(r=>r.isCredit).reduce((a,r)=>a+r.absAmt,0))}</p>
+                                        <p className="font-extrabold text-rose-600 tabular-nums text-sm">-{formatCurrency(filteredAndSorted.filter(r=>!r.isCredit).reduce((a,r)=>a+r.absAmt,0))}</p>
+                                    </td>
+                                    <td className="px-4 py-4 text-right">
+                                        <p className={`font-extrabold tabular-nums ${filteredAndSorted.length > 0 && filteredAndSorted[filteredAndSorted.length-1].runningBalance >= 0 ? 'text-slate-800' : 'text-rose-600'}`}>
+                                            {filteredAndSorted.length > 0 ? formatCurrency(filteredAndSorted[filteredAndSorted.length-1].runningBalance) : '—'}
+                                        </p>
+                                        <p className="text-xs text-slate-400">final balance</p>
+                                    </td>
+                                    <td colSpan={2}/>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+
 // --- VENDOR PROFILE COMPONENT ---
 const VendorProfile = ({ vendor, vendorBills, bankRecords, pettyCash, onBack }) => {
     const bills = useMemo(() => vendorBills.filter(b =>
@@ -5596,14 +6014,15 @@ function App() {
                      view === 'vendors' ? 'Vendors' :
                      view === 'vendor-bills' ? 'Vendor Bills' :
                      view === 'manage-users' ? 'User Management' :
+                     view === 'bank' ? 'Bank Accounts' :
                      view === 'petty-cash' ? 'Petty Cash' :
                      view.replace(/-/g, ' ')}
                 </h2>
-                <p className="text-slate-500 font-medium">{view === 'salaries' ? 'Payroll, payslips & employee analytics' : view === 'expenses' ? 'Business expenses, categories & tax credits' : view === 'petty-cash' ? 'Cash float, ledger & expense tracking' : view === 'vendors' ? 'Suppliers, service vendors & payables' : view === 'vendor-bills' ? 'Bills, WHT tracking & payment status' : view === 'manage-users' ? 'Team accounts, roles & access control' : 'Overview & Management'}</p>
+                <p className="text-slate-500 font-medium">{view === 'salaries' ? 'Payroll, payslips & employee analytics' : view === 'expenses' ? 'Business expenses, categories & tax credits' : view === 'petty-cash' ? 'Cash float, ledger & expense tracking' : view === 'vendors' ? 'Suppliers, service vendors & payables' : view === 'vendor-bills' ? 'Bills, WHT tracking & payment status' : view === 'manage-users' ? 'Team accounts, roles & access control' : view === 'bank' ? 'Transactions, cash flow & account ledger' : 'Overview & Management'}</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-4 w-full xl:w-auto">
-                {!['dashboard','receivables-payables','client-profile','vendor-profile','tax-report','reports','statements','clients','salaries','petty-cash','expenses','vendors','vendor-bills','manage-users'].includes(view) && <div className="relative flex-1 sm:w-72 group"><Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/><input className="w-full pl-12 pr-4 py-3 rounded-2xl border-none bg-white shadow-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-violet-500 outline-none transition-all font-medium text-slate-600" placeholder="Search records..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
-                {['clients','bank'].includes(view) && (
+                {!['dashboard','receivables-payables','client-profile','vendor-profile','tax-report','reports','statements','clients','salaries','petty-cash','expenses','vendors','vendor-bills','manage-users','bank'].includes(view) && <div className="relative flex-1 sm:w-72 group"><Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/><input className="w-full pl-12 pr-4 py-3 rounded-2xl border-none bg-white shadow-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-violet-500 outline-none transition-all font-medium text-slate-600" placeholder="Search records..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
+                {['clients'].includes(view) && (
                     <div className="flex gap-3">
                         <label className="bg-white px-4 py-3 rounded-2xl font-bold text-sm text-slate-600 shadow-sm ring-1 ring-slate-200 hover:ring-violet-300 hover:text-violet-600 transition-all cursor-pointer flex items-center gap-2">
                             <Upload size={18}/> <span className="hidden sm:inline">Import</span> <input type="file" className="hidden" accept=".csv" onChange={(e) => handleGenericImport(e, view === 'petty-cash' ? 'petty_cash' : view === 'vendor-bills' ? 'vendor_bills' : view)}/>
@@ -5613,14 +6032,15 @@ function App() {
                         </button>
                     </div>
                 )}
-                {['bank'].includes(view) && (
+                {false && (() => 'bank month/year moved into BankAccountsPage')()}
+                {['_disabled_bank'].includes(view) && (
                     <div className="flex gap-3 bg-white p-1.5 rounded-2xl shadow-sm ring-1 ring-slate-200">
                         <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}><option value="All">All Months</option>{['January','February','March','April','May','June','July','August','September','October','November','December'].map(m=><option key={m}>{m}</option>)}</select>
                         <div className="w-px bg-slate-200 my-1"></div>
                         <select className="bg-transparent text-sm font-bold text-slate-600 outline-none cursor-pointer px-2 py-1.5 hover:text-violet-600" value={selectedYear} onChange={e=>setSelectedYear(e.target.value)}><option value="All">All Years</option>{availableYears.map(y=><option key={y}>{y}</option>)}</select>
                     </div>
                 )}
-                {!['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report','clients','salaries','petty-cash','expenses','vendors','vendor-bills','manage-users'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
+                {!['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report','clients','salaries','petty-cash','expenses','vendors','vendor-bills','manage-users','bank'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
             </div>
         </header>
 
@@ -5840,9 +6260,17 @@ function App() {
             onDelete={(id) => deleteRecord('users', id)}
         />}
 
-        {/* GENERIC TABLE RENDERER */}
-        {['bank'].includes(view) && (() => {
-            const currentData = bankRecords;
+        {view === 'bank' && <BankAccountsPage
+            bankRecords={bankRecords}
+            currentUser={currentUser}
+            onNewEntry={() => { setFormData({ date: new Date().toISOString().split('T')[0], status: 'Cleared' }); setIsEditingRecord(false); setShowForm(true); }}
+            onEdit={(r) => { setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }}
+            onDelete={(id) => handleDelete(id, 'bank')}
+        />}
+
+        {/* GENERIC TABLE RENDERER - bank removed, only legacy views remain */}
+        {false && (() => {
+            const currentData = [];
             if (currentData.length === 0) {
                 return (
                     <div className="bg-white p-16 rounded-3xl shadow-sm border border-slate-100 text-center animate-in fade-in zoom-in-95 duration-300">
@@ -5956,7 +6384,7 @@ function App() {
         {showForm && (
             <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                 <div className="bg-white p-8 md:p-10 rounded-3xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
-                    <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-6"><h3 className="text-2xl font-bold text-slate-800">{view==='clients' ? (isEditingRecord ? 'Edit Client' : 'New Client') : view==='salaries' ? (isEditingRecord ? 'Edit Payslip' : 'New Payslip') : view==='petty-cash' ? (isEditingRecord ? 'Edit Entry' : 'New Cash Entry') : view==='expenses' ? (isEditingRecord ? 'Edit Expense' : 'New Expense') : view==='vendors' ? (isEditingRecord ? 'Edit Vendor' : 'New Vendor') : view==='vendor-bills' ? (isEditingRecord ? 'Edit Bill' : 'New Vendor Bill') : view==='manage-users' ? (isEditingUser ? 'Edit User' : 'Add New User') : 'Record Details'}</h3><button onClick={()=>setShowForm(false)} className="p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"><X size={20}/></button></div>
+                    <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-6"><h3 className="text-2xl font-bold text-slate-800">{view==='clients' ? (isEditingRecord ? 'Edit Client' : 'New Client') : view==='salaries' ? (isEditingRecord ? 'Edit Payslip' : 'New Payslip') : view==='petty-cash' ? (isEditingRecord ? 'Edit Entry' : 'New Cash Entry') : view==='expenses' ? (isEditingRecord ? 'Edit Expense' : 'New Expense') : view==='vendors' ? (isEditingRecord ? 'Edit Vendor' : 'New Vendor') : view==='vendor-bills' ? (isEditingRecord ? 'Edit Bill' : 'New Vendor Bill') : view==='manage-users' ? (isEditingUser ? 'Edit User' : 'Add New User') : view==='bank' ? (isEditingRecord ? 'Edit Transaction' : 'New Bank Entry') : 'Record Details'}</h3><button onClick={()=>setShowForm(false)} className="p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"><X size={20}/></button></div>
                     <form onSubmit={handleAddSubmit} className="space-y-6">
                          {/* DYNAMIC FORM FIELDS BASED ON VIEW - STYLED CONSISTENTLY */}
                         {view==='manage-users' && (
@@ -6029,25 +6457,63 @@ function App() {
                             </div>
                         )}
                         {!['manage-users','clients','vendor-bills','salaries','vendors','petty-cash','bank','expenses'].includes(view) && <><input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/><input placeholder="Description/Name" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})}/><input type="number" placeholder="Amount" className="form-input" value={formData.amount||''} onChange={e=>setFormData({...formData,amount:e.target.value})}/></>}
-                        {view==='bank' && <>
-                            <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/>
-                            <input placeholder="Bank Name (e.g. HBL, Meezan)" className="form-input" value={formData.bank||''} onChange={e=>setFormData({...formData,bank:e.target.value})}/>
-                            <input placeholder="Description / Reference" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})}/>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Amount</label>
-                                    <input type="number" placeholder="Positive = Credit, Negative = Debit" className="form-input" value={formData.amount||''} onChange={e=>setFormData({...formData,amount:e.target.value})}/>
-                                    <p className="text-xs text-slate-400 mt-1">Use negative (−) for payments out</p>
+                        {view==='bank' && (
+                            <div className="space-y-4">
+                                <div className="pb-2 border-b border-slate-100">
+                                    <p className="text-xs font-extrabold text-sky-600 uppercase tracking-widest">Transaction Details</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Date *</label>
+                                        <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Status</label>
+                                        <select className="form-select" value={formData.status||'Cleared'} onChange={e=>setFormData({...formData,status:e.target.value})}>
+                                            <option>Cleared</option>
+                                            <option>Pending</option>
+                                        </select>
+                                    </div>
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Status</label>
-                                    <select className="form-select" value={formData.status||'Cleared'} onChange={e=>setFormData({...formData,status:e.target.value})}>
-                                        <option>Cleared</option>
-                                        <option>Pending</option>
-                                    </select>
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Bank Name *</label>
+                                    <input required placeholder="e.g. HBL, Meezan, UBL" className="form-input" value={formData.bank||''} onChange={e=>setFormData({...formData,bank:e.target.value})}/>
                                 </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Description / Reference</label>
+                                    <input placeholder="e.g. Client payment, Salary transfer, Utility bill" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})}/>
+                                </div>
+                                <div className="pb-2 border-b border-slate-100 pt-1">
+                                    <p className="text-xs font-extrabold text-sky-600 uppercase tracking-widest">Amount</p>
+                                </div>
+                                <div className="flex gap-3">
+                                    {['Credit','Debit'].map(t => (
+                                        <button key={t} type="button"
+                                            onClick={() => setFormData({...formData, _txType: t, amount: t==='Debit' && Number(formData.amount) > 0 ? -Number(formData.amount) : t==='Credit' && Number(formData.amount) < 0 ? Math.abs(Number(formData.amount)) : formData.amount })}
+                                            className={`flex-1 py-2.5 rounded-xl font-bold text-sm border-2 transition-all flex items-center justify-center gap-1.5 ${(formData._txType||'Credit')===t ? t==='Credit' ? 'bg-emerald-50 border-emerald-400 text-emerald-700' : 'bg-rose-50 border-rose-400 text-rose-700' : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}>
+                                            {t === 'Credit' ? <ArrowDownLeft size={14}/> : <ArrowUpRight size={14}/>} {t}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Amount *</label>
+                                    <input type="number" required placeholder="0" className="form-input" value={formData.amount !== undefined ? Math.abs(Number(formData.amount)||0)||'' : ''} onChange={e => {
+                                        const raw = Number(e.target.value)||0;
+                                        const signed = (formData._txType||'Credit') === 'Debit' ? -raw : raw;
+                                        setFormData({...formData, amount: e.target.value === '' ? '' : signed});
+                                    }}/>
+                                    <p className="text-xs text-slate-400 mt-1">Select Credit / Debit above to set direction</p>
+                                </div>
+                                {(Number(formData.amount) !== 0 && formData.amount !== '') && (
+                                    <div className={`p-3 rounded-xl flex items-center justify-between border ${Number(formData.amount) >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
+                                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">{Number(formData.amount) >= 0 ? 'Credit (In)' : 'Debit (Out)'}</span>
+                                        <span className={`text-xl font-extrabold tabular-nums ${Number(formData.amount) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                            {Number(formData.amount) >= 0 ? '+' : '-'}{formatCurrency(Math.abs(Number(formData.amount)))}
+                                        </span>
+                                    </div>
+                                )}
                             </div>
-                        </>}
+                        )}
                         {view==='petty-cash' && (
                             <div className="space-y-4">
                                 <div className="pb-2 border-b border-slate-100">
