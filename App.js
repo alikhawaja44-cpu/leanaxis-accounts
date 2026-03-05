@@ -4492,7 +4492,6 @@ const ManageUsersPage = ({ users, currentUser, onNewUser, onEdit, onDelete }) =>
     const [search,      setSearch]      = useState('');
     const [roleFilter,  setRoleFilter]  = useState('All');
     const [sortBy,      setSortBy]      = useState('createdAt-desc');
-    const [showConfirm, setShowConfirm] = useState(null); // { id, username }
 
     /* ── Stats ─────────────────────────────────────────── */
     const stats = useMemo(() => {
@@ -4521,11 +4520,7 @@ const ManageUsersPage = ({ users, currentUser, onNewUser, onEdit, onDelete }) =>
 
     const handleDeleteClick = (user) => {
         if (user.username === currentUser?.username) return;
-        setShowConfirm({ id: user.id, username: user.username });
-    };
-
-    const confirmDelete = () => {
-        if (showConfirm) { onDelete(showConfirm.id); setShowConfirm(null); }
+        onDelete(user.id);
     };
 
     const formatDate = (iso) => {
@@ -4793,32 +4788,6 @@ const ManageUsersPage = ({ users, currentUser, onNewUser, onEdit, onDelete }) =>
                 </div>
             </div>
 
-            {/* ── Delete Confirmation Modal ───────────────── */}
-            {showConfirm && (
-                <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
-                    onClick={() => setShowConfirm(null)}>
-                    <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-sm w-full animate-in zoom-in-95 duration-200"
-                        onClick={e => e.stopPropagation()}>
-                        <div className="w-14 h-14 bg-rose-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                            <Trash2 className="text-rose-600" size={24}/>
-                        </div>
-                        <h3 className="text-xl font-extrabold text-slate-800 text-center mb-2">Delete User?</h3>
-                        <p className="text-sm text-slate-500 text-center mb-6">
-                            This will permanently remove <span className="font-bold text-slate-800">@{showConfirm.username}</span> from the system. This cannot be undone.
-                        </p>
-                        <div className="flex gap-3">
-                            <button onClick={() => setShowConfirm(null)}
-                                className="flex-1 py-3 rounded-xl font-bold text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">
-                                Cancel
-                            </button>
-                            <button onClick={confirmDelete}
-                                className="flex-1 py-3 rounded-xl font-bold text-sm text-white bg-rose-600 hover:bg-rose-700 transition-colors shadow-lg shadow-rose-200">
-                                Delete User
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };
@@ -5721,6 +5690,7 @@ function App() {
   const [showSalarySlip, setShowSalarySlip] = useState(false);
   const [selectedClientProfile, setSelectedClientProfile] = useState(null);
   const [selectedVendorProfile, setSelectedVendorProfile] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // { id, type, label }
 
   const [pettyCash] = useFirebaseSync('petty_cash');
   const [expenses] = useFirebaseSync('expenses');
@@ -5762,14 +5732,74 @@ function App() {
   };
 
   const handleLogout = () => { setIsAuthenticated(false); setCurrentUser(null); setView('dashboard'); };
-  const deleteRecord = async (collectionName, id) => { 
+
+  // ── Confirmed delete (called after user clicks "Yes, Delete" in modal) ──────
+  const deleteRecord = async (collectionName, id) => {
       await deleteDoc(doc(db, collectionName, id));
       toast('Record deleted.', 'info');
   };
-  const handleDelete = (id, type) => {
+  const handleDelete = (id, type, label = '') => {
     if (currentUser.role !== 'Admin') return toast('Access denied. Admin role required.', 'error');
+    setDeleteConfirm({ id, type, label });
+  };
+  const confirmDelete = () => {
+    if (!deleteConfirm) return;
+    const { id, type } = deleteConfirm;
     const map = { 'petty': 'petty_cash', 'expense': 'expenses', 'salary': 'salaries', 'bank': 'bank_records', 'client': 'clients', 'vendor': 'vendors', 'user': 'users', 'invoice': 'invoices', 'bill': 'vendor_bills', 'quotation': 'quotations' };
     if (map[type]) deleteRecord(map[type], id);
+    setDeleteConfirm(null);
+  };
+
+  // ── Per-view form validation ─────────────────────────────────────────────────
+  const validateForm = () => {
+    const d = formData;
+    const err = (msg) => { toast(msg, 'warning'); return false; };
+    if (view === 'petty-cash') {
+      if (!d.date) return err('Please select a date.');
+      if (!d.description?.trim()) return err('Description is required.');
+      if ((!Number(d.cashIn) && !Number(d.cashOut)) || (Number(d.cashIn) < 0 || Number(d.cashOut) < 0))
+        return err('Enter a valid Cash In or Cash Out amount.');
+      return true;
+    }
+    if (view === 'expenses') {
+      if (!d.date) return err('Please select a date.');
+      if (!d.description?.trim()) return err('Description is required.');
+      if (!Number(d.amount) || Number(d.amount) <= 0) return err('Please enter a valid amount greater than 0.');
+      return true;
+    }
+    if (view === 'salaries') {
+      if (!d.date) return err('Please select a payment date.');
+      if (!d.employeeName?.trim()) return err('Employee name is required.');
+      if (!Number(d.basicSalary) || Number(d.basicSalary) <= 0) return err('Please enter a valid basic salary.');
+      return true;
+    }
+    if (view === 'bank') {
+      if (!d.date) return err('Please select a date.');
+      if (!d.bank?.trim()) return err('Bank name is required.');
+      if (!d.amount || d.amount === '0') return err('Please enter a valid transaction amount.');
+      return true;
+    }
+    if (view === 'clients') {
+      if (!d.name?.trim()) return err('Client name is required.');
+      return true;
+    }
+    if (view === 'vendors') {
+      if (!d.name?.trim()) return err('Vendor name is required.');
+      return true;
+    }
+    if (view === 'vendor-bills') {
+      if (!d.date) return err('Please select a bill date.');
+      if (!d.vendor) return err('Please select a vendor.');
+      if (!Number(d.billAmount) || Number(d.billAmount) <= 0) return err('Please enter a valid bill amount.');
+      return true;
+    }
+    if (view === 'manage-users') {
+      if (!d.username?.trim()) return err('Username is required.');
+      if (!d.email?.trim()) return err('Email address is required.');
+      if (!isEditingUser && !d.password?.trim()) return err('Password is required for new users.');
+      return true;
+    }
+    return true;
   };
   const handleEdit = (item) => { if (currentUser.role !== 'Admin') return toast('Access denied. Admin role required.', 'error'); setFormData({ ...item }); setIsEditingRecord(true); setShowForm(true); };
   const handleDuplicate = (item) => { const { id, createdAt, lastEditedAt, ...dataToCopy } = item; setFormData({ ...dataToCopy, date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); };
@@ -5845,6 +5875,7 @@ function App() {
   };
   const handleAddSubmit = (e) => {
     e.preventDefault();
+    if (!validateForm()) return;
     let col = { 'manage-users': 'users', 'petty-cash': 'petty_cash', 'expenses': 'expenses', 'salaries': 'salaries', 'bank': 'bank_records', 'clients': 'clients', 'vendors': 'vendors', 'vendor-bills': 'vendor_bills' }[view];
     if (col) saveToFirebase(col, formData, (isEditingRecord || isEditingUser) ? formData.id : null);
   };
@@ -6027,7 +6058,7 @@ function App() {
           {type !== 'user' && <button onClick={() => handleDuplicate(item)} className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors shadow-sm" title="Duplicate"><Copy size={16} /></button>}
           {currentUser.role === 'Admin' && (
              <><button onClick={() => type === 'user' ? (setFormData({...item}), setIsEditingUser(true), setShowForm(true)) : handleEdit(item)} className="p-2 text-violet-600 bg-violet-50 hover:bg-violet-100 rounded-xl transition-colors shadow-sm"><Edit size={16} /></button>
-             <button onClick={() => type === 'user' ? deleteRecord('users', item.id) : handleDelete(item.id, type)} className="p-2 text-rose-500 bg-rose-50 hover:bg-rose-100 rounded-xl transition-colors shadow-sm"><Trash2 size={16} /></button></>
+             <button onClick={() => type === 'user' ? handleDelete(item.id, 'user', item.username) : handleDelete(item.id, type, item.name || item.employeeName || item.description || '')} className="p-2 text-rose-500 bg-rose-50 hover:bg-rose-100 rounded-xl transition-colors shadow-sm"><Trash2 size={16} /></button></>
           )}
       </div>
   );
@@ -6055,29 +6086,37 @@ function App() {
             <Logo white={true} className="mb-8" />
             <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 pl-4">Main Menu</div>
         </div>
-        <nav className="flex-1 px-4 space-y-2 overflow-y-auto relative z-10 scrollbar-thin scrollbar-thumb-slate-700">
+        <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto relative z-10 py-2">
           <NavButton id="dashboard" icon={LayoutDashboard} label="Dashboard" />
-          <NavButton id="receivables-payables" icon={CreditCard} label="Receivables & Payables" />
-          <NavButton id="reports" icon={FileText} label="Analytics & P&L" />
-          <NavButton id="tax-report" icon={Landmark} label="Tax Liability" />
-          <NavButton id="statements" icon={BookOpen} label="Statements (Ledger)" />
-          <div className="pt-6 pb-2 px-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Operations</div>
+
+          <div className="pt-5 pb-1.5 px-4 text-[10px] font-extrabold text-slate-600 uppercase tracking-widest">Sales</div>
           <NavButton id="quotations" icon={FileCheck} label="Quotations" />
           <NavButton id="invoices" icon={FileText} label="Invoices" />
           <NavButton id="clients" icon={Briefcase} label="Clients" />
-          <NavButton id="petty-cash" icon={Wallet} label="Petty Cash" />
+
+          <div className="pt-5 pb-1.5 px-4 text-[10px] font-extrabold text-slate-600 uppercase tracking-widest">Expenses</div>
           <NavButton id="expenses" icon={Receipt} label="Expenses" />
-          <NavButton id="salaries" icon={Users} label="Team Salaries" />
-          <NavButton id="vendor-bills" icon={FileText} label="Vendor Bills" />
+          <NavButton id="petty-cash" icon={Wallet} label="Petty Cash" />
           <NavButton id="vendors" icon={Truck} label="Vendors" />
+          <NavButton id="vendor-bills" icon={FileText} label="Vendor Bills" />
+
+          <div className="pt-5 pb-1.5 px-4 text-[10px] font-extrabold text-slate-600 uppercase tracking-widest">Finance</div>
+          <NavButton id="salaries" icon={Users} label="Team Salaries" />
           <NavButton id="bank" icon={Building2} label="Bank Accounts" />
+          <NavButton id="receivables-payables" icon={CreditCard} label="Receivables & Payables" />
+
+          <div className="pt-5 pb-1.5 px-4 text-[10px] font-extrabold text-slate-600 uppercase tracking-widest">Reports</div>
+          <NavButton id="reports" icon={FileText} label="P&L Analytics" />
+          <NavButton id="tax-report" icon={Landmark} label="Tax Liability" />
+          <NavButton id="statements" icon={BookOpen} label="Client Statements" />
+
           {currentUser.role === 'Admin' && (
               <>
-                <div className="pt-6 pb-2 px-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Administration</div>
+                <div className="pt-5 pb-1.5 px-4 text-[10px] font-extrabold text-slate-600 uppercase tracking-widest">Admin</div>
                 <NavButton id="manage-users" icon={UserPlus} label="User Management" />
                 <NavButton id="settings" icon={Settings} label="Configuration" />
-                <button onClick={handleMasterExport} className="w-full flex items-center gap-4 px-5 py-3.5 mt-2 rounded-2xl text-emerald-400 hover:bg-emerald-500/10 transition-all font-bold text-sm tracking-wide group">
-                    <Database size={20} className="group-hover:scale-110 transition-transform"/> Backup Data
+                <button onClick={handleMasterExport} className="w-full flex items-center gap-4 px-5 py-3 rounded-2xl text-emerald-400 hover:bg-emerald-500/10 transition-all font-bold text-sm tracking-wide group">
+                    <Database size={18} className="group-hover:scale-110 transition-transform flex-shrink-0"/> Backup Data
                 </button>
               </>
           )}
@@ -6314,32 +6353,32 @@ function App() {
 
         {view === 'receivables-payables' && <ReceivablesPayables clients={clients} invoices={invoices} vendors={vendors} vendorBills={vendorBills} bankRecords={bankRecords} pettyCash={pettyCash} onViewClient={(c) => { setSelectedClientProfile(c); setView('client-profile'); }} onViewVendor={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
 
-        {view === 'clients' && <ClientsPage clients={clients} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} currentUser={currentUser} onViewProfile={(c) => { setSelectedClientProfile(c); setView('client-profile'); }} onEdit={(c) => { setFormData({...c}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => handleDelete(id, 'client')} onNewClient={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} />}
+        {view === 'clients' && <ClientsPage clients={clients} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} currentUser={currentUser} onViewProfile={(c) => { setSelectedClientProfile(c); setView('client-profile'); }} onEdit={(c) => { setFormData({...c}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = clients.find(x=>x.id===id); handleDelete(id, 'client', r?.name||''); }} onNewClient={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} />}
 
         {view === 'client-profile' && selectedClientProfile && <ClientProfile client={selectedClientProfile} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('clients')} onCreateInvoice={() => setView('invoices')} onRecordPayment={(inv) => initiatePayment(inv, 'invoice', calculateTax((inv.items||[]).reduce((s,it)=>s+((it.qty||0)*(it.rate||0)),0), inv.taxRate).total - (Number(inv.amountReceived)||0))} />}
 
         {view === 'vendor-profile' && selectedVendorProfile && <VendorProfile vendor={selectedVendorProfile} vendorBills={vendorBills} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('vendors')} />}
 
-        {view === 'expenses' && <ExpensesPage expenses={expenses} expenseCategories={expenseCategories} currentUser={currentUser} onNewExpense={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => handleDelete(id, 'expense')} />}
+        {view === 'expenses' && <ExpensesPage expenses={expenses} expenseCategories={expenseCategories} currentUser={currentUser} onNewExpense={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = expenses.find(x=>x.id===id); handleDelete(id, 'expense', r?.description||''); }} />}
 
-        {view === 'petty-cash' && <PettyCashPage pettyCash={pettyCash} currentUser={currentUser} onNewEntry={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => handleDelete(id, 'petty')} />}
+        {view === 'petty-cash' && <PettyCashPage pettyCash={pettyCash} currentUser={currentUser} onNewEntry={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = pettyCash.find(x=>x.id===id); handleDelete(id, 'petty', r?.description||''); }} />}
 
-        {view === 'salaries' && <SalariesPage salaries={salaries} currentUser={currentUser} onNewSalary={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(s) => { setFormData({...s}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => handleDelete(id, 'salary')} onViewSlip={(s) => { if (s) { setFormData(s); setShowSalarySlip(true); } }} />}
+        {view === 'salaries' && <SalariesPage salaries={salaries} currentUser={currentUser} onNewSalary={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(s) => { setFormData({...s}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = salaries.find(x=>x.id===id); handleDelete(id, 'salary', r?.employeeName||''); }} onViewSlip={(s) => { if (s) { setFormData(s); setShowSalarySlip(true); } }} />}
 
-        {view === 'quotations' && <QuotationGenerator clients={clients} onSave={(q) => saveToFirebase('quotations', q, q.id)} savedQuotations={quotations} onDeleteQuotation={(id) => handleDelete(id, 'quotation')} onConvertToInvoice={handleConvertToInvoice} />}
+        {view === 'quotations' && <QuotationGenerator clients={clients} onSave={(q) => saveToFirebase('quotations', q, q.id)} savedQuotations={quotations} onDeleteQuotation={(id) => { const r = quotations.find(x=>x.id===id); handleDelete(id, 'quotation', r?.client||''); }} onConvertToInvoice={handleConvertToInvoice} />}
 
-        {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => handleDelete(id, 'invoice')} onGenerateRecurring={handleGenerateRecurring} onReceivePayment={(inv, amt) => initiatePayment(inv, 'invoice', amt)} />}
+        {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => { const r = invoices.find(x=>x.id===id); handleDelete(id, 'invoice', r?.client ? `Invoice #${r.invoiceNumber} — ${r.client}` : ''); }} onGenerateRecurring={handleGenerateRecurring} onReceivePayment={(inv, amt) => initiatePayment(inv, 'invoice', amt)} />}
 
-        {view === 'vendors' && <VendorsPage vendors={vendors} vendorBills={vendorBills} currentUser={currentUser} onNewVendor={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(v) => { setFormData({...v}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => handleDelete(id, 'vendor')} onViewProfile={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
+        {view === 'vendors' && <VendorsPage vendors={vendors} vendorBills={vendorBills} currentUser={currentUser} onNewVendor={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(v) => { setFormData({...v}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendors.find(x=>x.id===id); handleDelete(id, 'vendor', r?.name||''); }} onViewProfile={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
 
-        {view === 'vendor-bills' && <VendorBillsPage vendorBills={vendorBills} vendors={vendors} currentUser={currentUser} onNewBill={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(b) => { setFormData({...b}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => handleDelete(id, 'bill')} onPayBill={(b, amt) => initiatePayment(b, 'bill', amt)} />}
+        {view === 'vendor-bills' && <VendorBillsPage vendorBills={vendorBills} vendors={vendors} currentUser={currentUser} onNewBill={() => { setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(b) => { setFormData({...b}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendorBills.find(x=>x.id===id); handleDelete(id, 'bill', r?.vendor ? `${r.vendor} — ${r.billNumber||r.description||''}` : ''); }} onPayBill={(b, amt) => initiatePayment(b, 'bill', amt)} />}
 
         {view === 'manage-users' && <ManageUsersPage
             users={users}
             currentUser={currentUser}
             onNewUser={() => { setFormData({}); setIsEditingUser(false); setIsEditingRecord(false); setShowForm(true); }}
             onEdit={(u) => { setFormData({...u}); setIsEditingUser(true); setShowForm(true); }}
-            onDelete={(id) => deleteRecord('users', id)}
+            onDelete={(id) => { const r = users.find(x=>x.id===id); handleDelete(id, 'user', r?.username||''); }}
         />}
 
         {view === 'bank' && <BankAccountsPage
@@ -6347,7 +6386,7 @@ function App() {
             currentUser={currentUser}
             onNewEntry={() => { setFormData({ date: new Date().toISOString().split('T')[0], status: 'Cleared' }); setIsEditingRecord(false); setShowForm(true); }}
             onEdit={(r) => { setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }}
-            onDelete={(id) => handleDelete(id, 'bank')}
+            onDelete={(id) => { const r = bankRecords.find(x=>x.id===id); handleDelete(id, 'bank', r?.description||r?.bank||''); }}
         />}
 
 
@@ -6846,6 +6885,35 @@ function App() {
                         <button disabled={isSubmitting} className="w-full bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white py-4 rounded-2xl font-bold hover:shadow-lg hover:shadow-violet-200 transition-all transform hover:scale-[1.01] active:scale-95 flex justify-center items-center gap-2">{isSubmitting?<RefreshCw className="animate-spin" size={20}/>:<CheckCircle size={20}/>} {isSubmitting?'Saving...':'Save Record'}</button>
                     </form>
                     <style>{`.form-input { width: 100%; padding: 14px; border-radius: 12px; border: 1px solid #E2E8F0; background: #F8FAFC; outline: none; transition: all; font-weight: 500; font-size: 0.95rem; } .form-input:focus { background: white; border-color: #8B5CF6; box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1); } .form-select { width: 100%; padding: 14px; border-radius: 12px; border: 1px solid #E2E8F0; background: white; outline: none; font-weight: 500; appearance: none; background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e"); background-position: right 0.5rem center; background-repeat: no-repeat; background-size: 1.5em 1.5em; }`}</style>
+                </div>
+            </div>
+        )}
+
+        {/* DELETE CONFIRMATION MODAL */}
+        {deleteConfirm && (
+            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+                <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200">
+                    <div className="flex items-center justify-center w-16 h-16 bg-rose-100 rounded-2xl mx-auto mb-5">
+                        <Trash2 className="text-rose-600" size={28}/>
+                    </div>
+                    <h3 className="text-xl font-extrabold text-slate-800 text-center mb-2">Delete Record?</h3>
+                    {deleteConfirm.label ? (
+                        <p className="text-slate-500 text-center text-sm mb-6">
+                            You are about to permanently delete <span className="font-bold text-slate-800">"{deleteConfirm.label}"</span>. This cannot be undone.
+                        </p>
+                    ) : (
+                        <p className="text-slate-500 text-center text-sm mb-6">This record will be permanently deleted and cannot be recovered.</p>
+                    )}
+                    <div className="flex gap-3">
+                        <button onClick={() => setDeleteConfirm(null)}
+                            className="flex-1 py-3 rounded-2xl font-bold text-sm bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors">
+                            Cancel
+                        </button>
+                        <button onClick={confirmDelete}
+                            className="flex-1 py-3 rounded-2xl font-bold text-sm bg-rose-600 text-white hover:bg-rose-700 transition-colors shadow-lg shadow-rose-200">
+                            Yes, Delete
+                        </button>
+                    </div>
                 </div>
             </div>
         )}
