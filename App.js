@@ -1050,22 +1050,53 @@ const SalarySlip = ({ data, onClose }) => {
         window.open(url, '_blank');
     };
 
-    const handlePrint = async () => {
+    const handleDownloadPDF = async () => {
         try {
             await loadPdfLibrary();
-            const element = document.getElementById('salary-slip-content');
-            if (!element) return;
+            // Clone the slip content into a temp off-screen div so overflow/scroll
+            // constraints don't cause html2canvas to capture a zero-height element.
+            const source = document.getElementById('salary-slip-printable');
+            if (!source) return toast('Could not find slip content.', 'error');
+            const clone = source.cloneNode(true);
+            const wrapper = document.createElement('div');
+            wrapper.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:#fff;z-index:-1;';
+            wrapper.appendChild(clone);
+            document.body.appendChild(wrapper);
             const opt = {
                 margin: [0.4, 0.4, 0.4, 0.4],
                 filename: `Payslip_${data.employeeName}_${data.date}.pdf`,
                 image: { type: 'jpeg', quality: 0.99 },
-                html2canvas: { scale: 2.5, useCORS: true },
+                html2canvas: { scale: 2, useCORS: true, logging: false, windowWidth: 794 },
                 jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
             };
-            window.html2pdf().set(opt).from(element).save();
+            await window.html2pdf().set(opt).from(wrapper).save();
+            document.body.removeChild(wrapper);
+            toast('PDF downloaded!', 'success');
         } catch (e) {
-            toast('PDF export failed. Try printing via browser (Ctrl+P).', 'error');
+            console.error(e);
+            toast('PDF export failed. Try the Print button instead.', 'error');
         }
+    };
+
+    const handlePrint = () => {
+        // Grab only the printable slip, inject a scoped print stylesheet,
+        // open a fresh window, write the content, print, then close.
+        const source = document.getElementById('salary-slip-printable');
+        if (!source) return;
+        const printWindow = window.open('', '_blank', 'width=900,height=700');
+        printWindow.document.write(`<!DOCTYPE html><html><head>
+            <meta charset="UTF-8"/>
+            <title>Payslip — ${data.employeeName}</title>
+            <script src="https://cdn.tailwindcss.com"><\/script>
+            <style>
+                @media print { body { margin: 0; } }
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#fff; }
+            </style>
+        </head><body>${source.outerHTML}</body></html>`);
+        printWindow.document.close();
+        printWindow.focus();
+        // Wait for Tailwind + fonts to load before printing
+        setTimeout(() => { printWindow.print(); printWindow.close(); }, 900);
     };
 
     const gross = Number(data.basicSalary || data.totalPayable) || 0;
@@ -1086,8 +1117,10 @@ const SalarySlip = ({ data, onClose }) => {
                     <button onClick={onClose} className="p-2 bg-white rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors shadow-sm"><X size={18}/></button>
                 </div>
 
-                {/* Printable content */}
-                <div className="overflow-y-auto flex-1" id="salary-slip-content">
+                {/* Printable content — the inner div carries the id so html2pdf
+                    captures it at full natural height, not clipped by scroll */}
+                <div className="overflow-y-auto flex-1">
+                <div id="salary-slip-printable">
                     {/* Header band */}
                     <div className="bg-gradient-to-r from-slate-900 to-slate-800 px-10 py-8 relative overflow-hidden">
                         <div className="absolute top-0 right-0 w-64 h-64 bg-violet-500/10 rounded-full blur-3xl translate-x-1/2 -translate-y-1/2 pointer-events-none"/>
@@ -1216,11 +1249,12 @@ const SalarySlip = ({ data, onClose }) => {
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>{/* end salary-slip-printable */}
+                </div>{/* end overflow-y-auto */}
 
                 {/* Action bar */}
                 <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex gap-3 flex-shrink-0">
-                    <button onClick={handlePrint}
+                    <button onClick={handleDownloadPDF}
                         className="flex-1 bg-white border border-slate-200 text-slate-700 py-3 rounded-xl font-bold text-sm hover:bg-slate-100 transition-colors flex justify-center items-center gap-2 shadow-sm">
                         <Printer size={16}/> Download PDF
                     </button>
@@ -1228,7 +1262,7 @@ const SalarySlip = ({ data, onClose }) => {
                         className="flex-1 bg-[#25D366] text-white py-3 rounded-xl font-bold text-sm hover:bg-[#20bd5a] transition-all shadow-lg shadow-green-200 flex justify-center items-center gap-2">
                         <Share2 size={16}/> Send via WhatsApp
                     </button>
-                    <button onClick={() => window.print()}
+                    <button onClick={handlePrint}
                         className="bg-white border border-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold text-sm hover:bg-slate-100 transition-colors flex items-center gap-1.5 shadow-sm">
                         <Printer size={14}/> Print
                     </button>
