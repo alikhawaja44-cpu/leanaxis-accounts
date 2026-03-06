@@ -241,6 +241,10 @@ const LoginView = ({ onLogin, loading: externalLoading, error }) => {
   const [loginInput, setLoginInput] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  // Read company profile from localStorage so login screen reflects branding
+  const loginCompany = (() => {
+    try { return JSON.parse(localStorage.getItem('leanaxis_company_profile') || '{}'); } catch { return {}; }
+  })();
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
@@ -255,9 +259,9 @@ const LoginView = ({ onLogin, loading: externalLoading, error }) => {
       <div className="absolute bottom-[-20%] right-[-10%] w-[600px] h-[600px] bg-fuchsia-600/20 rounded-full blur-[100px] animate-pulse delay-700"></div>
       <div className="bg-slate-900/40 backdrop-blur-2xl p-10 rounded-3xl shadow-2xl w-full max-w-md border border-white/10 relative z-10">
         <div className="flex flex-col items-center mb-10">
-           <img src="./logo.png" alt="LeanAxis" className="h-20 object-contain mb-4 drop-shadow-[0_0_15px_rgba(139,92,246,0.5)]" onError={(e)=>{e.target.style.display='none'; e.target.nextSibling.style.display='block'}}/>
-           <div className="hidden text-white font-bold text-5xl tracking-tight mb-2">LEAN<span className="text-violet-400">AXIS</span></div>
-           <p className="text-slate-400 text-xs font-bold uppercase tracking-[0.3em]">Creative Agency</p>
+           <img src="./logo.png" alt={loginCompany.name || 'Company'} className="h-20 object-contain mb-4 drop-shadow-[0_0_15px_rgba(139,92,246,0.5)]" onError={(e)=>{e.target.style.display='none'; e.target.nextSibling.style.display='block'}}/>
+           <div className="hidden text-white font-bold text-5xl tracking-tight mb-2">{loginCompany.name || 'ACCOUNTS'}</div>
+           <p className="text-slate-400 text-xs font-bold uppercase tracking-[0.3em]">{loginCompany.tagline || 'Business Management'}</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
@@ -285,18 +289,19 @@ const LoginView = ({ onLogin, loading: externalLoading, error }) => {
 };
 
 // --- QUOTATION GENERATOR ---
-const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotation, onConvertToInvoice, companyProfile = {} }) => {
+const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotation, onConvertToInvoice, companyProfile = {}, canWrite }) => {
     const toast = useToast();
-    const [viewMode, setViewMode] = useState('list'); 
-    const [quoteData, setQuoteData] = useState({ client: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0, status: 'Pending' });
+    const [viewMode, setViewMode] = useState('list');
+    const [quoteNumber, setQuoteNumber] = useState(() => `QT-${new Date().getFullYear()}-${String(savedQuotations?.length + 1 || 1).padStart(3,'0')}`);
+    const [quoteData, setQuoteData] = useState({ client: '', date: new Date().toISOString().split('T')[0], validUntil: '', items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0, notes: '', status: 'Pending' });
     const addItem = () => setQuoteData({...quoteData, items: [...quoteData.items, { desc: '', qty: 1, rate: 0 }]});
     const updateItem = (index, field, val) => { const newItems = [...quoteData.items]; newItems[index][field] = val; setQuoteData({...quoteData, items: newItems}); };
     const removeItem = (index) => { if(quoteData.items.length > 1) setQuoteData({...quoteData, items: quoteData.items.filter((_, i) => i !== index)}); };
-    const { subtotal, tax, total } = calculateTax(quoteData.items.reduce((acc, item) => acc + (item.qty * item.rate), 0), quoteData.taxRate);
+    const { subtotal, tax, total } = calculateTax(quoteData.items.reduce((acc, item) => acc + ((Number(item.qty)||0) * (Number(item.rate)||0)), 0), quoteData.taxRate);
 
     const handleShareWhatsApp = () => {
         if (!quoteData.client || total === 0) return toast("Please select a client and add items first.", "warning");
-        const message = `*QUOTATION* from ${companyProfile.name || 'Our Company'}%0A` + `To: ${quoteData.client}%0A` + `Date: ${quoteData.date}%0A%0A` + quoteData.items.map(item => `- ${item.desc}: Rs ${item.rate * item.qty}`).join('%0A') + `%0A%0A*Total Estimate: ${formatCurrency(total)}*`;
+        const message = `*QUOTATION ${quoteNumber}*\nFrom: ${companyProfile.name || 'Our Company'}%0ATo: ${quoteData.client}%0ADate: ${quoteData.date}${quoteData.validUntil?`%0AValid Until: ${quoteData.validUntil}`:''}%0A%0A` + quoteData.items.map(item => `- ${item.desc}: ${formatCurrency((Number(item.qty)||0) * (Number(item.rate)||0))}`).join('%0A') + `%0A%0A*Total Estimate: ${formatCurrency(total)}*`;
         window.open(`https://wa.me/?text=${message}`, '_blank');
     };
 
@@ -304,9 +309,18 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
         return (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Quotations</h2>
+                    <div>
+                        <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Quotations</h2>
+                        <p className="text-slate-500 text-sm font-medium mt-0.5">{savedQuotations.length} total</p>
+                    </div>
                     <div className="flex gap-2 w-full sm:w-auto">
-                        <button onClick={() => { setQuoteData({ client: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0, status: 'Pending' }); setViewMode('create'); }} className="flex-1 sm:flex-none bg-amber-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-amber-600 shadow-lg shadow-amber-200 transition-all hover:scale-105 active:scale-95"><Plus size={18}/> New Quote</button>
+                        {canWrite && <button onClick={() => {
+                            const num = `QT-${new Date().getFullYear()}-${String(savedQuotations.length + 1).padStart(3,'0')}`;
+                            setQuoteNumber(num);
+                            setQuoteData({ client: '', date: new Date().toISOString().split('T')[0], validUntil: '', items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0, notes: '', status: 'Pending' });
+                            setViewMode('create');
+                        }} className="flex-1 sm:flex-none bg-amber-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-amber-600 shadow-lg shadow-amber-200 transition-all hover:scale-105 active:scale-95"><Plus size={18}/> New Quote</button>}
+                        <button onClick={() => exportToCSV(savedQuotations, 'Quotations_Export')} className="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 shadow-sm"><Download size={15}/> Export</button>
                     </div>
                 </div>
                 {savedQuotations.length === 0 ? (
@@ -319,21 +333,28 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
                     <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
                         <table className="w-full text-left">
                             <thead className="bg-slate-50/50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider">
-                                <tr><th className="p-6">Date</th><th className="p-6">Client</th><th className="p-6 text-right">Total</th><th className="p-6 text-center">Status</th><th className="p-6 text-center">Actions</th></tr>
+                                <tr><th className="p-5">Ref #</th><th className="p-5">Date</th><th className="p-5">Client</th><th className="p-5">Valid Until</th><th className="p-5 text-right">Total</th><th className="p-5 text-center">Status</th><th className="p-5 text-center">Actions</th></tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
                                 {savedQuotations.map(q => {
-                                    const qTotal = calculateTax(q.items.reduce((a, i) => a + (i.qty * i.rate), 0), q.taxRate).total;
+                                    const qTotal = calculateTax(q.items.reduce((a, i) => a + ((Number(i.qty)||0) * (Number(i.rate)||0)), 0), q.taxRate).total;
+                                    const isExpired = q.validUntil && new Date(q.validUntil) < new Date();
                                     return (
                                         <tr key={q.id} className="hover:bg-slate-50/50 transition-colors group">
-                                            <td className="p-6 text-sm text-slate-500 font-medium">{q.date}</td>
-                                            <td className="p-6 font-bold text-slate-800 text-base">{q.client}</td>
-                                            <td className="p-6 text-right font-bold text-amber-600 text-base">{formatCurrency(qTotal)}</td>
-                                            <td className="p-6 text-center"><span className={`px-3 py-1.5 rounded-full text-xs font-bold shadow-sm ${q.status === 'Converted' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{q.status}</span></td>
-                                            <td className="p-6 text-center flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                {q.status !== 'Converted' && <button onClick={() => onConvertToInvoice(q)} className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors" title="Convert to Invoice"><CheckCircle size={18} /></button>}
-                                                <button onClick={() => { setQuoteData(q); setViewMode('create'); }} className="p-2 text-amber-500 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors"><Edit size={18} /></button>
-                                                <button onClick={() => onDeleteQuotation(q.id)} className="p-2 text-rose-400 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                                            <td className="p-5 font-mono font-bold text-violet-600 text-sm">{q.quoteNumber || '—'}</td>
+                                            <td className="p-5 text-sm text-slate-500 font-medium">{q.date}</td>
+                                            <td className="p-5 font-bold text-slate-800">{q.client}</td>
+                                            <td className="p-5 text-sm">
+                                                {q.validUntil ? <span className={`font-medium ${isExpired ? 'text-rose-500' : 'text-slate-500'}`}>{q.validUntil}{isExpired && ' (Expired)'}</span> : <span className="text-slate-300">—</span>}
+                                            </td>
+                                            <td className="p-5 text-right font-bold text-amber-600">{formatCurrency(qTotal)}</td>
+                                            <td className="p-5 text-center"><span className={`px-3 py-1.5 rounded-full text-xs font-bold shadow-sm ${q.status === 'Converted' ? 'bg-emerald-100 text-emerald-700' : q.status === 'Approved' ? 'bg-sky-100 text-sky-700' : isExpired ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>{q.status}</span></td>
+                                            <td className="p-5 text-center">
+                                                <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {q.status !== 'Converted' && canWrite && <button onClick={() => onConvertToInvoice(q)} className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors" title="Convert to Invoice"><CheckCircle size={16} /></button>}
+                                                    {canWrite && <button onClick={() => { setQuoteData(q); setQuoteNumber(q.quoteNumber || ''); setViewMode('create'); }} className="p-2 text-amber-500 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors"><Edit size={16} /></button>}
+                                                    {canWrite && <button onClick={() => onDeleteQuotation(q.id)} className="p-2 text-rose-400 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"><Trash2 size={16} /></button>}
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -352,35 +373,67 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
             </div>
             {/* Printable quotation body */}
             <div id="quotation-printable">
+            {/* Header with company info */}
             <div className="flex flex-col md:flex-row justify-between items-start mb-10 border-b border-slate-100 pb-8 gap-6">
                 <div>
-                    <img src="./logo.png" alt="LeanAxis" className="h-14 object-contain mb-4" onError={(e)=>{e.target.style.display='none'}}/>
-                    <h2 className="text-4xl font-bold text-slate-900 hidden">QUOTATION</h2>
-                    <p className="text-slate-500 font-medium">Creative Agency & Solutions</p>
+                    <img src="./logo.png" alt={companyProfile.name || 'Company'} className="h-14 object-contain mb-3" onError={(e)=>{e.target.style.display='none'}}/>
+                    <p className="text-slate-600 font-bold text-base">{companyProfile.name || ''}</p>
+                    <p className="text-slate-400 text-sm font-medium">{companyProfile.tagline || ''}</p>
+                    {companyProfile.address && <p className="text-slate-400 text-xs mt-1">{companyProfile.address}</p>}
+                    {companyProfile.phone && <p className="text-slate-400 text-xs">{companyProfile.phone}</p>}
+                    {companyProfile.email && <p className="text-slate-400 text-xs">{companyProfile.email}</p>}
                 </div>
                 <div className="text-left md:text-right">
                     <div className="bg-amber-100 text-amber-700 font-bold py-1.5 px-4 rounded-lg text-sm mb-3 inline-block shadow-sm">QUOTATION</div>
-                    <p className="text-slate-400 font-medium">Date: {quoteData.date}</p>
+                    <p className="text-slate-700 font-extrabold font-mono text-sm">{quoteNumber}</p>
+                    <p className="text-slate-400 text-xs font-medium mt-1">Date: {quoteData.date}</p>
+                    {quoteData.validUntil && <p className="text-amber-600 text-xs font-bold mt-0.5">Valid Until: {quoteData.validUntil}</p>}
                 </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10 bg-slate-50 p-6 rounded-2xl border border-slate-100">
-                <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Quotation For</label><select className="w-full border-none bg-white p-4 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-amber-500 outline-none" value={quoteData.client} onChange={e => setQuoteData({...quoteData, client: e.target.value})}><option value="">Select Client</option>{clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select></div>
-                <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Details</label><div className="flex gap-3"><input type="date" className="w-full border-none bg-white p-4 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-amber-500 outline-none text-slate-600" value={quoteData.date} onChange={e => setQuoteData({...quoteData, date: e.target.value})} /><input type="number" placeholder="Tax %" className="w-32 border-none bg-white p-4 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-amber-500 outline-none" value={quoteData.taxRate} onChange={e => setQuoteData({...quoteData, taxRate: e.target.value})} /></div></div>
+                <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Quotation For</label>
+                    <select className="w-full border-none bg-white p-4 rounded-xl text-base font-semibold shadow-sm focus:ring-2 focus:ring-amber-500 outline-none" value={quoteData.client} onChange={e => setQuoteData({...quoteData, client: e.target.value})}>
+                        <option value="">Select Client</option>{clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                    </select>
+                    {quoteData.client && (() => { const c = clients.find(x=>x.name===quoteData.client); return c && (c.address||c.email||c.phone) ? <div className="mt-2 text-xs text-slate-400 px-1 space-y-0.5">{c.address && <p>📍 {c.address}</p>}{c.email && <p>✉ {c.email}</p>}{c.phone && <p>📞 {c.phone}</p>}</div> : null; })()}
+                </div>
+                <div className="space-y-3">
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Details</label>
+                    <div className="flex gap-3">
+                        <input type="date" className="flex-1 border-none bg-white p-3.5 rounded-xl text-sm font-semibold shadow-sm focus:ring-2 focus:ring-amber-500 outline-none text-slate-600" value={quoteData.date} onChange={e => setQuoteData({...quoteData, date: e.target.value})} />
+                        <input type="number" placeholder="Tax %" className="w-24 border-none bg-white p-3.5 rounded-xl text-sm font-semibold shadow-sm focus:ring-2 focus:ring-amber-500 outline-none" value={quoteData.taxRate} onChange={e => setQuoteData({...quoteData, taxRate: e.target.value})} />
+                    </div>
+                    <div className="flex gap-3 items-center">
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wide whitespace-nowrap">Valid Until:</label>
+                        <input type="date" className="flex-1 border-none bg-white p-3 rounded-xl text-sm font-semibold shadow-sm focus:ring-2 focus:ring-amber-500 outline-none text-slate-600" value={quoteData.validUntil||''} onChange={e => setQuoteData({...quoteData, validUntil: e.target.value})} />
+                    </div>
+                    <select className="w-full border-none bg-white p-3 rounded-xl text-sm font-semibold shadow-sm outline-none text-slate-600" value={quoteData.status} onChange={e => setQuoteData({...quoteData, status: e.target.value})}>
+                        <option>Pending</option><option>Approved</option><option>Rejected</option><option>Converted</option>
+                    </select>
+                </div>
             </div>
             <div className="overflow-x-auto mb-8">
                 <table className="w-full min-w-[600px]">
                     <thead><tr className="border-b border-slate-200"><th className="pb-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-left pl-4">Description</th><th className="pb-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-24 text-center">Qty</th><th className="pb-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-36 text-right">Rate</th><th className="pb-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-40 text-right pr-4">Amount</th><th className="w-10"></th></tr></thead>
-                    <tbody className="divide-y divide-slate-100">{quoteData.items.map((item, i) => (<tr key={i} className="group"><td className="py-4 pl-4"><input className="w-full bg-transparent outline-none font-medium text-slate-700 placeholder-slate-300" placeholder="Item description" value={item.desc} onChange={e => updateItem(i, 'desc', e.target.value)} /></td><td className="py-4 text-center"><input type="number" className="w-full bg-transparent outline-none text-slate-600 text-center" value={item.qty} onChange={e => updateItem(i, 'qty', Number(e.target.value))} /></td><td className="py-4 text-right"><input type="number" className="w-full bg-transparent outline-none text-slate-600 text-right" value={item.rate} onChange={e => updateItem(i, 'rate', Number(e.target.value))} /></td><td className="py-4 text-right pr-4 font-bold text-slate-800">{formatCurrency(item.qty * item.rate)}</td><td className="py-4 text-center"><button onClick={() => removeItem(i)} className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={16}/></button></td></tr>))}</tbody>
+                    <tbody className="divide-y divide-slate-100">{quoteData.items.map((item, i) => (<tr key={i} className="group"><td className="py-4 pl-4"><input className="w-full bg-transparent outline-none font-medium text-slate-700 placeholder-slate-300" placeholder="Item description" value={item.desc} onChange={e => updateItem(i, 'desc', e.target.value)} /></td><td className="py-4 text-center"><input type="number" className="w-full bg-transparent outline-none text-slate-600 text-center" value={item.qty} onChange={e => updateItem(i, 'qty', Number(e.target.value))} /></td><td className="py-4 text-right"><input type="number" className="w-full bg-transparent outline-none text-slate-600 text-right" value={item.rate} onChange={e => updateItem(i, 'rate', Number(e.target.value))} /></td><td className="py-4 text-right pr-4 font-bold text-slate-800">{formatCurrency((Number(item.qty)||0) * (Number(item.rate)||0))}</td><td className="py-4 text-center"><button onClick={() => removeItem(i)} className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={16}/></button></td></tr>))}</tbody>
                 </table>
             </div>
             <button onClick={addItem} className="flex items-center gap-2 text-sm font-bold text-amber-600 hover:text-amber-800 mb-10 px-4 py-2 hover:bg-amber-50 rounded-lg transition-colors w-max"><Plus size={16}/> Add Line Item</button>
-            <div className="flex justify-end mb-10"><div className="w-full md:w-80 space-y-4 bg-slate-50 p-6 rounded-2xl border border-slate-100"><div className="flex justify-between text-sm text-slate-500 font-medium"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div><div className="flex justify-between text-sm text-slate-500 font-medium"><span>Tax ({quoteData.taxRate}%)</span><span>{formatCurrency(tax)}</span></div><div className="flex justify-between text-2xl font-bold text-slate-800 border-t border-slate-200 pt-4 mt-2"><span>Estimate Total</span><span className="text-amber-600">{formatCurrency(total)}</span></div></div></div>
+            <div className="flex justify-end mb-6"><div className="w-full md:w-80 space-y-4 bg-slate-50 p-6 rounded-2xl border border-slate-100"><div className="flex justify-between text-sm text-slate-500 font-medium"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div><div className="flex justify-between text-sm text-slate-500 font-medium"><span>Tax ({quoteData.taxRate}%)</span><span>{formatCurrency(tax)}</span></div><div className="flex justify-between text-2xl font-bold text-slate-800 border-t border-slate-200 pt-4 mt-2"><span>Estimate Total</span><span className="text-amber-600">{formatCurrency(total)}</span></div></div></div>
+            {/* Notes */}
+            <div className="mb-6"><textarea rows={2} placeholder="Notes or terms for this quotation (optional)" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm font-medium outline-none focus:ring-2 focus:ring-amber-400 resize-none" value={quoteData.notes||''} onChange={e=>setQuoteData({...quoteData,notes:e.target.value})}/></div>
+            {/* Footer */}
+            <div className="pt-4 border-t border-slate-100 flex justify-between items-end text-xs text-slate-400">
+                <p className="italic">This is an estimate. Prices subject to change.</p>
+                <p className="font-bold">{companyProfile.name || ''}</p>
+            </div>
             </div>{/* end quotation-printable */}
-            <div className="flex flex-col md:flex-row gap-4 mt-4">
-                <button onClick={() => printDocument('quotation-printable', `Quotation — ${quoteData.client || 'LeanAxis'}`)} className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 py-4 rounded-xl font-bold hover:bg-slate-50 transition-colors"><Printer size={18}/> Print</button>
-                <button onClick={() => downloadElementAsPDF('quotation-printable', `Quotation_${quoteData.client}_${quoteData.date}.pdf`)} className="flex-1 flex items-center justify-center gap-2 bg-slate-800 text-white py-4 rounded-xl font-bold hover:bg-slate-700 transition-colors"><Download size={18}/> Download PDF</button>
+            <div className="flex flex-col md:flex-row gap-4 mt-6">
+                <button onClick={() => printDocument('quotation-printable', `Quotation ${quoteNumber} — ${quoteData.client || ''}`)} className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 py-4 rounded-xl font-bold hover:bg-slate-50 transition-colors"><Printer size={18}/> Print</button>
+                <button onClick={() => downloadElementAsPDF('quotation-printable', `Quotation_${quoteNumber}_${quoteData.client}_${quoteData.date}.pdf`)} className="flex-1 flex items-center justify-center gap-2 bg-slate-800 text-white py-4 rounded-xl font-bold hover:bg-slate-700 transition-colors"><Download size={18}/> Download PDF</button>
                 <button onClick={handleShareWhatsApp} className="flex-1 flex items-center justify-center gap-2 bg-[#25D366] text-white py-4 rounded-xl font-bold hover:bg-[#20bd5a] transition-colors shadow-lg shadow-green-200"><Share2 size={18}/> WhatsApp</button>
-                <button onClick={() => { onSave(quoteData); setViewMode('list'); }} className="flex-1 flex items-center justify-center gap-2 bg-amber-500 text-white py-4 rounded-xl font-bold hover:bg-amber-600 transition-colors shadow-lg shadow-amber-200"><CheckCircle size={18}/> Save Quote</button>
+                <button onClick={() => { onSave({...quoteData, quoteNumber}); setViewMode('list'); }} className="flex-1 flex items-center justify-center gap-2 bg-amber-500 text-white py-4 rounded-xl font-bold hover:bg-amber-600 transition-colors shadow-lg shadow-amber-200"><CheckCircle size={18}/> Save Quote</button>
             </div>
         </div>
     );
@@ -491,7 +544,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
             return calculateTax(s - disc, inv.taxRate).total;
         };
         const today = new Date(); today.setHours(0,0,0,0);
-        let totalRevenue=0, collected=0, outstanding=0, overdueAmt=0, overdueCount=0, draftCount=0, partialCount=0;
+        let totalRevenue=0, collected=0, outstanding=0, overdueAmt=0, overdueCount=0, draftCount=0, sentCount=0, partialCount=0;
         savedInvoices.forEach(inv => {
             const t = getTotal(inv);
             const recv = Number(inv.amountReceived)||0;
@@ -504,8 +557,9 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                 if (recv > 0 && inv.status !== 'Paid') partialCount++;
             }
             if (inv.status === 'Draft') draftCount++;
+            if (inv.status === 'Sent') sentCount++;
         });
-        return { totalRevenue, collected, outstanding, overdueAmt, overdueCount, draftCount, partialCount, total: savedInvoices.length };
+        return { totalRevenue, collected, outstanding, overdueAmt, overdueCount, draftCount, sentCount, partialCount, total: savedInvoices.length };
     }, [savedInvoices]);
 
     /* ── Monthly revenue chart (6 months) ──────────────── */
@@ -571,6 +625,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
         Overdue: 'bg-rose-100 text-rose-700',
         Partial: 'bg-blue-100 text-blue-700',
         Draft:   'bg-slate-100 text-slate-500',
+        Sent:    'bg-sky-100 text-sky-700',
         Unpaid:  'bg-amber-100 text-amber-700',
     };
 
@@ -588,6 +643,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                     { l:'Outstanding',   v: formatCurrency(invStats.outstanding),  sub:'unpaid balance',c:'text-violet-700', bg:'bg-violet-50 border-violet-200',  icon: Clock },
                     { l:'Overdue',       v: formatCurrency(invStats.overdueAmt),   sub:`${invStats.overdueCount} invoice${invStats.overdueCount!==1?'s':''}`, c: invStats.overdueCount>0?'text-rose-700':'text-slate-500', bg: invStats.overdueCount>0?'bg-rose-50 border-rose-200':'bg-white border-slate-200', icon: ArrowUpRight },
                     { l:'Partial',       v: invStats.partialCount,                  sub:'part-paid',    c:'text-blue-700',   bg:'bg-blue-50 border-blue-200',       icon: Percent },
+                    { l:'Sent',          v: invStats.sentCount,                     sub:'awaiting payment', c:'text-sky-700', bg:'bg-sky-50 border-sky-200',        icon: Share2 },
                     { l:'Drafts',        v: invStats.draftCount,                    sub:'not sent',     c:'text-slate-600',  bg:'bg-white border-slate-200',        icon: Edit },
                 ].map((k,i) => (
                     <div key={i} className={`${k.bg} border p-4 rounded-2xl shadow-sm hover:shadow-md transition-all group`}>
@@ -607,7 +663,12 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                     <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
                         <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2">
                             <div className="w-2 h-5 bg-violet-500 rounded-full"/>
-                            Revenue vs Collections (6 Months)
+                            Revenue vs Collections
+                            <span className="text-xs font-bold text-slate-400 ml-1">
+                                ({selectedMonth !== 'All' || selectedYear !== 'All'
+                                    ? [selectedMonth !== 'All' ? selectedMonth : '', selectedYear !== 'All' ? selectedYear : ''].filter(Boolean).join(' ')
+                                    : '6 Months'})
+                            </span>
                         </h3>
                         <ResponsiveContainer width="100%" height={180}>
                             <BarChart data={monthlyChart} barCategoryGap="30%">
@@ -663,7 +724,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                             placeholder="Search client or inv #..." value={invSearch} onChange={e=>setInvSearch(e.target.value)}/>
                     </div>
                     <div className="flex bg-white border border-slate-200 rounded-xl overflow-hidden">
-                        {['All','Draft','Unpaid','Partial','Paid','Overdue'].map(s => (
+                        {['All','Draft','Sent','Unpaid','Partial','Paid','Overdue'].map(s => (
                             <button key={s} onClick={() => setInvStatusFilter(s)}
                                 className={`px-2.5 py-2 text-xs font-bold transition-all ${invStatusFilter===s?'bg-violet-600 text-white':'text-slate-500 hover:text-violet-600'}`}>{s}</button>
                         ))}
@@ -753,7 +814,10 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                                         </td>
                                         <td className="px-5 py-4 text-right">
                                             {inv._isPaid ? (
-                                                <span className="text-sm font-extrabold text-emerald-600 tabular-nums">{formatCurrency(inv._total)}</span>
+                                                <div className="text-right">
+                                                    <span className="text-sm font-extrabold text-emerald-600 tabular-nums">{formatCurrency(inv._total)}</span>
+                                                    {inv.paidDate && <p className="text-xs text-emerald-500 font-medium mt-0.5">on {inv.paidDate}</p>}
+                                                </div>
                                             ) : (
                                                 <div>
                                                     <p className="text-sm font-bold tabular-nums text-slate-600">{formatCurrency(inv._received)}</p>
@@ -776,6 +840,12 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                                                     <button onClick={() => onReceivePayment(inv, inv._balance)}
                                                         className="p-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg transition-colors" title="Record Payment">
                                                         <CheckCircle size={13}/>
+                                                    </button>
+                                                )}
+                                                {(inv.status === 'Draft' || inv.status === 'Unpaid') && (
+                                                    <button onClick={() => onSave({...inv, status: 'Sent'})}
+                                                        className="p-1.5 bg-sky-50 text-sky-600 hover:bg-sky-100 rounded-lg transition-colors" title="Mark as Sent">
+                                                        <Share2 size={13}/>
                                                     </button>
                                                 )}
                                                 <button onClick={() => handleShareWhatsApp(inv)}
@@ -915,7 +985,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                                     <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Status</label>
                                     <select className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-violet-500 outline-none"
                                         value={invoiceData.status||'Draft'} onChange={e=>setInvoiceData(d=>({...d,status:e.target.value}))}>
-                                        <option>Draft</option><option>Unpaid</option><option>Paid</option>
+                                        <option>Draft</option><option>Sent</option><option>Unpaid</option><option>Paid</option>
                                     </select>
                                 </div>
                             </div>
@@ -1014,8 +1084,10 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                                 <div className="absolute top-0 right-0 w-48 h-48 bg-violet-500/10 rounded-full blur-3xl translate-x-1/2 -translate-y-1/2 pointer-events-none"/>
                                 <div className="relative z-10 flex justify-between items-start">
                                     <div>
-                                        <Logo white/>
-                                        <p className="text-slate-400 text-xs mt-2 font-medium">{companyProfile.tagline || 'Creative Agency & Solutions'}</p>
+                                        <Logo white companyName={companyProfile.name} tagline={companyProfile.tagline}/>
+                                        {companyProfile.address && <p className="text-slate-400 text-xs mt-2 font-medium">📍 {companyProfile.address}</p>}
+                                        {companyProfile.phone && <p className="text-slate-400 text-xs mt-0.5 font-medium">📞 {companyProfile.phone}</p>}
+                                        {companyProfile.email && <p className="text-slate-400 text-xs mt-0.5 font-medium">✉ {companyProfile.email}</p>}
                                     </div>
                                     <div className="text-right">
                                         <div className="bg-violet-500/20 border border-violet-400/30 text-violet-300 text-xs font-extrabold uppercase tracking-widest px-3 py-1.5 rounded-lg mb-2">Invoice</div>
@@ -1029,9 +1101,11 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                             <div className="px-8 py-6 border-b border-slate-100">
                                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5">Bill To</p>
                                 <p className="text-lg font-extrabold text-slate-900">{invoiceData.client || <span className="text-slate-300">Select a client</span>}</p>
-                                {clients.find(c=>c.name===invoiceData.client)?.phone && (
-                                    <p className="text-sm text-slate-500 mt-0.5">{clients.find(c=>c.name===invoiceData.client).phone}</p>
-                                )}
+                                {(() => { const c = clients.find(x=>x.name===invoiceData.client); return c ? (<>
+                                    {c.address && <p className="text-sm text-slate-500 mt-0.5">📍 {c.address}</p>}
+                                    {c.phone && <p className="text-sm text-slate-500 mt-0.5">📞 {c.phone}</p>}
+                                    {c.email && <p className="text-sm text-slate-500 mt-0.5">✉ {c.email}</p>}
+                                </>) : null; })()}
                             </div>
                             {/* Items table */}
                             <div className="px-8 py-5">
@@ -1096,8 +1170,13 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                                 )}
                                 {/* Footer */}
                                 <div className="mt-6 pt-4 border-t border-slate-100 flex justify-between items-end">
-                                    <p className="text-xs text-slate-400 italic">Computer-generated invoice.</p>
-                                    <p className="text-xs font-bold text-slate-700">{companyProfile.name || 'Our Company'}</p>
+                                    <p className="text-xs text-slate-400 italic">Computer-generated invoice. Thank you for your business.</p>
+                                    <div className="text-right">
+                                        <p className="text-xs font-bold text-slate-700">{companyProfile.name || ''}</p>
+                                        {companyProfile.phone && <p className="text-xs text-slate-400">{companyProfile.phone}</p>}
+                                        {companyProfile.email && <p className="text-xs text-slate-400">{companyProfile.email}</p>}
+                                        {companyProfile.website && <p className="text-xs text-slate-400">{companyProfile.website}</p>}
+                                    </div>
                                 </div>
                             </div>
                         </div>{/* end invoice-preview-content */}
@@ -1213,8 +1292,10 @@ const SalarySlip = ({ data, onClose, companyProfile = {} }) => {
                         <div className="absolute bottom-0 left-1/3 w-40 h-40 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none"/>
                         <div className="relative z-10 flex justify-between items-start">
                             <div>
-                                <Logo white />
-                                <p className="text-slate-400 text-xs mt-3 font-medium tracking-widest uppercase">Employee Payslip</p>
+                                <Logo white companyName={companyProfile.name} tagline={companyProfile.tagline}/>
+                                {companyProfile.address && <p className="text-slate-400 text-xs mt-2 font-medium">📍 {companyProfile.address}</p>}
+                                {companyProfile.phone && <p className="text-slate-400 text-xs mt-0.5 font-medium">📞 {companyProfile.phone}</p>}
+                                {companyProfile.email && <p className="text-slate-400 text-xs mt-0.5 font-medium">✉ {companyProfile.email}</p>}
                             </div>
                             <div className="text-right">
                                 <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Slip No.</p>
@@ -1590,10 +1671,13 @@ const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, on
                     </div>
                 </div>
 
-                <button onClick={onNewSalary}
-                    className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all flex-shrink-0">
-                    <Plus size={16}/> New Payslip
-                </button>
+                <div className="flex gap-2 flex-shrink-0">
+                    <button onClick={() => exportToCSV(salaries, 'Salaries_Export')} className="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 shadow-sm"><Download size={15}/> Export</button>
+                    <button onClick={onNewSalary}
+                        className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all">
+                        <Plus size={16}/> New Payslip
+                    </button>
+                </div>
             </div>
 
             {(search || empFilter !== 'All' || statusFilter !== 'All' || monthFilter !== 'All') && (
@@ -2025,10 +2109,13 @@ const ExpensesPage = ({ expenses, expenseCategories, currentUser, onNewExpense, 
                     </div>
                 </div>
 
-                <button onClick={onNewExpense}
-                    className="bg-gradient-to-r from-rose-500 to-fuchsia-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-rose-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all flex-shrink-0">
-                    <Plus size={16}/> New Expense
-                </button>
+                <div className="flex gap-2 flex-shrink-0">
+                    <button onClick={() => exportToCSV(expenses, 'Expenses_Export')} className="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 shadow-sm"><Download size={15}/> Export</button>
+                    <button onClick={onNewExpense}
+                        className="bg-gradient-to-r from-rose-500 to-fuchsia-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-rose-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all">
+                        <Plus size={16}/> New Expense
+                    </button>
+                </div>
             </div>
 
             {/* Filter summary */}
@@ -2310,6 +2397,25 @@ const PettyCashPage = ({ pettyCash, currentUser, onNewEntry, onEdit, onDelete })
     return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
 
+            {/* ── Prominent Cash Float Banner ─────────────── */}
+            <div className={`rounded-3xl p-6 flex items-center justify-between shadow-sm border ${kpis.balance >= 0 ? 'bg-gradient-to-r from-emerald-600 to-teal-600 border-emerald-700' : 'bg-gradient-to-r from-rose-600 to-red-600 border-rose-700'}`}>
+                <div>
+                    <p className="text-white/70 text-xs font-bold uppercase tracking-widest mb-1">Current Cash Float</p>
+                    <p className="text-white text-4xl font-extrabold tracking-tight tabular-nums">{formatCurrency(kpis.balance)}</p>
+                    <p className="text-white/60 text-xs mt-1">{kpis.balance >= 0 ? 'Available balance' : 'Deficit — top up required'}</p>
+                </div>
+                <div className="text-right space-y-1">
+                    <div className="bg-white/10 rounded-2xl px-4 py-2 text-right">
+                        <p className="text-white/60 text-xs font-bold uppercase tracking-wider">Total In</p>
+                        <p className="text-white font-extrabold tabular-nums">{formatCurrency(kpis.totalIn)}</p>
+                    </div>
+                    <div className="bg-white/10 rounded-2xl px-4 py-2 text-right">
+                        <p className="text-white/60 text-xs font-bold uppercase tracking-wider">Total Out</p>
+                        <p className="text-white font-extrabold tabular-nums">{formatCurrency(kpis.totalOut)}</p>
+                    </div>
+                </div>
+            </div>
+
             {/* ── KPI Cards ─────────────────────────────────── */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 {[
@@ -2466,10 +2572,13 @@ const PettyCashPage = ({ pettyCash, currentUser, onNewEntry, onEdit, onDelete })
                     </div>
                 </div>
 
-                <button onClick={onNewEntry}
-                    className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-amber-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all flex-shrink-0">
-                    <Plus size={16}/> New Entry
-                </button>
+                <div className="flex gap-2 flex-shrink-0">
+                    <button onClick={() => exportToCSV(pettyCash, 'PettyCash_Export')} className="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 shadow-sm"><Download size={15}/> Export</button>
+                    <button onClick={onNewEntry}
+                        className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-amber-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all">
+                        <Plus size={16}/> New Entry
+                    </button>
+                </div>
             </div>
 
             {(search || typeFilter!=='All' || catFilter!=='All' || monthFilter!=='All') && (
@@ -4035,10 +4144,13 @@ const VendorsPage = ({ vendors, vendorBills, currentUser, onNewVendor, onEdit, o
                         </button>
                     </div>
                 </div>
-                <button onClick={onNewVendor}
-                    className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all flex-shrink-0">
-                    <Plus size={16}/> Add Vendor
-                </button>
+                <div className="flex gap-2 flex-shrink-0">
+                    <button onClick={() => exportToCSV(vendors, 'Vendors_Export')} className="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 shadow-sm"><Download size={15}/> Export</button>
+                    <button onClick={onNewVendor}
+                        className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all">
+                        <Plus size={16}/> Add Vendor
+                    </button>
+                </div>
             </div>
 
             {(search || typeFilter !== 'All') && (
@@ -4398,10 +4510,13 @@ const VendorBillsPage = ({ vendorBills, vendors, currentUser, onNewBill, onEdit,
                         <option value="overdue">Most Overdue</option>
                     </select>
                 </div>
-                <button onClick={onNewBill}
-                    className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all flex-shrink-0">
-                    <Plus size={16}/> New Bill
-                </button>
+                <div className="flex gap-2 flex-shrink-0">
+                    <button onClick={() => exportToCSV(vendorBills, 'VendorBills_Export')} className="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 shadow-sm"><Download size={15}/> Export</button>
+                    <button onClick={onNewBill}
+                        className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all">
+                        <Plus size={16}/> New Bill
+                    </button>
+                </div>
             </div>
 
             {(search || statusFilter !== 'All' || vendorFilter !== 'All' || monthFilter !== 'All') && (
@@ -4944,6 +5059,27 @@ const BankAccountsPage = ({ bankRecords, currentUser, onNewEntry, onEdit, onDele
     return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
 
+            {/* ── Prominent Net Balance Banner ─────────────── */}
+            <div className={`rounded-3xl p-6 flex items-center justify-between shadow-sm border ${kpis.netBalance >= 0 ? 'bg-gradient-to-r from-sky-600 to-violet-600 border-sky-700' : 'bg-gradient-to-r from-rose-600 to-red-600 border-rose-700'}`}>
+                <div>
+                    <p className="text-white/70 text-xs font-bold uppercase tracking-widest mb-1">
+                        {activeBank === 'All' ? 'Net Bank Balance — All Accounts' : `${activeBank} — Net Balance`}
+                    </p>
+                    <p className="text-white text-4xl font-extrabold tracking-tight tabular-nums">{formatCurrency(kpis.netBalance)}</p>
+                    <p className="text-white/60 text-xs mt-1">{bankSummaries.length} account{bankSummaries.length !== 1 ? 's' : ''} · {enriched.length} transactions</p>
+                </div>
+                <div className="text-right space-y-1">
+                    <div className="bg-white/10 rounded-2xl px-4 py-2 text-right">
+                        <p className="text-white/60 text-xs font-bold uppercase tracking-wider">Total Inflows</p>
+                        <p className="text-white font-extrabold tabular-nums">{formatCurrency(kpis.totalCredits)}</p>
+                    </div>
+                    <div className="bg-white/10 rounded-2xl px-4 py-2 text-right">
+                        <p className="text-white/60 text-xs font-bold uppercase tracking-wider">Total Outflows</p>
+                        <p className="text-white font-extrabold tabular-nums">{formatCurrency(kpis.totalDebits)}</p>
+                    </div>
+                </div>
+            </div>
+
             {/* ── KPI Cards ──────────────────────────────── */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 {[
@@ -5116,10 +5252,13 @@ const BankAccountsPage = ({ bankRecords, currentUser, onNewEntry, onEdit, onDele
                     )}
                 </div>
 
-                <button onClick={onNewEntry}
-                    className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all flex-shrink-0">
-                    <Plus size={16}/> New Entry
-                </button>
+                <div className="flex gap-2 flex-shrink-0">
+                    <button onClick={() => exportToCSV(bankRecords, 'BankRecords_Export')} className="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 shadow-sm"><Download size={15}/> Export</button>
+                    <button onClick={onNewEntry}
+                        className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all">
+                        <Plus size={16}/> New Entry
+                    </button>
+                </div>
             </div>
 
             {hasFilters && (
@@ -5427,7 +5566,20 @@ const ReceivablesPayables = ({ clients, invoices, vendors, vendorBills, bankReco
         const outstanding = Math.max(0, totalBilled - totalReceived);
         const today = new Date(); today.setHours(0,0,0,0);
         const overdueInvs = clientInvoices.filter(i => i.status!=='Paid' && i.dueDate && new Date(i.dueDate) < today);
-        return { ...client, totalBilled, totalReceived, outstanding, overdueCount: overdueInvs.length, invoiceCount: clientInvoices.length };
+        // Aging buckets on overdue invoices
+        const aging = { current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0 };
+        clientInvoices.filter(i => i.status !== 'Paid').forEach(inv => {
+            const invTotal = calculateTax((inv.items||[]).reduce((s,it)=>s+((it.qty||0)*(it.rate||0)),0), inv.taxRate).total;
+            const bal = invTotal - (Number(inv.amountReceived)||0);
+            if (!inv.dueDate) { aging.current += bal; return; }
+            const days = Math.floor((today - new Date(inv.dueDate)) / 86400000);
+            if (days <= 0) aging.current += bal;
+            else if (days <= 30) aging.d30 += bal;
+            else if (days <= 60) aging.d60 += bal;
+            else if (days <= 90) aging.d90 += bal;
+            else aging.d90plus += bal;
+        });
+        return { ...client, totalBilled, totalReceived, outstanding, overdueCount: overdueInvs.length, invoiceCount: clientInvoices.length, aging };
     }).sort((a, b) => b.outstanding - a.outstanding), [clients, invoices]);
 
     const vendorSummaries = useMemo(() => vendors.map(vendor => {
@@ -5446,6 +5598,15 @@ const ReceivablesPayables = ({ clients, invoices, vendors, vendorBills, bankReco
     const totalPayables = vendorSummaries.reduce((a, v) => a + v.outstanding, 0);
     const totalPaidOut = vendorSummaries.reduce((a, v) => a + v.totalPaid, 0);
     const totalBills = vendorSummaries.reduce((a, v) => a + v.totalBills, 0);
+    // Aging totals
+    const agingTotals = clientSummaries.reduce((acc, c) => {
+        acc.current += c.aging?.current || 0;
+        acc.d30 += c.aging?.d30 || 0;
+        acc.d60 += c.aging?.d60 || 0;
+        acc.d90 += c.aging?.d90 || 0;
+        acc.d90plus += c.aging?.d90plus || 0;
+        return acc;
+    }, { current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0 });
 
     return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -5487,25 +5648,48 @@ const ReceivablesPayables = ({ clients, invoices, vendors, vendorBills, bankReco
                         <div className="text-center"><p className="text-xs text-emerald-600 font-bold uppercase">Collected</p><p className="text-lg font-extrabold text-emerald-700">{formatCurrency(totalReceived)}</p></div>
                         <div className="text-center"><p className="text-xs text-rose-600 font-bold uppercase">Outstanding</p><p className="text-lg font-extrabold text-rose-700">{formatCurrency(totalReceivables)}</p></div>
                     </div>
+                    {/* Aging summary strip */}
+                    {totalReceivables > 0 && (
+                        <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex flex-wrap gap-3 items-center">
+                            <span className="text-xs font-extrabold text-slate-400 uppercase tracking-widest mr-1">Aging:</span>
+                            {[
+                                { label: 'Current', val: agingTotals.current, color: 'bg-emerald-100 text-emerald-700' },
+                                { label: '1–30 days', val: agingTotals.d30, color: 'bg-amber-100 text-amber-700' },
+                                { label: '31–60 days', val: agingTotals.d60, color: 'bg-orange-100 text-orange-700' },
+                                { label: '61–90 days', val: agingTotals.d90, color: 'bg-rose-100 text-rose-700' },
+                                { label: '90+ days', val: agingTotals.d90plus, color: 'bg-red-200 text-red-800' },
+                            ].filter(b => b.val > 0).map(b => (
+                                <span key={b.label} className={`text-xs font-bold px-3 py-1 rounded-full ${b.color}`}>
+                                    {b.label}: {formatCurrency(b.val)}
+                                </span>
+                            ))}
+                        </div>
+                    )}
                     <table className="w-full text-left">
                         <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                            <tr><th className="p-4">Client</th><th className="p-4 text-center">Invoices</th><th className="p-4 text-right">Total Billed</th><th className="p-4 text-right">Received</th><th className="p-4 text-right">Outstanding</th><th className="p-4 text-center">Overdue</th><th className="p-4 text-center">Action</th></tr>
+                            <tr><th className="p-4">Client</th><th className="p-4 text-center">Invoices</th><th className="p-4 text-right">Total Billed</th><th className="p-4 text-right">Received</th><th className="p-4 text-right">Outstanding</th><th className="p-4 text-center">Aging</th><th className="p-4 text-center">Action</th></tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                            {clientSummaries.map(c => (
-                                <tr key={c.id} className={`hover:bg-slate-50/50 transition-colors ${c.overdueCount > 0 ? 'bg-rose-50/20' : ''}`}>
-                                    <td className="p-4">
-                                        <p className="font-bold text-slate-800">{c.name}</p>
-                                        {c.projectName && <p className="text-xs text-slate-400">{c.projectName}</p>}
-                                    </td>
-                                    <td className="p-4 text-center text-sm font-bold text-slate-600">{c.invoiceCount}</td>
-                                    <td className="p-4 text-right font-bold text-slate-700">{formatCurrency(c.totalBilled)}</td>
-                                    <td className="p-4 text-right font-bold text-emerald-600">{formatCurrency(c.totalReceived)}</td>
-                                    <td className="p-4 text-right font-extrabold text-rose-600">{formatCurrency(c.outstanding)}</td>
-                                    <td className="p-4 text-center">{c.overdueCount > 0 ? <span className="bg-rose-100 text-rose-700 text-xs font-bold px-2 py-1 rounded-full">{c.overdueCount} overdue</span> : <span className="text-slate-300 text-xs">—</span>}</td>
-                                    <td className="p-4 text-center"><button onClick={() => onViewClient(c)} className="text-xs font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 px-3 py-1.5 rounded-lg transition-colors">Profile →</button></td>
-                                </tr>
-                            ))}
+                            {clientSummaries.map(c => {
+                                const worstAge = c.aging?.d90plus > 0 ? '90+d' : c.aging?.d90 > 0 ? '61–90d' : c.aging?.d60 > 0 ? '31–60d' : c.aging?.d30 > 0 ? '1–30d' : c.aging?.current > 0 ? 'Current' : null;
+                                const ageBadge = { '90+d': 'bg-red-100 text-red-700', '61–90d': 'bg-rose-100 text-rose-700', '31–60d': 'bg-orange-100 text-orange-700', '1–30d': 'bg-amber-100 text-amber-700', 'Current': 'bg-emerald-100 text-emerald-700' };
+                                return (
+                                    <tr key={c.id} className={`hover:bg-slate-50/50 transition-colors ${c.overdueCount > 0 ? 'bg-rose-50/20' : ''}`}>
+                                        <td className="p-4">
+                                            <p className="font-bold text-slate-800">{c.name}</p>
+                                            {c.projectName && <p className="text-xs text-slate-400">{c.projectName}</p>}
+                                        </td>
+                                        <td className="p-4 text-center text-sm font-bold text-slate-600">{c.invoiceCount}</td>
+                                        <td className="p-4 text-right font-bold text-slate-700">{formatCurrency(c.totalBilled)}</td>
+                                        <td className="p-4 text-right font-bold text-emerald-600">{formatCurrency(c.totalReceived)}</td>
+                                        <td className="p-4 text-right font-extrabold text-rose-600">{formatCurrency(c.outstanding)}</td>
+                                        <td className="p-4 text-center">
+                                            {worstAge ? <span className={`text-xs font-bold px-2 py-1 rounded-full ${ageBadge[worstAge]}`}>{worstAge}</span> : <span className="text-slate-300 text-xs">—</span>}
+                                        </td>
+                                        <td className="p-4 text-center"><button onClick={() => onViewClient(c)} className="text-xs font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 px-3 py-1.5 rounded-lg transition-colors">Profile →</button></td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
@@ -5952,7 +6136,8 @@ function App() {
               batch.update(doc(db, 'invoices', data.id), {
                   status: newStatus,
                   whtDeducted: (Number(data.whtDeducted)||0) + wht,
-                  amountReceived: totalReceived
+                  amountReceived: totalReceived,
+                  paidDate: newStatus === 'Paid' ? date : (data.paidDate || null)
               });
               const recordData = { date, description: `Inv Payment: ${data.client}`, createdAt: new Date().toISOString() };
               if (paymentAccount === 'bank') batch.set(doc(collection(db, 'bank_records')), { ...recordData, amount: netReceived, bank: 'Linked Payment', status: 'Cleared' });
@@ -6284,7 +6469,44 @@ function App() {
                     );
                 })()}
 
-                {/* KPI Cards — 6 cards: P&L + Receivables/Payables */}
+                {/* Due This Week — Vendor Bills */}
+                {(() => {
+                    const today = new Date(); today.setHours(0,0,0,0);
+                    const in7 = new Date(today); in7.setDate(today.getDate() + 7);
+                    const dueSoon = vendorBills.filter(b => {
+                        if (b.status === 'Paid') return false;
+                        if (!b.dueDate) return false;
+                        const d = new Date(b.dueDate);
+                        return d >= today && d <= in7;
+                    }).sort((a,b) => new Date(a.dueDate) - new Date(b.dueDate));
+                    if (dueSoon.length === 0) return null;
+                    return (
+                        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4">
+                            <div className="flex items-center gap-3 mb-3">
+                                <div className="bg-rose-100 p-2 rounded-xl"><Truck className="text-rose-600" size={18}/></div>
+                                <p className="font-bold text-rose-800">{dueSoon.length} vendor bill{dueSoon.length !== 1 ? 's' : ''} due in the next 7 days</p>
+                            </div>
+                            <div className="space-y-2">
+                                {dueSoon.slice(0,4).map(b => {
+                                    const due = (Number(b.amount)||0) - (Number(b.paidAmount)||0);
+                                    const daysLeft = Math.ceil((new Date(b.dueDate) - today) / 86400000);
+                                    return (
+                                        <div key={b.id} onClick={() => setView('vendor-bills')} className="flex justify-between items-center bg-white rounded-xl px-4 py-2.5 cursor-pointer hover:bg-rose-50 transition-colors">
+                                            <div>
+                                                <span className="font-bold text-slate-800 text-sm">{b.vendor}</span>
+                                                {b.billNumber && <span className="text-slate-400 text-xs ml-2">#{b.billNumber}</span>}
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <span className="font-extrabold text-rose-700 text-sm">{formatCurrency(due)}</span>
+                                                <span className="text-xs font-bold text-rose-600 bg-rose-100 px-2 py-0.5 rounded-full">{daysLeft === 0 ? 'Today' : `${daysLeft}d`}</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })()}
                 <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                     {[
                         { l:'Revenue Collected', v:totals.revenue, i:ArrowDownLeft, c:'text-emerald-600', b:'bg-emerald-50 ring-emerald-100' },
@@ -6402,57 +6624,142 @@ function App() {
 
         {view === 'tax-report' && <TaxReport invoices={invoices} salaries={salaries} expenses={expenses} vendorBills={vendorBills} month={selectedMonth} year={selectedYear} />}
 
-        {view === 'reports' && (
-            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-12 rounded-3xl shadow-2xl text-center relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-96 h-96 bg-violet-500/10 rounded-full blur-3xl translate-x-1/2 -translate-y-1/2"></div>
-                    <h2 className="text-3xl font-bold text-white mb-2 relative z-10">Net Profit</h2>
-                    <p className={`text-6xl md:text-7xl font-extrabold tracking-tight my-6 relative z-10 ${totals.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(totals.profit)}</p>
-                    <div className="inline-flex items-center gap-2 bg-white/10 px-4 py-2 rounded-full text-slate-300 text-sm font-bold backdrop-blur-sm relative z-10">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400"></span> Revenue vs Expenses
+        {view === 'reports' && (() => {
+            // Build monthly P&L from all data
+            const months = [];
+            const now = new Date();
+            for (let i = 11; i >= 0; i--) {
+                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+                const label = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+                const inFilter = (ds) => { if (!ds) return false; const dt = new Date(ds); return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}` === key; };
+                const mRevenue = invoices.filter(inv => inv.status==='Paid' && inFilter(inv.paidDate||inv.date)).reduce((a,inv) => {
+                    const r = Number(inv.amountReceived); const t = calculateTax((inv.items||[]).reduce((s,it)=>s+((it.qty||0)*(it.rate||0)),0),inv.taxRate).total;
+                    return a + (r > 0 ? r : t);
+                }, 0) + pettyCash.filter(r => inFilter(r.date) && !(r.description||'').toLowerCase().startsWith('inv payment:')).reduce((a,r)=>a+(Number(r.cashIn)||0),0);
+                const mExpenses = expenses.filter(e => inFilter(e.date)).reduce((a,e)=>a+(Number(e.amount)||0),0);
+                const mSalaries = salaries.filter(s => inFilter(s.date)).reduce((a,s)=>a+(Number(s.totalPayable)||0),0);
+                const mPettyCash = pettyCash.filter(r => inFilter(r.date)).reduce((a,r)=>a+(Number(r.cashOut)||0),0);
+                const mTotal = mExpenses + mSalaries + mPettyCash;
+                const mProfit = mRevenue - mTotal;
+                months.push({ key, label, revenue: mRevenue, expenses: mExpenses, salaries: mSalaries, petty: mPettyCash, total: mTotal, profit: mProfit });
+            }
+            const ytdRevenue = months.reduce((a,m)=>a+m.revenue,0);
+            const ytdExpenses = months.reduce((a,m)=>a+m.total,0);
+            const ytdProfit = ytdRevenue - ytdExpenses;
+            return (
+                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    {/* Header + Print */}
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <h2 className="text-2xl font-extrabold text-slate-900">Profit & Loss Report</h2>
+                            <p className="text-slate-500 text-sm font-medium mt-0.5">12-month rolling view · {selectedMonth !== 'All' || selectedYear !== 'All' ? `Filtered: ${selectedMonth !== 'All' ? selectedMonth : ''} ${selectedYear !== 'All' ? selectedYear : ''}` : 'All time'}</p>
+                        </div>
+                        <button onClick={() => printDocument('pl-report-printable', 'P&L Report')} className="flex items-center gap-2 bg-slate-800 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-slate-700 transition-colors shadow-lg">
+                            <Printer size={16}/> Print / PDF
+                        </button>
                     </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-                        <h3 className="font-bold text-emerald-700 mb-6 flex items-center gap-3 text-lg"><div className="p-2 bg-emerald-100 rounded-lg"><ArrowDownLeft size={24}/></div> Income Sources</h3>
-                        <div className="space-y-4">
-                            {[
-                                { l: 'Invoice Payments', v: totals.invoiceRevenueBreakdown },
-                                { l: 'Petty Cash Receipts', v: totals.pettyCashInBreakdown },
-                            ].map((item, k) => (
-                                <div key={k} className="flex justify-between items-center p-5 bg-emerald-50/50 rounded-2xl border border-emerald-100/50">
-                                    <span className="text-emerald-900 font-bold">{item.l}</span>
-                                    <span className="font-extrabold text-emerald-600 text-lg">{formatCurrency(item.v)}</span>
+                    {/* YTD summary cards */}
+                    <div className="grid grid-cols-3 gap-4">
+                        <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-3xl">
+                            <p className="text-xs font-bold text-emerald-600 uppercase tracking-widest mb-1">12-Month Revenue</p>
+                            <p className="text-2xl font-extrabold text-emerald-800">{formatCurrency(ytdRevenue)}</p>
+                        </div>
+                        <div className="bg-rose-50 border border-rose-200 p-6 rounded-3xl">
+                            <p className="text-xs font-bold text-rose-600 uppercase tracking-widest mb-1">12-Month Expenses</p>
+                            <p className="text-2xl font-extrabold text-rose-800">{formatCurrency(ytdExpenses)}</p>
+                        </div>
+                        <div className={`border p-6 rounded-3xl ${ytdProfit >= 0 ? 'bg-violet-50 border-violet-200' : 'bg-amber-50 border-amber-200'}`}>
+                            <p className={`text-xs font-bold uppercase tracking-widest mb-1 ${ytdProfit >= 0 ? 'text-violet-600' : 'text-amber-600'}`}>Net Profit</p>
+                            <p className={`text-2xl font-extrabold ${ytdProfit >= 0 ? 'text-violet-800' : 'text-rose-700'}`}>{formatCurrency(ytdProfit)}</p>
+                        </div>
+                    </div>
+                    {/* Monthly table */}
+                    <div id="pl-report-printable" className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
+                            <h3 className="font-extrabold text-slate-800">Month-by-Month Breakdown</h3>
+                            <button onClick={() => exportToCSV(months.map(m=>({Month:m.label,Revenue:m.revenue,Expenses:m.expenses,Salaries:m.salaries,'Petty Cash':m.petty,'Total Costs':m.total,'Net Profit':m.profit})), 'PL_Report')} className="flex items-center gap-1.5 text-xs font-bold text-violet-600 hover:text-violet-800 bg-violet-50 px-3 py-1.5 rounded-lg transition-colors">
+                                <Download size={13}/> CSV
+                            </button>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left min-w-[700px]">
+                                <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                                    <tr>
+                                        <th className="px-5 py-3.5">Month</th>
+                                        <th className="px-5 py-3.5 text-right text-emerald-600">Revenue</th>
+                                        <th className="px-5 py-3.5 text-right text-rose-500">Expenses</th>
+                                        <th className="px-5 py-3.5 text-right text-rose-500">Salaries</th>
+                                        <th className="px-5 py-3.5 text-right text-rose-500">Petty Cash</th>
+                                        <th className="px-5 py-3.5 text-right text-slate-500">Total Costs</th>
+                                        <th className="px-5 py-3.5 text-right">Net Profit</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50">
+                                    {months.map(m => (
+                                        <tr key={m.key} className="hover:bg-slate-50/60 transition-colors">
+                                            <td className="px-5 py-3.5 font-bold text-slate-700">{m.label}</td>
+                                            <td className="px-5 py-3.5 text-right font-bold text-emerald-600 tabular-nums">{m.revenue > 0 ? formatCurrency(m.revenue) : <span className="text-slate-200">—</span>}</td>
+                                            <td className="px-5 py-3.5 text-right text-slate-500 tabular-nums">{m.expenses > 0 ? formatCurrency(m.expenses) : <span className="text-slate-200">—</span>}</td>
+                                            <td className="px-5 py-3.5 text-right text-slate-500 tabular-nums">{m.salaries > 0 ? formatCurrency(m.salaries) : <span className="text-slate-200">—</span>}</td>
+                                            <td className="px-5 py-3.5 text-right text-slate-500 tabular-nums">{m.petty > 0 ? formatCurrency(m.petty) : <span className="text-slate-200">—</span>}</td>
+                                            <td className="px-5 py-3.5 text-right font-bold text-slate-600 tabular-nums">{m.total > 0 ? formatCurrency(m.total) : <span className="text-slate-200">—</span>}</td>
+                                            <td className={`px-5 py-3.5 text-right font-extrabold tabular-nums ${m.profit > 0 ? 'text-emerald-600' : m.profit < 0 ? 'text-rose-600' : 'text-slate-300'}`}>
+                                                {m.profit !== 0 ? formatCurrency(m.profit) : '—'}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                                <tfoot className="border-t-2 border-slate-200 bg-slate-50">
+                                    <tr>
+                                        <td className="px-5 py-4 font-extrabold text-slate-800 uppercase text-xs tracking-wider">12-Month Total</td>
+                                        <td className="px-5 py-4 text-right font-extrabold text-emerald-700 tabular-nums">{formatCurrency(ytdRevenue)}</td>
+                                        <td className="px-5 py-4 text-right font-extrabold text-rose-600 tabular-nums">{formatCurrency(months.reduce((a,m)=>a+m.expenses,0))}</td>
+                                        <td className="px-5 py-4 text-right font-extrabold text-rose-600 tabular-nums">{formatCurrency(months.reduce((a,m)=>a+m.salaries,0))}</td>
+                                        <td className="px-5 py-4 text-right font-extrabold text-rose-600 tabular-nums">{formatCurrency(months.reduce((a,m)=>a+m.petty,0))}</td>
+                                        <td className="px-5 py-4 text-right font-extrabold text-slate-700 tabular-nums">{formatCurrency(ytdExpenses)}</td>
+                                        <td className={`px-5 py-4 text-right font-extrabold text-xl tabular-nums ${ytdProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(ytdProfit)}</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                    {/* Income vs Expense breakdown cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-white p-7 rounded-3xl shadow-sm border border-slate-100">
+                            <h3 className="font-bold text-emerald-700 mb-5 flex items-center gap-3"><div className="p-2 bg-emerald-100 rounded-lg"><ArrowDownLeft size={20}/></div> Income Sources</h3>
+                            <div className="space-y-3">
+                                {[{l:'Invoice Payments',v:totals.invoiceRevenueBreakdown},{l:'Petty Cash Receipts',v:totals.pettyCashInBreakdown}].map((item,k)=>(
+                                    <div key={k} className="flex justify-between items-center p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100/50">
+                                        <span className="text-emerald-900 font-bold text-sm">{item.l}</span>
+                                        <span className="font-extrabold text-emerald-600">{formatCurrency(item.v)}</span>
+                                    </div>
+                                ))}
+                                <div className="flex justify-between items-center p-4 bg-emerald-100 rounded-2xl border border-emerald-200">
+                                    <span className="text-emerald-900 font-extrabold">Total Revenue</span>
+                                    <span className="font-extrabold text-emerald-700 text-lg">{formatCurrency(totals.revenue)}</span>
                                 </div>
-                            ))}
-                            <div className="flex justify-between items-center p-5 bg-emerald-100 rounded-2xl border border-emerald-200">
-                                <span className="text-emerald-900 font-extrabold">Total Revenue</span>
-                                <span className="font-extrabold text-emerald-700 text-xl">{formatCurrency(totals.revenue)}</span>
+                            </div>
+                        </div>
+                        <div className="bg-white p-7 rounded-3xl shadow-sm border border-slate-100">
+                            <h3 className="font-bold text-rose-700 mb-5 flex items-center gap-3"><div className="p-2 bg-rose-100 rounded-lg"><ArrowUpRight size={20}/></div> Expense Breakdown</h3>
+                            <div className="space-y-3">
+                                {[{l:'General Expenses',v:totals.expenseTotal},{l:'Team Salaries',v:totals.salaryTotal},{l:'Petty Cash Outflows',v:totals.pettyCashOut}].map((item,k)=>(
+                                    <div key={k} className="flex justify-between items-center p-4 bg-rose-50/50 rounded-2xl border border-rose-100/50">
+                                        <span className="text-rose-900 font-bold text-sm">{item.l}</span>
+                                        <span className="font-extrabold text-rose-600">{formatCurrency(item.v)}</span>
+                                    </div>
+                                ))}
+                                <div className="flex justify-between items-center p-4 bg-rose-100 rounded-2xl border border-rose-200">
+                                    <span className="text-rose-900 font-extrabold">Total Expenses</span>
+                                    <span className="font-extrabold text-rose-700 text-lg">{formatCurrency(totals.expense)}</span>
+                                </div>
                             </div>
                         </div>
                     </div>
-                    <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-                        <h3 className="font-bold text-rose-700 mb-6 flex items-center gap-3 text-lg"><div className="p-2 bg-rose-100 rounded-lg"><ArrowUpRight size={24}/></div> Expense Breakdown</h3>
-                        <div className="space-y-4">
-                            {[
-                                { l: 'General Expenses', v: totals.expenseTotal },
-                                { l: 'Team Salaries', v: totals.salaryTotal },
-                                { l: 'Petty Cash Outflows', v: totals.pettyCashOut },
-                            ].map((item, k) => (
-                                <div key={k} className="flex justify-between items-center p-5 bg-rose-50/50 rounded-2xl border border-rose-100/50">
-                                    <span className="text-rose-900 font-bold">{item.l}</span>
-                                    <span className="font-extrabold text-rose-600 text-lg">{formatCurrency(item.v)}</span>
-                                </div>
-                            ))}
-                            <div className="flex justify-between items-center p-5 bg-rose-100 rounded-2xl border border-rose-200">
-                                <span className="text-rose-900 font-extrabold">Total Expenses</span>
-                                <span className="font-extrabold text-rose-700 text-xl">{formatCurrency(totals.expense)}</span>
-                            </div>
-                        </div>
-                    </div>
                 </div>
-            </div>
-        )}
+            );
+        })()}
 
         {view === 'statements' && <ClientStatement clients={clients} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} />}
 
