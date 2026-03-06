@@ -6608,7 +6608,7 @@ function App() {
             setShowForm(true);
           }
         }}/>
-      )
+      )}
       
       {/* MOBILE HEADER */}
       <div className="md:hidden fixed top-0 w-full bg-[#0F172A]/95 backdrop-blur-md border-b border-white/5 p-4 z-50 flex justify-between items-center shadow-lg">
