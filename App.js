@@ -235,6 +235,10 @@ function useAppSettings() {
         defaultPaymentTerms: 'Payment due within 30 days.',
         pettyCashOpeningBalance: 0,
         pettyCashMinBalance: 0,
+        quotePrefix: 'QT',
+        quoteCounter: 1,
+        billPrefix: 'BILL',
+        billCounter: 1,
     }, 'leanaxis_app_settings');
 }
 
@@ -292,10 +296,15 @@ const LoginView = ({ onLogin, loading: externalLoading, error }) => {
 };
 
 // --- QUOTATION GENERATOR ---
-const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotation, onConvertToInvoice, companyProfile = {}, canWrite }) => {
+const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotation, onConvertToInvoice, companyProfile = {}, appSettings = {}, onUpdateSettings, canWrite }) => {
     const toast = useToast();
     const [viewMode, setViewMode] = useState('list');
-    const [quoteNumber, setQuoteNumber] = useState(() => `QT-${new Date().getFullYear()}-${String(savedQuotations?.length + 1 || 1).padStart(3,'0')}`);
+    const nextQuoteNumber = () => {
+        const prefix  = appSettings.quotePrefix  || 'QT';
+        const counter = Number(appSettings.quoteCounter || 1);
+        return `${prefix}-${String(counter).padStart(3, '0')}`;
+    };
+    const [quoteNumber, setQuoteNumber] = useState(() => nextQuoteNumber());
     const [quoteData, setQuoteData] = useState({ client: '', date: new Date().toISOString().split('T')[0], validUntil: '', items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0, notes: '', status: 'Pending' });
     const addItem = () => setQuoteData({...quoteData, items: [...quoteData.items, { desc: '', qty: 1, rate: 0 }]});
     const updateItem = (index, field, val) => { const newItems = [...quoteData.items]; newItems[index][field] = val; setQuoteData({...quoteData, items: newItems}); };
@@ -318,8 +327,7 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
                     </div>
                     <div className="flex gap-2 w-full sm:w-auto">
                         {canWrite && <button onClick={() => {
-                            const num = `QT-${new Date().getFullYear()}-${String(savedQuotations.length + 1).padStart(3,'0')}`;
-                            setQuoteNumber(num);
+                            setQuoteNumber(nextQuoteNumber());
                             setQuoteData({ client: '', date: new Date().toISOString().split('T')[0], validUntil: '', items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0, notes: '', status: 'Pending' });
                             setViewMode('create');
                         }} className="flex-1 sm:flex-none bg-amber-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-amber-600 shadow-lg shadow-amber-200 transition-all hover:scale-105 active:scale-95"><Plus size={18}/> New Quote</button>}
@@ -388,7 +396,11 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
                 </div>
                 <div className="text-left md:text-right">
                     <div className="bg-amber-100 text-amber-700 font-bold py-1.5 px-4 rounded-lg text-sm mb-3 inline-block shadow-sm">QUOTATION</div>
-                    <p className="text-slate-700 font-extrabold font-mono text-sm">{quoteNumber}</p>
+                    <div className="flex items-center gap-2">
+                        <input className="font-mono font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-amber-400 w-36"
+                            value={quoteNumber} onChange={e=>setQuoteNumber(e.target.value)}/>
+                        {!quoteData.id && <span className="text-xs font-bold bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full">Auto</span>}
+                    </div>
                     <p className="text-slate-400 text-xs font-medium mt-1">Date: {quoteData.date}</p>
                     {quoteData.validUntil && <p className="text-amber-600 text-xs font-bold mt-0.5">Valid Until: {quoteData.validUntil}</p>}
                 </div>
@@ -436,7 +448,14 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
                 <button onClick={() => printDocument('quotation-printable', `Quotation ${quoteNumber} — ${quoteData.client || ''}`)} className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 py-4 rounded-xl font-bold hover:bg-slate-50 transition-colors"><Printer size={18}/> Print</button>
                 <button onClick={() => downloadElementAsPDF('quotation-printable', `Quotation_${quoteNumber}_${quoteData.client}_${quoteData.date}.pdf`)} className="flex-1 flex items-center justify-center gap-2 bg-slate-800 text-white py-4 rounded-xl font-bold hover:bg-slate-700 transition-colors"><Download size={18}/> Download PDF</button>
                 <button onClick={handleShareWhatsApp} className="flex-1 flex items-center justify-center gap-2 bg-[#25D366] text-white py-4 rounded-xl font-bold hover:bg-[#20bd5a] transition-colors shadow-lg shadow-green-200"><Share2 size={18}/> WhatsApp</button>
-                <button onClick={() => { onSave({...quoteData, quoteNumber}); setViewMode('list'); }} className="flex-1 flex items-center justify-center gap-2 bg-amber-500 text-white py-4 rounded-xl font-bold hover:bg-amber-600 transition-colors shadow-lg shadow-amber-200"><CheckCircle size={18}/> Save Quote</button>
+                <button onClick={() => {
+                    const isNew = !quoteData.id;
+                    onSave({...quoteData, quoteNumber});
+                    if (isNew && onUpdateSettings) {
+                        onUpdateSettings(prev => ({...prev, quoteCounter: (Number(prev.quoteCounter)||1) + 1}));
+                    }
+                    setViewMode('list');
+                }} className="flex-1 flex items-center justify-center gap-2 bg-amber-500 text-white py-4 rounded-xl font-bold hover:bg-amber-600 transition-colors shadow-lg shadow-amber-200"><CheckCircle size={18}/> Save Quote</button>
             </div>
         </div>
     );
@@ -935,9 +954,12 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                         <div className="flex items-center gap-2 mb-5">
                             <div className="w-2 h-5 bg-violet-500 rounded-full"/>
                             <h3 className="font-extrabold text-slate-800">Invoice Details</h3>
-                            <div className="ml-auto">
+                            <div className="ml-auto flex items-center gap-2">
                                 <input className="font-mono font-bold text-violet-600 bg-violet-50 border border-violet-200 rounded-xl px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-violet-400 w-40"
                                     value={invoiceNumber} onChange={e=>setInvoiceNumber(e.target.value)} placeholder="INV-000000"/>
+                                {!invoiceData.id && (
+                                    <span className="text-xs font-bold bg-violet-100 text-violet-600 px-2 py-1 rounded-full whitespace-nowrap">Auto</span>
+                                )}
                             </div>
                         </div>
                         <div className="space-y-4">
@@ -6048,8 +6070,15 @@ function App() {
   const handleAddSubmit = (e) => {
     e.preventDefault();
     if (!validateForm()) return;
+    const isNew = !isEditingRecord;
     let col = { 'manage-users': 'users', 'petty-cash': 'petty_cash', 'expenses': 'expenses', 'salaries': 'salaries', 'bank': 'bank_records', 'clients': 'clients', 'vendors': 'vendors', 'vendor-bills': 'vendor_bills' }[view];
-    if (col) saveToFirebase(col, formData, (isEditingRecord || isEditingUser) ? formData.id : null);
+    if (col) {
+        saveToFirebase(col, formData, (isEditingRecord || isEditingUser) ? formData.id : null);
+        // Auto-increment bill counter after saving a new vendor bill
+        if (col === 'vendor_bills' && isNew) {
+            setAppSettings(prev => ({...prev, billCounter: (Number(prev.billCounter)||1) + 1}));
+        }
+    }
   };
   const initiatePayment = (item, type, amount) => { setPaymentConfig({ data: item, type, amount }); setPaymentAccount('bank'); setClientWHT(''); setPartialAmount(String(amount)); setShowPaymentModal(true); };
   const executePayment = async () => {
@@ -6720,13 +6749,13 @@ function App() {
 
         {view === 'salaries' && <SalariesPage salaries={salaries} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewSalary={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(s) => { if(!canWrite) return; setFormData({...s}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = salaries.find(x=>x.id===id); handleDelete(id, 'salary', r?.employeeName||''); }} onViewSlip={(s) => { if (s) { setFormData(s); setShowSalarySlip(true); } }} />}
 
-        {view === 'quotations' && <QuotationGenerator clients={clients} onSave={(q) => saveToFirebase('quotations', q, q.id)} savedQuotations={quotations} onDeleteQuotation={(id) => { const r = quotations.find(x=>x.id===id); handleDelete(id, 'quotation', r?.client||''); }} onConvertToInvoice={handleConvertToInvoice} companyProfile={companyProfile} canWrite={canWrite} />}
+        {view === 'quotations' && <QuotationGenerator clients={clients} onSave={(q) => saveToFirebase('quotations', q, q.id)} savedQuotations={quotations} onDeleteQuotation={(id) => { const r = quotations.find(x=>x.id===id); handleDelete(id, 'quotation', r?.client||''); }} onConvertToInvoice={handleConvertToInvoice} companyProfile={companyProfile} appSettings={appSettings} onUpdateSettings={setAppSettings} canWrite={canWrite} />}
 
         {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => { const r = invoices.find(x=>x.id===id); handleDelete(id, 'invoice', r?.client ? `Invoice #${r.invoiceNumber} — ${r.client}` : ''); }} onGenerateRecurring={handleGenerateRecurring} onReceivePayment={(inv, amt) => initiatePayment(inv, 'invoice', amt)} companyProfile={companyProfile} appSettings={appSettings} onUpdateSettings={setAppSettings} canWrite={canWrite} />}
 
         {view === 'vendors' && <VendorsPage vendors={vendors} vendorBills={vendorBills} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewVendor={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(v) => { if(!canWrite) return; setFormData({...v}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendors.find(x=>x.id===id); handleDelete(id, 'vendor', r?.name||''); }} onViewProfile={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
 
-        {view === 'vendor-bills' && <VendorBillsPage vendorBills={vendorBills} vendors={vendors} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewBill={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(b) => { if(!canWrite) return; setFormData({...b}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendorBills.find(x=>x.id===id); handleDelete(id, 'bill', r?.vendor ? `${r.vendor} — ${r.billNumber||r.description||''}` : ''); }} onPayBill={(b, amt) => initiatePayment(b, 'bill', amt)} />}
+        {view === 'vendor-bills' && <VendorBillsPage vendorBills={vendorBills} vendors={vendors} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewBill={() => { if(!canWrite) return; const prefix = appSettings.billPrefix||'BILL'; const num = `${prefix}-${String(Number(appSettings.billCounter||1)).padStart(3,'0')}`; setFormData({ date: new Date().toISOString().split('T')[0], billNumber: num }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(b) => { if(!canWrite) return; setFormData({...b}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendorBills.find(x=>x.id===id); handleDelete(id, 'bill', r?.vendor ? `${r.vendor} — ${r.billNumber||r.description||''}` : ''); }} onPayBill={(b, amt) => initiatePayment(b, 'bill', amt)} />}
 
         {view === 'manage-users' && <ManageUsersPage
             users={users}
@@ -6836,6 +6865,52 @@ function App() {
                         <div className="bg-sky-50 border border-sky-100 rounded-xl p-3 text-xs font-medium text-sky-700">
                             Next invoice will be numbered: <span className="font-extrabold">{appSettings.invoicePrefix||'INV'}-{String(appSettings.invoiceCounter||1).padStart(3,'0')}</span>
                         </div>
+                    </div>
+                </div>
+
+                {/* Quotation Settings */}
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                    <h3 className="text-lg font-extrabold text-slate-800 mb-6 flex items-center gap-3">
+                        <div className="p-2 bg-amber-100 rounded-xl text-amber-600"><FileText size={20}/></div>
+                        Quotation Numbering
+                    </h3>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Quotation Prefix</label>
+                            <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-amber-400"
+                                value={appSettings.quotePrefix||'QT'} onChange={e=>setAppSettings(p=>({...p,quotePrefix:e.target.value}))} placeholder="QT"/>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Next Number</label>
+                            <input type="number" min="1" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-amber-400"
+                                value={appSettings.quoteCounter||1} onChange={e=>setAppSettings(p=>({...p,quoteCounter:Number(e.target.value)}))}/>
+                        </div>
+                    </div>
+                    <div className="mt-4 bg-amber-50 border border-amber-100 rounded-xl p-3 text-xs font-medium text-amber-700">
+                        Next quotation will be numbered: <span className="font-extrabold">{appSettings.quotePrefix||'QT'}-{String(appSettings.quoteCounter||1).padStart(3,'0')}</span>
+                    </div>
+                </div>
+
+                {/* Vendor Bill Settings */}
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                    <h3 className="text-lg font-extrabold text-slate-800 mb-6 flex items-center gap-3">
+                        <div className="p-2 bg-rose-100 rounded-xl text-rose-600"><Receipt size={20}/></div>
+                        Vendor Bill Numbering
+                    </h3>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Bill Prefix</label>
+                            <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-rose-400"
+                                value={appSettings.billPrefix||'BILL'} onChange={e=>setAppSettings(p=>({...p,billPrefix:e.target.value}))} placeholder="BILL"/>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Next Number</label>
+                            <input type="number" min="1" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-rose-400"
+                                value={appSettings.billCounter||1} onChange={e=>setAppSettings(p=>({...p,billCounter:Number(e.target.value)}))}/>
+                        </div>
+                    </div>
+                    <div className="mt-4 bg-rose-50 border border-rose-100 rounded-xl p-3 text-xs font-medium text-rose-700">
+                        Next vendor bill will be numbered: <span className="font-extrabold">{appSettings.billPrefix||'BILL'}-{String(appSettings.billCounter||1).padStart(3,'0')}</span>
                     </div>
                 </div>
 
@@ -7294,7 +7369,12 @@ function App() {
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Bill # / Ref</label>
-                                        <input placeholder="e.g. BILL-001" className="form-input" value={formData.billNumber||''} onChange={e=>setFormData({...formData,billNumber:e.target.value})} />
+                                        <div className="relative">
+                                            <input className="form-input pr-16" value={formData.billNumber||''} onChange={e=>setFormData({...formData,billNumber:e.target.value})} placeholder="Auto-generated"/>
+                                            {!isEditingRecord && formData.billNumber && (
+                                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold bg-violet-100 text-violet-600 px-2 py-0.5 rounded-full">Auto</span>
+                                            )}
+                                        </div>
                                     </div>
                                     <div>
                                         <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Status</label>
