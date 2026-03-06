@@ -265,17 +265,18 @@ const LoginView = ({ onLogin, loading: externalLoading, error }) => {
         </div>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Username</label>
+            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Username or Email</label>
             <div className="relative group">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500 group-focus-within:text-violet-400 transition-colors"><Briefcase size={18}/></div>
-                <input type="text" required className="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3.5 pl-10 pr-4 text-white placeholder-slate-600 focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none transition-all" value={loginInput} onChange={(e) => setLoginInput(e.target.value)} placeholder="Agency ID" />
+                <input type="text" required autoComplete="username" className="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3.5 pl-10 pr-4 text-white placeholder-slate-600 focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none transition-all" value={loginInput} onChange={(e) => setLoginInput(e.target.value)} placeholder="username or email@company.com" />
             </div>
+            <p className="text-xs text-slate-600 ml-1">You can sign in with either your username or email address.</p>
           </div>
           <div className="space-y-2">
             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Password</label>
             <div className="relative group">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500 group-focus-within:text-violet-400 transition-colors"><Lock size={18}/></div>
-                <input type="password" required className="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3.5 pl-10 pr-4 text-white placeholder-slate-600 focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none transition-all" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+                <input type="password" required autoComplete="current-password" className="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3.5 pl-10 pr-4 text-white placeholder-slate-600 focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none transition-all" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
             </div>
           </div>
           {error && <div className="text-rose-400 text-sm text-center bg-rose-500/10 p-3 rounded-xl border border-rose-500/20 flex items-center justify-center gap-2 animate-in fade-in slide-in-from-top-1"><X size={16} /> {error}</div>}
@@ -664,11 +665,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                         <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2">
                             <div className="w-2 h-5 bg-violet-500 rounded-full"/>
                             Revenue vs Collections
-                            <span className="text-xs font-bold text-slate-400 ml-1">
-                                ({selectedMonth !== 'All' || selectedYear !== 'All'
-                                    ? [selectedMonth !== 'All' ? selectedMonth : '', selectedYear !== 'All' ? selectedYear : ''].filter(Boolean).join(' ')
-                                    : '6 Months'})
-                            </span>
+                            <span className="text-xs font-bold text-slate-400 ml-1">(Last 6 Months)</span>
                         </h3>
                         <ResponsiveContainer width="100%" height={180}>
                             <BarChart data={monthlyChart} barCategoryGap="30%">
@@ -5947,7 +5944,11 @@ function App() {
       setAuthError(null);
       setIsSubmitting(true);
       const inputHash = await hashPassword(password);
-      const user = users.find(u => u.username === loginInput || u.email === loginInput);
+      const inputLower = loginInput.trim().toLowerCase();
+      const user = users.find(u =>
+          (u.username || '').toLowerCase() === inputLower ||
+          (u.email || '').toLowerCase() === inputLower
+      );
       if (user) {
           if (user.password === password || user.password === inputHash) {
               setIsAuthenticated(true); setCurrentUser(user); setIsSubmitting(false);
