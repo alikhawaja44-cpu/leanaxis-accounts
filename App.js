@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
   LayoutDashboard, Wallet, Receipt, Users, Building2, Briefcase, Truck,
-  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, Settings, Search, Filter, FileText, Printer, DollarSign, Percent, CreditCard, Check, Share2, Database, BookOpen, FileCheck, Landmark
+  Plus, Download, Trash2, ArrowUpRight, ArrowDownLeft, Calendar, LogIn, Lock, UserPlus, Edit, Menu, X, CheckCircle, Clock, Upload, Link as LinkIcon, Copy, RefreshCw, Settings, Search, Filter, FileText, Printer, DollarSign, Percent, CreditCard, Check, Share2, Database, BookOpen, FileCheck, Landmark,
+  Command, Moon, Sun, Bell, StickyNote, Zap, TrendingUp, TrendingDown, ChevronRight
 } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip as ChartTooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import Papa from "papaparse";
@@ -239,6 +240,7 @@ function useAppSettings() {
         quoteCounter: 1,
         billPrefix: 'BILL',
         billCounter: 1,
+        darkMode: false,
     }, 'leanaxis_app_settings');
 }
 
@@ -363,6 +365,7 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
                                             <td className="p-5 text-center">
                                                 <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     {q.status !== 'Converted' && canWrite && <button onClick={() => onConvertToInvoice(q)} className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors" title="Convert to Invoice"><CheckCircle size={16} /></button>}
+                                                    {canWrite && <button onClick={() => { const newNum = nextQuoteNumber(); setQuoteData({...q, id: undefined, status: 'Pending', date: new Date().toISOString().split('T')[0]}); setQuoteNumber(newNum); if(onUpdateSettings) onUpdateSettings(prev=>({...prev,quoteCounter:(Number(prev.quoteCounter)||1)+1})); setViewMode('create'); }} className="p-2 text-amber-400 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors" title="Duplicate Quote"><Copy size={16}/></button>}
                                                     {canWrite && <button onClick={() => { setQuoteData(q); setQuoteNumber(q.quoteNumber || ''); setViewMode('create'); }} className="p-2 text-amber-500 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors"><Edit size={16} /></button>}
                                                     {canWrite && <button onClick={() => onDeleteQuotation(q.id)} className="p-2 text-rose-400 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"><Trash2 size={16} /></button>}
                                                 </div>
@@ -819,6 +822,11 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                                         <td className="px-5 py-4">
                                             <p className="font-bold text-slate-800 text-sm">{inv.client}</p>
                                             {inv.items?.length > 0 && <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[140px]">{inv.items[0].desc}</p>}
+                                            {inv.internalNotes && (
+                                                <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md mt-1" title={inv.internalNotes}>
+                                                    <StickyNote size={10}/> Note
+                                                </span>
+                                            )}
                                         </td>
                                         <td className="px-5 py-4 text-sm text-slate-500 font-medium">{inv.date}</td>
                                         <td className="px-5 py-4">
@@ -869,6 +877,16 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                                                 <button onClick={() => handleShareWhatsApp(inv)}
                                                     className="p-1.5 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg transition-colors" title="Send WhatsApp">
                                                     <Share2 size={13}/>
+                                                </button>
+                                                <button onClick={() => {
+                                                    // Duplicate: copy invoice with new number and today's date
+                                                    const newNum = nextInvNumber();
+                                                    setInvoiceData({...inv, id: undefined, status: 'Draft', date: new Date().toISOString().split('T')[0], amountReceived: 0, paidDate: ''});
+                                                    setInvoiceNumber(newNum);
+                                                    setViewMode('create');
+                                                    if (onUpdateSettings) onUpdateSettings(prev => ({...prev, invoiceCounter: (Number(prev.invoiceCounter)||1) + 1}));
+                                                }} className="p-1.5 bg-amber-50 text-amber-500 hover:bg-amber-100 rounded-lg transition-colors" title="Duplicate Invoice">
+                                                    <Copy size={13}/>
                                                 </button>
                                                 <button onClick={() => {
                                                     setInvoiceData(inv);
@@ -1081,6 +1099,13 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
                                 <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Payment Terms</label>
                                 <input placeholder="e.g. Payment due within 30 days. Bank: HBL, Account: 1234-56789" className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl text-sm font-medium text-slate-700 focus:ring-2 focus:ring-violet-500 outline-none"
                                     value={invoiceData.terms||''} onChange={e=>setInvoiceData(d=>({...d,terms:e.target.value}))}/>
+                            </div>
+                            <div className="border-t border-slate-100 pt-3">
+                                <label className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-1.5 block flex items-center gap-1.5">
+                                    <StickyNote size={12}/> Internal Notes (not printed on invoice)
+                                </label>
+                                <textarea rows={2} placeholder="e.g. Client said they'll pay by Friday. Follow up via email..." className="w-full border border-amber-200 bg-amber-50/50 p-3 rounded-xl text-sm font-medium text-slate-700 focus:ring-2 focus:ring-amber-400 outline-none resize-none"
+                                    value={invoiceData.internalNotes||''} onChange={e=>setInvoiceData(d=>({...d,internalNotes:e.target.value}))}/>
                             </div>
                         </div>
                     </div>
@@ -1895,7 +1920,7 @@ const EXPENSE_CAT_ICONS = {
 };
 const EXPENSE_COLORS = ['#6366f1','#f59e0b','#10b981','#f43f5e','#06b6d4','#8b5cf6','#f97316','#84cc16'];
 
-const ExpensesPage = ({ expenses, expenseCategories, currentUser, onNewExpense, onEdit, onDelete }) => {
+const ExpensesPage = ({ expenses, expenseCategories, currentUser, onNewExpense, onEdit, onDelete, onGenerateRecurring, onApproveExpense, onImportExpenses }) => {
     const [search,       setSearch]       = useState('');
     const [catFilter,    setCatFilter]    = useState('All');
     const [monthFilter,  setMonthFilter]  = useState('All');
@@ -2131,6 +2156,17 @@ const ExpensesPage = ({ expenses, expenseCategories, currentUser, onNewExpense, 
                 </div>
 
                 <div className="flex gap-2 flex-shrink-0">
+                    {onGenerateRecurring && expenses.some(e => e.isRecurring) && (
+                        <button onClick={onGenerateRecurring} className="bg-white border border-violet-200 text-violet-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-violet-50 shadow-sm transition-all" title="Auto-generate this month's recurring expenses">
+                            <RefreshCw size={15}/> Recurring
+                        </button>
+                    )}
+                    {onImportExpenses && (
+                        <label className="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 shadow-sm cursor-pointer">
+                            <Upload size={15}/> Import
+                            <input type="file" className="hidden" accept=".csv" onChange={onImportExpenses}/>
+                        </label>
+                    )}
                     <button onClick={() => exportToCSV(expenses, 'Expenses_Export')} className="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 shadow-sm"><Download size={15}/> Export</button>
                     <button onClick={onNewExpense}
                         className="bg-gradient-to-r from-rose-500 to-fuchsia-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-rose-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all">
@@ -2224,9 +2260,18 @@ const ExpensesPage = ({ expenses, expenseCategories, currentUser, onNewExpense, 
                                         </td>
                                         <td className="px-5 py-3.5 text-right">
                                             <p className="font-extrabold text-slate-900 tabular-nums">{formatCurrency(item.amt)}</p>
+                                            {item.approvalStatus === 'Pending' && (
+                                                <span className="text-xs font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full mt-1 inline-block">Pending</span>
+                                            )}
+                                            {item.isRecurring && (
+                                                <span className="text-xs font-bold bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full mt-1 inline-block ml-1">↻</span>
+                                            )}
                                         </td>
                                         <td className="px-5 py-3.5">
                                             <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {currentUser?.role === 'Admin' && item.approvalStatus === 'Pending' && onApproveExpense && (
+                                                    <button onClick={() => onApproveExpense(item.id)} className="p-1.5 text-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Approve"><CheckCircle size={13}/></button>
+                                                )}
                                                 {currentUser?.role === 'Admin' && (
                                                     <button onClick={() => onEdit(item)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"><Edit size={13}/></button>
                                                 )}
@@ -3647,6 +3692,47 @@ const ClientProfile = ({ client, invoices, bankRecords, pettyCash, onBack, onCre
                     </div>
                 </div>
             )}
+
+            {/* Invoice Aging Buckets */}
+            {activeTab === 'overview' && totalOutstanding > 0 && (() => {
+                const aging = { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90plus: 0 };
+                const todayMs = today.getTime();
+                invoiceSummary.filter(i => i.outstanding > 0).forEach(inv => {
+                    if (!inv.dueDate) { aging.current += inv.outstanding; return; }
+                    const days = Math.floor((todayMs - new Date(inv.dueDate).getTime()) / 86400000);
+                    if (days <= 0)       aging.current  += inv.outstanding;
+                    else if (days <= 30) aging.d1_30    += inv.outstanding;
+                    else if (days <= 60) aging.d31_60   += inv.outstanding;
+                    else if (days <= 90) aging.d61_90   += inv.outstanding;
+                    else                 aging.d90plus  += inv.outstanding;
+                });
+                const buckets = [
+                    { label: 'Current',     amount: aging.current,  color: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50' },
+                    { label: '1–30 Days',   amount: aging.d1_30,    color: 'bg-amber-400',   text: 'text-amber-700',   bg: 'bg-amber-50'   },
+                    { label: '31–60 Days',  amount: aging.d31_60,   color: 'bg-orange-500',  text: 'text-orange-700',  bg: 'bg-orange-50'  },
+                    { label: '61–90 Days',  amount: aging.d61_90,   color: 'bg-rose-500',    text: 'text-rose-700',    bg: 'bg-rose-50'    },
+                    { label: '90+ Days',    amount: aging.d90plus,  color: 'bg-rose-800',    text: 'text-rose-900',    bg: 'bg-rose-100'   },
+                ].filter(b => b.amount > 0);
+                return (
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 mt-2">
+                        <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2">
+                            <div className="w-2 h-5 bg-rose-400 rounded-full"/>
+                            Invoice Aging — Outstanding {formatCurrency(totalOutstanding)}
+                        </h3>
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                            {buckets.map(b => (
+                                <div key={b.label} className={`${b.bg} rounded-2xl p-4 text-center border border-slate-100`}>
+                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">{b.label}</p>
+                                    <p className={`text-lg font-extrabold tabular-nums ${b.text}`}>{formatCurrency(b.amount)}</p>
+                                    <div className="mt-2 h-1.5 bg-white/60 rounded-full overflow-hidden">
+                                        <div className={`h-full ${b.color} rounded-full`} style={{width:`${totalOutstanding>0?((b.amount/totalOutstanding)*100).toFixed(0):0}%`}}/>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* TAB: INVOICES */}
             {activeTab === 'invoices' && (
@@ -5840,6 +5926,157 @@ const TaxReport = ({ invoices, salaries, expenses, vendorBills, month, year }) =
     );
 };
 
+// ============================================================
+// GLOBAL COMMAND PALETTE  (Ctrl+K / ⌘K)
+// ============================================================
+const GlobalCommandPalette = ({ isOpen, onClose, invoices, clients, expenses, vendors, quotations, vendorBills, pettyCash, bankRecords, salaries, onNavigate }) => {
+    const [query, setQuery] = useState('');
+    const inputRef = useRef(null);
+
+    useEffect(() => {
+        if (isOpen) { setQuery(''); setTimeout(() => inputRef.current?.focus(), 50); }
+    }, [isOpen]);
+
+    useEffect(() => {
+        const handler = (e) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [onClose]);
+
+    const results = useMemo(() => {
+        if (!query.trim() || query.length < 2) return [];
+        const q = query.toLowerCase();
+        const hits = [];
+
+        // Quick nav commands
+        const navItems = [
+            { label:'Dashboard',            view:'dashboard',              icon:'🏠', type:'Page' },
+            { label:'Invoices',             view:'invoices',               icon:'📄', type:'Page' },
+            { label:'Quotations',           view:'quotations',             icon:'📋', type:'Page' },
+            { label:'Clients',              view:'clients',                icon:'👥', type:'Page' },
+            { label:'Expenses',             view:'expenses',               icon:'💸', type:'Page' },
+            { label:'Petty Cash',           view:'petty-cash',             icon:'💰', type:'Page' },
+            { label:'Vendors',              view:'vendors',                icon:'🚚', type:'Page' },
+            { label:'Vendor Bills',         view:'vendor-bills',           icon:'🧾', type:'Page' },
+            { label:'Team Salaries',        view:'salaries',               icon:'👤', type:'Page' },
+            { label:'Bank Accounts',        view:'bank',                   icon:'🏦', type:'Page' },
+            { label:'P&L Analytics',        view:'reports',                icon:'📊', type:'Page' },
+            { label:'Tax Liability',        view:'tax-report',             icon:'📑', type:'Page' },
+            { label:'Receivables & Payables',view:'receivables-payables',  icon:'⚖️', type:'Page' },
+            { label:'Settings',             view:'settings',               icon:'⚙️', type:'Page' },
+        ];
+        navItems.filter(n => n.label.toLowerCase().includes(q)).forEach(n => hits.push(n));
+
+        // Invoices
+        invoices.filter(i => (i.client||'').toLowerCase().includes(q) || (i.invoiceNumber||'').toLowerCase().includes(q))
+            .slice(0,4).forEach(i => hits.push({ label:`${i.invoiceNumber||'Invoice'} — ${i.client}`, sub: `${i.status} · ${formatCurrency(calculateTax((i.items||[]).reduce((s,it)=>s+(it.qty||0)*(it.rate||0),0),i.taxRate).total)}`, view:'invoices', icon:'📄', type:'Invoice' }));
+
+        // Clients
+        clients.filter(c => (c.name||'').toLowerCase().includes(q) || (c.projectName||'').toLowerCase().includes(q))
+            .slice(0,4).forEach(c => hits.push({ label:c.name, sub: c.projectName||'Client', view:'clients', icon:'👥', type:'Client', clientObj: c }));
+
+        // Quotations
+        quotations.filter(qt => (qt.client||'').toLowerCase().includes(q) || (qt.quoteNumber||'').toLowerCase().includes(q))
+            .slice(0,3).forEach(qt => hits.push({ label:`${qt.quoteNumber||'Quote'} — ${qt.client}`, sub:`${qt.status||'Pending'}`, view:'quotations', icon:'📋', type:'Quote' }));
+
+        // Vendors
+        vendors.filter(v => (v.name||'').toLowerCase().includes(q))
+            .slice(0,3).forEach(v => hits.push({ label:v.name, sub:v.serviceType||'Vendor', view:'vendors', icon:'🚚', type:'Vendor' }));
+
+        // Expenses
+        expenses.filter(e => (e.description||'').toLowerCase().includes(q) || (e.category||'').toLowerCase().includes(q))
+            .slice(0,3).forEach(e => hits.push({ label:e.description||'Expense', sub:`${e.category||''} · ${formatCurrency(Number(e.amount)||0)}`, view:'expenses', icon:'💸', type:'Expense' }));
+
+        return hits.slice(0, 12);
+    }, [query, invoices, clients, quotations, vendors, expenses]);
+
+    if (!isOpen) return null;
+
+    const typeColor = { Page:'bg-slate-100 text-slate-500', Invoice:'bg-violet-100 text-violet-600', Client:'bg-sky-100 text-sky-600', Quote:'bg-amber-100 text-amber-600', Vendor:'bg-emerald-100 text-emerald-600', Expense:'bg-rose-100 text-rose-600' };
+
+    return (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[100] flex items-start justify-center pt-[10vh] px-4" onClick={onClose}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-150" onClick={e=>e.stopPropagation()}>
+                {/* Search input */}
+                <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
+                    <Search className="text-slate-400 flex-shrink-0" size={20}/>
+                    <input ref={inputRef} className="flex-1 text-slate-800 font-medium text-base outline-none placeholder:text-slate-300 bg-transparent"
+                        placeholder="Search anything — clients, invoices, pages..." value={query} onChange={e=>setQuery(e.target.value)}/>
+                    <kbd className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded-lg">ESC</kbd>
+                </div>
+                {/* Results */}
+                <div className="max-h-80 overflow-y-auto">
+                    {query.length < 2 ? (
+                        <div className="px-5 py-8 text-center">
+                            <p className="text-slate-400 text-sm font-medium">Type at least 2 characters to search across all modules.</p>
+                            <div className="flex flex-wrap gap-2 justify-center mt-4">
+                                {['invoices','clients','expenses','vendors','reports'].map(v=>(
+                                    <button key={v} onClick={()=>{onNavigate(v);onClose();}} className="text-xs font-bold px-3 py-1.5 bg-slate-50 hover:bg-violet-50 hover:text-violet-600 text-slate-500 rounded-xl transition-colors capitalize">{v}</button>
+                                ))}
+                            </div>
+                        </div>
+                    ) : results.length === 0 ? (
+                        <div className="px-5 py-8 text-center text-slate-400 text-sm font-medium">No results for "{query}"</div>
+                    ) : (
+                        <div className="py-2">
+                            {results.map((r, i) => (
+                                <button key={i} onClick={()=>{ if(r.clientObj) onNavigate('client-profile', r.clientObj); else onNavigate(r.view); onClose(); }}
+                                    className="w-full flex items-center gap-3 px-5 py-3 hover:bg-violet-50 transition-colors text-left group">
+                                    <span className="text-lg flex-shrink-0">{r.icon}</span>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-bold text-slate-800 text-sm truncate">{r.label}</p>
+                                        {r.sub && <p className="text-xs text-slate-400 truncate">{r.sub}</p>}
+                                    </div>
+                                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${typeColor[r.type]||'bg-slate-100 text-slate-500'}`}>{r.type}</span>
+                                    <ChevronRight size={14} className="text-slate-300 group-hover:text-violet-400 transition-colors flex-shrink-0"/>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+                {/* Footer hint */}
+                <div className="px-5 py-2.5 border-t border-slate-50 flex gap-4">
+                    <span className="text-xs text-slate-300 font-medium">↵ open</span>
+                    <span className="text-xs text-slate-300 font-medium">ESC close</span>
+                    <span className="text-xs text-slate-300 font-medium ml-auto">Results: {results.length}</span>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================
+// FLOATING ACTION BUTTON (Quick-add menu)
+// ============================================================
+const FloatingActionButton = ({ onAction, canWrite }) => {
+    const [open, setOpen] = useState(false);
+    if (!canWrite) return null;
+    const actions = [
+        { label:'New Invoice',   view:'invoices',     icon:'📄', color:'bg-violet-500 hover:bg-violet-600' },
+        { label:'New Expense',   view:'expenses',     icon:'💸', color:'bg-rose-500 hover:bg-rose-600' },
+        { label:'Cash Out',      view:'petty-cash',   icon:'💰', color:'bg-amber-500 hover:bg-amber-600', type:'out' },
+        { label:'New Quote',     view:'quotations',   icon:'📋', color:'bg-amber-400 hover:bg-amber-500' },
+        { label:'New Client',    view:'clients',      icon:'👥', color:'bg-sky-500 hover:bg-sky-600' },
+    ];
+    return (
+        <div className="fixed bottom-8 right-8 z-50 flex flex-col-reverse items-end gap-3">
+            {open && actions.map((a, i) => (
+                <div key={i} className="flex items-center gap-3 animate-in slide-in-from-bottom-2 fade-in duration-150" style={{animationDelay:`${i*40}ms`}}>
+                    <span className="bg-slate-800 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg whitespace-nowrap">{a.label}</span>
+                    <button onClick={()=>{ onAction(a.view, a.type); setOpen(false); }}
+                        className={`w-12 h-12 rounded-2xl ${a.color} text-white shadow-lg flex items-center justify-center text-lg transition-all hover:scale-110 active:scale-95`}>
+                        {a.icon}
+                    </button>
+                </div>
+            ))}
+            <button onClick={()=>setOpen(o=>!o)}
+                className={`w-14 h-14 rounded-2xl shadow-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 ${open ? 'bg-slate-700 rotate-45' : 'bg-gradient-to-br from-violet-600 to-fuchsia-600'}`}>
+                <Plus size={26} className="text-white"/>
+            </button>
+        </div>
+    );
+};
+
 // --- MAIN APP COMPONENT ---
 function App() {
   const toast = useToast();
@@ -5872,6 +6109,36 @@ function App() {
   const [deleteConfirm, setDeleteConfirm] = useState(null); // { id, type, label }
   const [companyProfile, setCompanyProfile] = useCompanyProfile();
   const [appSettings, setAppSettings] = useAppSettings();
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+
+  // Dark mode: apply class to <html> element
+  useEffect(() => {
+    if (appSettings.darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [appSettings.darkMode]);
+
+  // Global keyboard shortcut: Ctrl+K / ⌘K → command palette, Escape closes it
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); setShowCommandPalette(p => !p); }
+      // Ctrl+S → save form if open
+      if ((e.ctrlKey || e.metaKey) && e.key === 's' && showForm) {
+        e.preventDefault();
+        const form = document.getElementById('main-slide-form');
+        if (form) form.requestSubmit();
+      }
+      // Escape → close form or command palette
+      if (e.key === 'Escape') {
+        if (showCommandPalette) setShowCommandPalette(false);
+        else if (showForm) setShowForm(false);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [showForm, showCommandPalette]);
 
   // Keep currency formatter in sync with settings
   React.useEffect(() => {
@@ -6032,6 +6299,27 @@ function App() {
           }
       }
       toast(`Generated ${count} recurring invoice${count !== 1 ? 's' : ''}!`, count > 0 ? 'success' : 'info');
+  };
+
+  const handleGenerateRecurringExpenses = async () => {
+      const today = new Date();
+      const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+      const recurringExpenses = expenses.filter(e => e.isRecurring);
+      let count = 0;
+      for (const exp of recurringExpenses) {
+          const alreadyGenerated = expenses.some(e =>
+              e.description === exp.description && e.isRecurring &&
+              e.date && e.date.startsWith(currentMonthKey) && e.id !== exp.id
+          );
+          if (!alreadyGenerated) {
+              await addDoc(collection(db, 'expenses'), {
+                  ...exp, id: undefined, date: `${currentMonthKey}-01`,
+                  status: undefined, addedBy: currentUser.username, createdAt: new Date().toISOString()
+              });
+              count++;
+          }
+      }
+      toast(`Generated ${count} recurring expense${count !== 1 ? 's' : ''}!`, count > 0 ? 'success' : 'info');
   };
   
   const handleConvertToInvoice = async (quote) => {
@@ -6292,7 +6580,35 @@ function App() {
   const canDelete = currentUser?.role === 'Admin';
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900 selection:bg-violet-100 selection:text-violet-900">
+    <div className={`min-h-screen font-sans selection:bg-violet-100 selection:text-violet-900 ${appSettings.darkMode ? 'bg-slate-900 text-slate-100' : 'bg-[#F8FAFC] text-slate-900'}`}>
+      {/* GLOBAL COMMAND PALETTE */}
+      <GlobalCommandPalette
+        isOpen={showCommandPalette}
+        onClose={() => setShowCommandPalette(false)}
+        invoices={invoices} clients={clients} expenses={expenses}
+        vendors={vendors} quotations={quotations} vendorBills={vendorBills}
+        pettyCash={pettyCash} bankRecords={bankRecords} salaries={salaries}
+        onNavigate={(v, obj) => {
+          if (v === 'client-profile' && obj) { setSelectedClientProfile(obj); setView('client-profile'); }
+          else setView(v);
+        }}
+      />
+      {/* FLOATING ACTION BUTTON */}
+      {isAuthenticated && (
+        <FloatingActionButton canWrite={canWrite} onAction={(targetView, type) => {
+          setView(targetView);
+          if (targetView === 'petty-cash') {
+            const prefix = appSettings.billPrefix||'BILL';
+            setFormData({ date: new Date().toISOString().split('T')[0], _entryType: type || 'out' });
+          } else if (targetView === 'invoices') {
+            // handled inside InvoiceGenerator
+          } else {
+            setFormData({ date: new Date().toISOString().split('T')[0] });
+            setIsEditingRecord(false);
+            setShowForm(true);
+          }
+        }}/>
+      )
       
       {/* MOBILE HEADER */}
       <div className="md:hidden fixed top-0 w-full bg-[#0F172A]/95 backdrop-blur-md border-b border-white/5 p-4 z-50 flex justify-between items-center shadow-lg">
@@ -6389,6 +6705,59 @@ function App() {
 
         {view === 'dashboard' && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
+
+                {/* Today at a Glance */}
+                {(() => {
+                    const today = new Date(); today.setHours(0,0,0,0);
+                    const todayStr = today.toISOString().split('T')[0];
+                    const dueToday = invoices.filter(i => i.status !== 'Paid' && i.dueDate === todayStr).length;
+                    const billsDueToday = vendorBills.filter(b => b.status !== 'Paid' && b.dueDate === todayStr).length;
+                    const bankTotal = bankRecords.reduce((a,r) => a + (Number(r.amount)||0) * (r.type === 'credit' || Number(r.amount) > 0 ? 1 : -1), 0);
+                    const cashFloat = (appSettings.pettyCashOpeningBalance||0) + pettyCash.reduce((a,r) => a + (Number(r.cashIn)||0) - (Number(r.cashOut)||0), 0);
+                    const thisMonthExp = expenses.filter(e => e.date && e.date.startsWith(todayStr.slice(0,7))).reduce((a,e)=>a+(Number(e.amount)||0), 0);
+                    const lastMonthStart = new Date(today.getFullYear(), today.getMonth()-1, 1).toISOString().slice(0,7);
+                    const lastMonthRev = invoices.filter(i => i.status === 'Paid' && i.paidDate && i.paidDate.startsWith(lastMonthStart)).reduce((a,i)=>a+calculateTax((i.items||[]).reduce((s,it)=>s+(it.qty||0)*(it.rate||0),0),i.taxRate).total,0);
+                    const thisMonthRev = invoices.filter(i => i.status === 'Paid' && i.paidDate && i.paidDate.startsWith(todayStr.slice(0,7))).reduce((a,i)=>a+calculateTax((i.items||[]).reduce((s,it)=>s+(it.qty||0)*(it.rate||0),0),i.taxRate).total,0);
+                    const netProfit = thisMonthRev - thisMonthExp;
+                    const lastNetProfit = lastMonthRev - expenses.filter(e => e.date && e.date.startsWith(lastMonthStart)).reduce((a,e)=>a+(Number(e.amount)||0),0);
+                    const profitTrend = lastNetProfit !== 0 ? ((netProfit - lastNetProfit) / Math.abs(lastNetProfit) * 100).toFixed(0) : null;
+                    return (
+                        <div className="bg-gradient-to-br from-violet-600 via-violet-700 to-fuchsia-700 rounded-3xl p-6 text-white shadow-xl shadow-violet-200">
+                            <div className="flex items-center justify-between mb-5">
+                                <div>
+                                    <p className="text-violet-200 text-xs font-bold uppercase tracking-widest">Today at a Glance</p>
+                                    <h2 className="text-xl font-extrabold mt-0.5">{today.toLocaleDateString('en-US', {weekday:'long', day:'numeric', month:'long'})}</h2>
+                                </div>
+                                {profitTrend !== null && (
+                                    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-bold ${Number(profitTrend) >= 0 ? 'bg-emerald-500/20 text-emerald-200' : 'bg-rose-500/20 text-rose-200'}`}>
+                                        {Number(profitTrend) >= 0 ? <TrendingUp size={15}/> : <TrendingDown size={15}/>}
+                                        {Number(profitTrend) >= 0 ? '+' : ''}{profitTrend}% vs last month
+                                    </div>
+                                )}
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                <div className="bg-white/10 rounded-2xl p-4 backdrop-blur-sm">
+                                    <p className="text-violet-200 text-xs font-bold uppercase tracking-wide mb-1">Bank Balance</p>
+                                    <p className="text-2xl font-extrabold tabular-nums">{formatCurrency(bankTotal)}</p>
+                                </div>
+                                <div className="bg-white/10 rounded-2xl p-4 backdrop-blur-sm">
+                                    <p className="text-violet-200 text-xs font-bold uppercase tracking-wide mb-1">Cash Float</p>
+                                    <p className="text-2xl font-extrabold tabular-nums">{formatCurrency(cashFloat)}</p>
+                                </div>
+                                <div className="bg-white/10 rounded-2xl p-4 backdrop-blur-sm">
+                                    <p className="text-violet-200 text-xs font-bold uppercase tracking-wide mb-1">This Month Net</p>
+                                    <p className={`text-2xl font-extrabold tabular-nums ${netProfit < 0 ? 'text-rose-300' : ''}`}>{formatCurrency(netProfit)}</p>
+                                </div>
+                                <div className="bg-white/10 rounded-2xl p-4 backdrop-blur-sm">
+                                    <p className="text-violet-200 text-xs font-bold uppercase tracking-wide mb-1">Due Today</p>
+                                    <p className="text-2xl font-extrabold">{dueToday + billsDueToday}</p>
+                                    <p className="text-violet-300 text-xs mt-0.5">{dueToday} inv · {billsDueToday} bills</p>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()}
+
                 {/* Overdue alert banner */}
                 {totals.overdueCount > 0 && (
                     <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-center gap-4">
@@ -6743,7 +7112,7 @@ function App() {
 
         {view === 'vendor-profile' && selectedVendorProfile && <VendorProfile vendor={selectedVendorProfile} vendorBills={vendorBills} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('vendors')} />}
 
-        {view === 'expenses' && <ExpensesPage expenses={expenses} expenseCategories={expenseCategories} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewExpense={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { if(!canWrite) return; setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = expenses.find(x=>x.id===id); handleDelete(id, 'expense', r?.description||''); }} />}
+        {view === 'expenses' && <ExpensesPage expenses={expenses} expenseCategories={expenseCategories} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onGenerateRecurring={handleGenerateRecurringExpenses} onApproveExpense={async (id) => { await updateDoc(doc(db, 'expenses', id), { approvalStatus: 'Approved' }); toast('Expense approved!', 'success'); }} onImportExpenses={(e) => handleGenericImport(e, 'expenses')} onNewExpense={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { if(!canWrite) return; setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = expenses.find(x=>x.id===id); handleDelete(id, 'expense', r?.description||''); }} />}
 
         {view === 'petty-cash' && <PettyCashPage pettyCash={pettyCash} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} appSettings={appSettings} onNewEntry={(type) => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0], _entryType: type || 'out' }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { if(!canWrite) return; setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = pettyCash.find(x=>x.id===id); handleDelete(id, 'petty', r?.description||''); }} />}
 
@@ -6956,6 +7325,38 @@ function App() {
                     <div className="relative"><Plus size={18} className="absolute left-4 top-4 text-slate-400"/><input className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none transition-all" placeholder="Add new category... (Press Enter)" onKeyDown={e => { if(e.key === 'Enter' && e.target.value) { setExpenseCategories([...expenseCategories, e.target.value]); e.target.value = ''; } }}/></div>
                 </div>
 
+
+                {/* Appearance */}
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                    <h3 className="text-lg font-extrabold text-slate-800 mb-6 flex items-center gap-3">
+                        <div className="p-2 bg-slate-100 rounded-xl text-slate-600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></div>
+                        Appearance & Shortcuts
+                    </h3>
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                            <div>
+                                <p className="font-bold text-slate-800 text-sm">Dark Mode</p>
+                                <p className="text-xs text-slate-400 mt-0.5">Switch to a dark theme for low-light environments</p>
+                            </div>
+                            <button onClick={()=>setAppSettings(p=>({...p,darkMode:!p.darkMode}))}
+                                className={`relative w-12 h-6 rounded-full transition-colors duration-300 focus:outline-none ${appSettings.darkMode?'bg-violet-600':'bg-slate-300'}`}>
+                                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-300 ${appSettings.darkMode?'translate-x-6':'translate-x-0'}`}/>
+                            </button>
+                        </div>
+                        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                            <p className="font-bold text-slate-700 text-sm mb-3">Keyboard Shortcuts</p>
+                            <div className="grid grid-cols-2 gap-2">
+                                {[['Ctrl + K','Open command search'],['Ctrl + S','Save current form'],['Escape','Close panels / modals'],['Enter','Submit forms']].map(([key,desc])=>(
+                                    <div key={key} className="flex items-center gap-2">
+                                        <kbd className="text-xs font-bold bg-white border border-slate-200 text-slate-600 px-2 py-1 rounded-lg shadow-sm whitespace-nowrap">{key}</kbd>
+                                        <span className="text-xs text-slate-500">{desc}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 {/* ImgBB + Data */}
                 <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
                     <h3 className="text-lg font-extrabold text-slate-800 mb-6 flex items-center gap-3">
@@ -7015,7 +7416,7 @@ function App() {
             <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                 <div className="bg-white p-8 md:p-10 rounded-3xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
                     <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-6"><h3 className="text-2xl font-bold text-slate-800">{view==='clients' ? (isEditingRecord ? 'Edit Client' : 'New Client') : view==='salaries' ? (isEditingRecord ? 'Edit Payslip' : 'New Payslip') : view==='petty-cash' ? (isEditingRecord ? 'Edit Entry' : 'New Cash Entry') : view==='expenses' ? (isEditingRecord ? 'Edit Expense' : 'New Expense') : view==='vendors' ? (isEditingRecord ? 'Edit Vendor' : 'New Vendor') : view==='vendor-bills' ? (isEditingRecord ? 'Edit Bill' : 'New Vendor Bill') : view==='manage-users' ? (isEditingUser ? 'Edit User' : 'Add New User') : view==='bank' ? (isEditingRecord ? 'Edit Transaction' : 'New Bank Entry') : 'Record Details'}</h3><button onClick={()=>setShowForm(false)} className="p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"><X size={20}/></button></div>
-                    <form onSubmit={handleAddSubmit} className="space-y-6">
+                    <form id="main-slide-form" onSubmit={handleAddSubmit} className="space-y-6">
                          {/* DYNAMIC FORM FIELDS BASED ON VIEW - STYLED CONSISTENTLY */}
                         {view==='manage-users' && (
                             <div className="space-y-4">
@@ -7482,6 +7883,24 @@ function App() {
                                     <div className="bg-rose-50 border border-rose-100 rounded-xl p-3 flex justify-between items-center">
                                         <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Expense Amount</span>
                                         <span className="text-xl font-extrabold text-rose-700 tabular-nums">{formatCurrency(Number(formData.amount)||0)}</span>
+                                    </div>
+                                )}
+                                <div className="flex items-center justify-between p-3 bg-violet-50 border border-violet-100 rounded-xl cursor-pointer" onClick={()=>setFormData({...formData, isRecurring: !formData.isRecurring})}>
+                                    <div>
+                                        <p className="text-sm font-bold text-violet-800">Monthly Recurring</p>
+                                        <p className="text-xs text-violet-500 mt-0.5">Auto-generate this expense every month</p>
+                                    </div>
+                                    <div className={`w-10 h-5 rounded-full transition-colors duration-200 flex items-center ${formData.isRecurring ? 'bg-violet-600' : 'bg-slate-300'}`}>
+                                        <span className={`w-4 h-4 bg-white rounded-full shadow mx-0.5 transition-transform duration-200 ${formData.isRecurring ? 'translate-x-5' : 'translate-x-0'}`}/>
+                                    </div>
+                                </div>
+                                {!isEditingRecord && (
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Approval Status</label>
+                                        <select className="form-select" value={formData.approvalStatus||'Pending'} onChange={e=>setFormData({...formData,approvalStatus:e.target.value})}>
+                                            <option value="Pending">Pending Approval</option>
+                                            <option value="Approved">Approved</option>
+                                        </select>
                                     </div>
                                 )}
                             </div>
