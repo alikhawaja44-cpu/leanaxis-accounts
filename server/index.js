@@ -32,12 +32,7 @@ app.use(helmet({
 }));
 
 app.use(cors({
-  origin: [
-    CLIENT_URL,
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'https://alikhawaja44-cpu.github.io',
-  ],
+  origin: [CLIENT_URL, 'http://localhost:5173', 'http://localhost:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -79,6 +74,7 @@ app.use('/api/petty-cash',  createCrudRouter('petty_cash'));
 app.use('/api/salaries',    createCrudRouter('salaries'));
 app.use('/api/bank-records', createCrudRouter('bank_records'));
 app.use('/api/quotations',  createCrudRouter('quotations'));
+app.use('/api/debts',       createCrudRouter('debts'));
 
 // ── Health Check ─────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
