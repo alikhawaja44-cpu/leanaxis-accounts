@@ -12,21 +12,26 @@ async function hashPassword(password) {
 
 // Verify a password (supports both bcrypt and legacy SHA-256)
 async function verifyPassword(input, stored) {
-  // Try bcrypt first
-  try {
-    if (stored.startsWith('$2')) {
-      return await bcrypt.compare(input, stored);
-    }
-  } catch (e) {}
-  
-  // Legacy: SHA-256 hex (from old app)
-  const encoder = new TextEncoder();
-  const data = encoder.encode(input);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hexHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  
-  return hexHash === stored || input === stored;
+  if (typeof stored !== 'string' || !stored) return false;
+
+  // Current scheme: bcrypt
+  if (stored.startsWith('$2')) {
+    try { return await bcrypt.compare(input, stored); } catch (e) { return false; }
+  }
+
+  // Legacy scheme: SHA-256 hex from the pre-2.0 client. Only accepted when the
+  // stored value actually looks like a SHA-256 digest — the previous
+  // `input === stored` fallback meant a plaintext password in the database
+  // would authenticate as-is.
+  if (/^[0-9a-f]{64}$/i.test(stored)) {
+    const hexHash = require('crypto').createHash('sha256').update(input, 'utf8').digest('hex');
+    // Constant-time compare to avoid leaking the digest byte by byte.
+    const a = Buffer.from(hexHash, 'utf8');
+    const b = Buffer.from(stored.toLowerCase(), 'utf8');
+    return a.length === b.length && require('crypto').timingSafeEqual(a, b);
+  }
+
+  return false;
 }
 
 // POST /api/auth/login

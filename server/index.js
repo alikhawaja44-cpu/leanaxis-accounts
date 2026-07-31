@@ -71,7 +71,8 @@ app.use('/api/clients',     createCrudRouter('clients'));
 app.use('/api/vendors',     createCrudRouter('vendors'));
 app.use('/api/expenses',    createCrudRouter('expenses'));
 app.use('/api/petty-cash',  createCrudRouter('petty_cash'));
-app.use('/api/salaries',    createCrudRouter('salaries'));
+// Payroll contains salary figures and CNICs — writes and reads are Admin-only.
+app.use('/api/salaries',    createCrudRouter('salaries', { adminOnly: true, readAdminOnly: true }));
 app.use('/api/bank-records', createCrudRouter('bank_records'));
 app.use('/api/quotations',  createCrudRouter('quotations'));
 app.use('/api/debts',       createCrudRouter('debts'));
@@ -88,6 +89,13 @@ app.get('/api/health', (req, res) => {
 });
 
 // ── Serve React Frontend (Production) ────────────────────────────────────────
+// Unknown API routes must return JSON 404s, not the SPA shell — otherwise a
+// typo'd endpoint resolves to index.html and the client fails with a confusing
+// JSON parse error.
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'Route not found', path: req.originalUrl });
+});
+
 if (process.env.NODE_ENV === 'production') {
   const clientBuildPath = path.join(__dirname, '../client/dist');
   app.use(express.static(clientBuildPath));

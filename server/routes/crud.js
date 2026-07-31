@@ -14,13 +14,15 @@ const { requireAuth, requireWrite, requireAdmin } = require('../middleware/auth'
  * @param {function} options.beforeUpdate - Hook before updating a record
  * @param {function} options.afterCreate - Hook after creating a record
  * @param {boolean} options.adminOnly - Restrict writes/deletes to Admin
+ * @param {boolean} options.readAdminOnly - Restrict reads to Admin (sensitive data)
  */
 function createCrudRouter(collectionName, options = {}) {
   const router = express.Router();
   const writeMiddleware = options.adminOnly ? requireAdmin : requireWrite;
+  const readMiddleware = options.readAdminOnly ? [requireAuth, requireAdmin] : [requireAuth];
 
   // GET / - List all records
-  router.get('/', requireAuth, async (req, res) => {
+  router.get('/', readMiddleware, async (req, res) => {
     try {
       const records = await firestoreHelpers.getAll(collectionName);
       res.json(records);
@@ -31,7 +33,7 @@ function createCrudRouter(collectionName, options = {}) {
   });
 
   // GET /:id - Get one record
-  router.get('/:id', requireAuth, async (req, res) => {
+  router.get('/:id', readMiddleware, async (req, res) => {
     try {
       const record = await firestoreHelpers.getById(collectionName, req.params.id);
       if (!record) return res.status(404).json({ error: 'Record not found' });

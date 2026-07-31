@@ -20,6 +20,12 @@ import {
 
 // Utilities
 import { formatCurrency, calculateTax, calcInvoiceTotal, printDocument, downloadElementAsPDF, today, exportToCSV } from './utils/helpers';
+import {
+  computePayroll, withTotals, payPeriodLabel, payPeriodKey,
+  EARNING_FIELDS, DEDUCTION_FIELDS, PAYMENT_MODES, netOf, grossOf,
+} from './utils/payroll';
+import PayslipModal from './components/Payslip';
+import PaymentStatement, { buildStatementRows } from './components/PaymentStatement';
 
 // ── Helpers replicated inline for components ──────────────────────────────────
 const hashPassword = async (password) => {
@@ -1119,233 +1125,8 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
   </div>
  );
 };
-const SalarySlip = ({ data, onClose, companyProfile = {} }) => {
+const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, onViewSlip, companyProfile = {} }) => {
  const toast = useToast();
- if (!data) return null;
- const period = (() => {
-  try { return new Date(data.date).toLocaleString('default', { month: 'long', year: 'numeric' }); }
-  catch { return data.date; }
- })();
- const handleWhatsApp = () => {
-  const phone = (data.phone || '').replace(/[^0-9]/g, '');
-  const msg = encodeURIComponent(
-   `*PAYSLIP — ${period}*\n\nDear ${data.employeeName},\n\nPlease find your salary details below:\n\n` +
-   `• Basic Salary: ${formatCurrency(data.basicSalary || data.totalPayable)}\n` +
-   (data.taxDeduction > 0 ? `• Tax Deducted: -${formatCurrency(data.taxDeduction)}\n` : '') +
-   `• *Net Pay: ${formatCurrency(data.totalPayable)}*\n\n` +
-   `Payment via: ${data.bankName || 'Cash'}${data.chequeNumber ? ` (Cheque #${data.chequeNumber})` : ''}\n\n` +
-   `Thank you!\n${companyProfile.name || 'Our Company'}`
-  );
-  const url = phone ? `https://wa.me/${phone}?text=${msg}` : `https://wa.me/?text=${msg}`;
-  window.open(url, '_blank');
- };
- const handleDownloadPDF = async () => {
-  try {
-   await loadPdfLibrary();
-   // constraints don't cause html2canvas to capture a zero-height element.
-   const source = document.getElementById('salary-slip-printable');
-   if (!source) return toast('Could not find slip content.', 'error');
-   const clone = source.cloneNode(true);
-   const wrapper = document.createElement('div');
-   wrapper.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:#fff;z-index:-1;';
-   wrapper.appendChild(clone);
-   document.body.appendChild(wrapper);
-   const opt = {
-    margin: [0.4, 0.4, 0.4, 0.4],
-    filename: `Payslip_${data.employeeName}_${data.date}.pdf`,
-    image: { type: 'jpeg', quality: 0.99 },
-    html2canvas: { scale: 2, useCORS: true, logging: false, windowWidth: 794 },
-    jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
-   };
-   await window.html2pdf().set(opt).from(wrapper).save();
-   document.body.removeChild(wrapper);
-   toast('PDF downloaded!', 'success');
-  } catch (e) {
-   console.error(e);
-   toast('PDF export failed. Try the Print button instead.', 'error');
-  }
- };
- const handlePrint = () => {
-  const source = document.getElementById('salary-slip-printable');
-  if (!source) return;
-  const printWindow = window.open('', '_blank', 'width=900,height=700');
-  printWindow.document.write(`<!DOCTYPE html><html><head>
-   <meta charset="UTF-8"/>
-   <title>Payslip — ${data.employeeName}</title>
-   <script src="https://cdn.tailwindcss.com"><\/script>
-   <style>
-    @media print { body { margin: 0; } }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#fff; }
-   </style>
-  </head><body>${source.outerHTML}</body></html>`);
-  printWindow.document.close();
-  printWindow.focus();
-  setTimeout(() => { printWindow.print(); printWindow.close(); }, 900);
- };
- const gross = Number(data.basicSalary || data.totalPayable) || 0;
- const tax = Number(data.taxDeduction) || 0;
- const net = Number(data.totalPayable) || (gross - tax);
- const slipNumber = `PS-${data.date ? data.date.replace(/-/g, '') : 'XXXX'}-${(data.employeeName || '').slice(0,3).toUpperCase()}`;
- return (
-  <div className="fixed inset-0 bg-slate-900/85 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-   <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl relative animate-in zoom-in-95 duration-200 overflow-hidden flex flex-col max-h-[92vh]">
-    {}
-    <div className="flex justify-between items-center px-6 py-4 bg-slate-50 border-b border-slate-100 flex-shrink-0">
-     <div className="flex items-center gap-2">
-      <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-      <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Official Payslip</span>
-     </div>
-     <button onClick={onClose} className="p-2 bg-white rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors shadow-sm"><X size={18}/></button>
-    </div>
-    {}
-    <div className="overflow-y-auto flex-1">
-    <div id="salary-slip-printable">
-     {}
-     <div className="bg-gradient-to-r from-slate-900 to-slate-800 px-10 py-8 relative overflow-hidden">
-      <div className="absolute top-0 right-0 w-64 h-64 bg-violet-500/10 rounded-full blur-3xl translate-x-1/2 -translate-y-1/2 pointer-events-none"/>
-      <div className="absolute bottom-0 left-1/3 w-40 h-40 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none"/>
-      <div className="relative z-10 flex justify-between items-start">
-       <div>
-        <Logo white companyName={companyProfile.name} tagline={companyProfile.tagline}/>
-        {companyProfile.address && <p className="text-slate-400 text-xs mt-2 font-medium">📍 {companyProfile.address}</p>}
-        {companyProfile.phone && <p className="text-slate-400 text-xs mt-0.5 font-medium">📞 {companyProfile.phone}</p>}
-        {companyProfile.email && <p className="text-slate-400 text-xs mt-0.5 font-medium">✉ {companyProfile.email}</p>}
-       </div>
-       <div className="text-right">
-        <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Slip No.</p>
-        <p className="text-white font-mono text-sm font-bold">{slipNumber}</p>
-        <p className="text-slate-400 text-xs mt-2 font-medium">{period}</p>
-       </div>
-      </div>
-     </div>
-     {}
-     <div className="px-10 py-7 border-b border-slate-100">
-      <div className="flex items-start justify-between gap-6">
-       <div className="flex items-center gap-4">
-        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white font-extrabold text-xl shadow-lg shadow-indigo-100 flex-shrink-0">
-         {(data.employeeName || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
-        </div>
-        <div>
-         <p className="text-xl font-extrabold text-slate-900">{data.employeeName}</p>
-         {data.role && <p className="text-sm text-slate-500 font-medium mt-0.5">{data.role}</p>}
-         {data.department && <p className="text-xs text-violet-600 font-bold mt-0.5">{data.department}</p>}
-        </div>
-       </div>
-       <div className="text-right flex-shrink-0">
-        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Payment Date</p>
-        <p className="text-sm font-bold text-slate-700">{data.date}</p>
-        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 mt-3">Status</p>
-        <span className={`text-xs font-extrabold px-3 py-1.5 rounded-full ${data.status === 'Paid' ? 'bg-emerald-100 text-emerald-700' : data.status === 'Pending' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
-         {data.status || 'Unpaid'}
-        </span>
-       </div>
-      </div>
-     </div>
-     {}
-     <div className="px-10 py-7">
-      <div className="grid grid-cols-2 gap-6 mb-6">
-       {}
-       <div>
-        <p className="text-xs font-extrabold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-         <span className="w-2 h-2 bg-emerald-500 rounded-full inline-block"></span>Earnings
-        </p>
-        <div className="bg-emerald-50/60 border border-emerald-100 rounded-2xl overflow-hidden">
-         <div className="flex justify-between items-center px-4 py-3 border-b border-emerald-100">
-          <span className="text-sm text-slate-600 font-medium">Basic Salary</span>
-          <span className="text-sm font-extrabold text-slate-800 tabular-nums">{formatCurrency(gross)}</span>
-         </div>
-         <div className="flex justify-between items-center px-4 py-3 bg-emerald-50">
-          <span className="text-sm font-bold text-emerald-700">Gross Earnings</span>
-          <span className="text-sm font-extrabold text-emerald-700 tabular-nums">{formatCurrency(gross)}</span>
-         </div>
-        </div>
-       </div>
-       {}
-       <div>
-        <p className="text-xs font-extrabold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-         <span className="w-2 h-2 bg-rose-500 rounded-full inline-block"></span>Deductions
-        </p>
-        <div className="bg-rose-50/60 border border-rose-100 rounded-2xl overflow-hidden">
-         {tax > 0 ? (
-          <div className="flex justify-between items-center px-4 py-3 border-b border-rose-100">
-           <span className="text-sm text-slate-600 font-medium">Income Tax (WHT)</span>
-           <span className="text-sm font-extrabold text-rose-700 tabular-nums">-{formatCurrency(tax)}</span>
-          </div>
-         ) : (
-          <div className="px-4 py-3 border-b border-rose-100 text-sm text-slate-400 font-medium">No deductions</div>
-         )}
-         <div className="flex justify-between items-center px-4 py-3 bg-rose-50">
-          <span className="text-sm font-bold text-rose-700">Total Deductions</span>
-          <span className="text-sm font-extrabold text-rose-700 tabular-nums">{tax > 0 ? `-${formatCurrency(tax)}` : formatCurrency(0)}</span>
-         </div>
-        </div>
-       </div>
-      </div>
-      {}
-      <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl p-6 flex justify-between items-center relative overflow-hidden">
-       <div className="absolute inset-0 bg-gradient-to-r from-indigo-600/20 to-violet-600/20 pointer-events-none"/>
-       <div className="relative z-10">
-        <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Net Pay for {period}</p>
-        <p className="text-white text-4xl font-extrabold tabular-nums tracking-tight">{formatCurrency(net)}</p>
-       </div>
-       <div className="relative z-10 text-right">
-        {data.bankName && (
-         <>
-          <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Paid via</p>
-          <p className="text-white font-bold text-sm">{data.bankName}</p>
-          {data.chequeNumber && <p className="text-slate-400 text-xs mt-0.5">Cheque #{data.chequeNumber}</p>}
-         </>
-        )}
-        {!data.bankName && (
-         <>
-          <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Method</p>
-          <p className="text-white font-bold text-sm">Cash</p>
-         </>
-        )}
-       </div>
-      </div>
-      {}
-      {data.notes && (
-       <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-4">
-        <p className="text-xs font-bold text-amber-700 uppercase tracking-widest mb-1">Notes</p>
-        <p className="text-sm text-amber-900 font-medium">{data.notes}</p>
-       </div>
-      )}
-      {}
-      <div className="mt-8 pt-6 border-t border-slate-100 flex justify-between items-end">
-       <div>
-        <p className="text-xs text-slate-400 font-medium italic">This is a computer-generated payslip.</p>
-        <p className="text-xs text-slate-400 mt-0.5">Generated on {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
-       </div>
-       <div className="text-right">
-        <p className="text-sm font-extrabold text-slate-800">{companyProfile.name || 'Our Company'}</p>
-        <p className="text-xs text-slate-400 mt-0.5">Authorized Signature</p>
-        <div className="mt-3 border-t-2 border-slate-300 w-32 ml-auto"></div>
-       </div>
-      </div>
-     </div>
-    </div>{}
-    </div>{}
-    {}
-    <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex gap-3 flex-shrink-0">
-     <button onClick={handleDownloadPDF}
-      className="flex-1 bg-white border border-slate-200 text-slate-700 py-3 rounded-xl font-bold text-sm hover:bg-slate-100 transition-colors flex justify-center items-center gap-2 shadow-sm">
-      <Printer size={16}/> Download PDF
-     </button>
-     <button onClick={handleWhatsApp}
-      className="flex-1 bg-[#25D366] text-white py-3 rounded-xl font-bold text-sm hover:bg-[#20bd5a] transition-all shadow-lg shadow-green-200 flex justify-center items-center gap-2">
-      <Share2 size={16}/> Send via WhatsApp
-     </button>
-     <button onClick={handlePrint}
-      className="bg-white border border-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold text-sm hover:bg-slate-100 transition-colors flex items-center gap-1.5 shadow-sm">
-      <Printer size={14}/> Print
-     </button>
-    </div>
-   </div>
-  </div>
- );
-};
-const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, onViewSlip }) => {
  const [search, setSearch] = useState('');
  const [empFilter, setEmpFilter] = useState('All');
  const [statusFilter, setStatusFilter] = useState('All');
@@ -1358,25 +1139,41 @@ const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, on
   const names = [...new Set(salaries.map(s => (s.employeeName || '').trim()).filter(Boolean))].sort();
   return names;
  }, [salaries]);
- const enriched = useMemo(() => salaries.map(s => ({
-  ...s,
-  gross: Number(s.basicSalary || s.totalPayable) || 0,
-  tax: Number(s.taxDeduction) || 0,
-  net: Number(s.totalPayable) || 0,
-  monthName: (() => { try { return new Date(s.date).toLocaleString('default', { month: 'long', year: 'numeric' }); } catch { return s.date; } })(),
-  monthNum: s.date ? s.date.slice(0, 7) : '',
- })), [salaries]);
+ const enriched = useMemo(() => {
+  // Cheque numbers used more than once are flagged for reconciliation.
+  const chequeCounts = salaries.reduce((acc, s) => {
+   const c = String(s.chequeNumber || '').trim().toLowerCase();
+   if (c) acc[c] = (acc[c] || 0) + 1;
+   return acc;
+  }, {});
+  return salaries.map(s => {
+  const p = computePayroll(s);
+  const chequeKey = String(s.chequeNumber || '').trim().toLowerCase();
+  return {
+   ...s,
+   isCheque: (s.paymentMode || '') === 'Cheque' || (!s.paymentMode && !!s.chequeNumber),
+   duplicateCheque: !!chequeKey && chequeCounts[chequeKey] > 1,
+   gross: p.gross,
+   tax: Number(s.taxDeduction) || 0,
+   deductions: p.totalDeductions,
+   net: p.net,
+   monthName: payPeriodLabel(s),
+   monthNum: payPeriodKey(s),
+  };
+ });
+ }, [salaries]);
  const kpis = useMemo(() => {
   const paid = enriched.filter(s => s.status === 'Paid');
   const pending = enriched.filter(s => s.status !== 'Paid');
   const uniqueEmps = new Set(enriched.map(s => s.employeeName)).size;
   const totalGross = enriched.reduce((a, s) => a + s.gross, 0);
   const totalTax = enriched.reduce((a, s) => a + s.tax, 0);
+  const totalDeductions = enriched.reduce((a, s) => a + s.deductions, 0);
   const totalNet = enriched.reduce((a, s) => a + s.net, 0);
   const pendingAmt = pending.reduce((a, s) => a + s.net, 0);
   const curMonth = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
   const thisMonthTotal = enriched.filter(s => s.monthNum === curMonth).reduce((a, s) => a + s.net, 0);
-  return { totalGross, totalTax, totalNet, pendingAmt, uniqueEmps, paidCount: paid.length, thisMonthTotal };
+  return { totalGross, totalTax, totalDeductions, totalNet, pendingAmt, uniqueEmps, paidCount: paid.length, thisMonthTotal };
  }, [enriched]);
  const monthlyChart = useMemo(() => {
   const months = [];
@@ -1404,7 +1201,9 @@ const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, on
   if (search) res = res.filter(s =>
    (s.employeeName || '').toLowerCase().includes(search.toLowerCase()) ||
    (s.role || '').toLowerCase().includes(search.toLowerCase()) ||
-   (s.department || '').toLowerCase().includes(search.toLowerCase())
+   (s.department || '').toLowerCase().includes(search.toLowerCase()) ||
+   (s.employeeId || '').toLowerCase().includes(search.toLowerCase()) ||
+   (s.chequeNumber || '').toLowerCase().includes(search.toLowerCase())
   );
   if (empFilter !== 'All') res = res.filter(s => (s.employeeName || '').trim() === empFilter);
   if (statusFilter !== 'All') res = res.filter(s => (s.status || 'Unpaid') === statusFilter);
@@ -1414,7 +1213,12 @@ const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, on
   else if (sortBy === 'name') res = [...res].sort((a, b) => (a.employeeName||'').localeCompare(b.employeeName||''));
   return res;
  }, [enriched, search, empFilter, statusFilter, monthFilter, sortBy]);
- const uniqueMonths = useMemo(() => [...new Set(enriched.map(s => s.monthName).filter(Boolean))].sort().reverse(), [enriched]);
+ // Sort by the YYYY-MM key, not the display label, so months are chronological.
+ const uniqueMonths = useMemo(() => {
+  const seen = new Map();
+  enriched.forEach(s => { if (s.monthName && s.monthNum && !seen.has(s.monthName)) seen.set(s.monthName, s.monthNum); });
+  return [...seen.entries()].sort((a, b) => b[1].localeCompare(a[1])).map(([label]) => label);
+ }, [enriched]);
  const statusColor = { Paid: 'bg-emerald-100 text-emerald-700', Pending: 'bg-amber-100 text-amber-700', Unpaid: 'bg-rose-100 text-rose-700' };
  return (
   <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -1422,9 +1226,9 @@ const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, on
    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
     {[
      { l: 'Team Size', v: kpis.uniqueEmps, sub: 'employees', c: 'text-slate-800', bg: 'bg-white border-slate-200', icon: Users },
-     { l: 'Total Payroll', v: formatCurrency(kpis.totalNet), sub: 'net paid', c: 'text-slate-800', bg: 'bg-white border-slate-200', icon: Wallet },
+     { l: 'Total Payroll', v: formatCurrency(kpis.totalGross), sub: `net ${formatCurrency(kpis.totalNet)}`, c: 'text-slate-800', bg: 'bg-white border-slate-200', icon: Wallet },
      { l: 'This Month', v: formatCurrency(kpis.thisMonthTotal), sub: new Date().toLocaleString('default',{month:'long'}), c: 'text-indigo-700', bg: 'bg-indigo-50 border-indigo-200', icon: Calendar },
-     { l: 'Tax Withheld', v: formatCurrency(kpis.totalTax), sub: 'total WHT', c: 'text-rose-700', bg: 'bg-rose-50 border-rose-200', icon: Percent },
+     { l: 'Deductions', v: formatCurrency(kpis.totalDeductions), sub: `incl. ${formatCurrency(kpis.totalTax)} WHT`, c: 'text-rose-700', bg: 'bg-rose-50 border-rose-200', icon: Percent },
      { l: 'Pending Pay', v: formatCurrency(kpis.pendingAmt), sub: `${enriched.filter(s=>s.status!=='Paid').length} slips`, c: kpis.pendingAmt > 0 ? 'text-amber-700' : 'text-emerald-700', bg: kpis.pendingAmt > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200', icon: Clock },
      { l: 'Slips Issued', v: kpis.paidCount, sub: 'paid records', c: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200', icon: CheckCircle },
     ].map((k, i) => (
@@ -1498,7 +1302,7 @@ const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, on
       <Search className="absolute left-3 top-2.5 text-slate-400" size={15}/>
       <input
        className="pl-8 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none w-48 transition-all"
-       placeholder="Search employee..."
+       placeholder="Search name, ID or cheque #..."
        value={search} onChange={e => setSearch(e.target.value)}
       />
      </div>
@@ -1542,10 +1346,31 @@ const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, on
        className={`px-3 py-2 transition-all ${viewMode==='employees'?'bg-slate-800 text-white':'text-slate-400 hover:text-slate-600'}`}>
        <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="0" width="7" height="7" rx="1.5"/><rect x="9" y="0" width="7" height="7" rx="1.5"/><rect x="0" y="9" width="7" height="7" rx="1.5"/><rect x="9" y="9" width="7" height="7" rx="1.5"/></svg>
       </button>
+      <button onClick={() => setViewMode('statement')} title="Payment Statement"
+       className={`px-3 py-2 transition-all ${viewMode==='statement'?'bg-slate-800 text-white':'text-slate-400 hover:text-slate-600'}`}>
+       <CreditCard size={13}/>
+      </button>
      </div>
     </div>
     <div className="flex gap-2 flex-shrink-0">
-     <button onClick={() => exportToCSV(salaries, 'Salaries_Export')} className="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 shadow-sm"><Download size={15}/> Export</button>
+     <button onClick={() => exportToCSV(filtered.map(s => {
+      const p = computePayroll(s);
+      const row = {
+       'Pay Period': s.monthName, 'Payment Date': s.date,
+       'Employee ID': s.employeeId || '', 'Employee': s.employeeName || '',
+       'Designation': s.role || '', 'Department': s.department || '', 'CNIC': s.cnic || '',
+      };
+      p.earnings.forEach(e => { row[e.label] = e.amount; });
+      row['Gross Earnings'] = p.gross;
+      p.deductions.forEach(d => { row[d.label] = d.amount; });
+      row['Total Deductions'] = p.totalDeductions;
+      row['Net Pay'] = p.net;
+      row['Payment Mode'] = s.paymentMode || ''; row['Bank'] = s.bankName || '';
+      row['Account / IBAN'] = s.accountNumber || '';
+      row['Reference'] = s.chequeNumber || s.transactionRef || '';
+      row['Status'] = s.status || 'Unpaid';
+      return row;
+     }), 'Payroll_Register')} className="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 shadow-sm"><Download size={15}/> Export</button>
      <button onClick={onNewSalary}
       className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all">
       <Plus size={16}/> New Payslip
@@ -1558,7 +1383,15 @@ const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, on
     </p>
    )}
    {}
-   {filtered.length === 0 && (
+   {viewMode === 'statement' && (
+    <PaymentStatement
+     rows={buildStatementRows(filtered)}
+     companyProfile={companyProfile}
+     periodLabel={monthFilter !== 'All' ? monthFilter : (empFilter !== 'All' ? empFilter : 'All periods')}
+     toast={toast}
+    />
+   )}
+   {viewMode !== 'statement' && filtered.length === 0 && (
     <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-16 text-center">
      <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
       <Users className="text-slate-300" size={32}/>
@@ -1579,8 +1412,8 @@ const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, on
       <table className="w-full text-left min-w-[750px]">
        <thead className="bg-slate-50 border-b border-slate-100">
         <tr>
-         {['Employee','Period','Role / Dept','Basic','Tax Deducted','Net Pay','Status',''].map((h, i) => (
-          <th key={i} className={`px-5 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider ${['Basic','Tax Deducted','Net Pay'].includes(h)?'text-right':''}`}>{h}</th>
+         {['Employee','Period','Role / Dept','Payment','Gross','Deductions','Net Pay','Status',''].map((h, i) => (
+          <th key={i} className={`px-5 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider ${['Gross','Deductions','Net Pay'].includes(h)?'text-right':''}`}>{h}</th>
          ))}
         </tr>
        </thead>
@@ -1594,7 +1427,7 @@ const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, on
             </div>
             <div>
              <p className="font-bold text-slate-800 text-sm">{item.employeeName}</p>
-             {item.bankName && <p className="text-xs text-slate-400">{item.bankName}{item.chequeNumber ? ` #${item.chequeNumber}` : ''}</p>}
+             {item.employeeId && <p className="text-xs text-slate-400">{item.employeeId}</p>}
             </div>
            </div>
           </td>
@@ -1607,8 +1440,26 @@ const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, on
            {item.department && <p className="text-xs text-violet-600 font-bold">{item.department}</p>}
            {!item.role && !item.department && <span className="text-slate-300">—</span>}
           </td>
+          <td className="px-5 py-4">
+           {item.isCheque ? (
+            <div className="flex flex-col gap-0.5">
+             <span className="inline-flex items-center gap-1 text-xs font-extrabold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-0.5 w-fit">
+              <CreditCard size={10}/> Cheque #{item.chequeNumber || '—'}
+             </span>
+             {item.bankName && <span className="text-xs text-slate-400">{item.bankName}</span>}
+             {item.duplicateCheque && (
+              <span className="text-xs font-bold text-amber-700">Duplicate cheque no.</span>
+             )}
+            </div>
+           ) : (
+            <div className="flex flex-col gap-0.5">
+             <span className="text-xs font-bold text-slate-600">{item.paymentMode || 'Cash'}</span>
+             {item.bankName && <span className="text-xs text-slate-400">{item.bankName}</span>}
+            </div>
+           )}
+          </td>
           <td className="px-5 py-4 text-right font-medium text-slate-600 tabular-nums text-sm">{formatCurrency(item.gross)}</td>
-          <td className="px-5 py-4 text-right font-medium text-rose-500 tabular-nums text-sm">{item.tax > 0 ? `-${formatCurrency(item.tax)}` : <span className="text-slate-300">—</span>}</td>
+          <td className="px-5 py-4 text-right font-medium text-rose-500 tabular-nums text-sm">{item.deductions > 0 ? `-${formatCurrency(item.deductions)}` : <span className="text-slate-300">—</span>}</td>
           <td className="px-5 py-4 text-right font-extrabold text-slate-900 tabular-nums">{formatCurrency(item.net)}</td>
           <td className="px-5 py-4">
            <span className={`text-xs font-extrabold px-2.5 py-1 rounded-full ${statusColor[item.status || 'Unpaid'] || 'bg-slate-100 text-slate-600'}`}>
@@ -1634,9 +1485,9 @@ const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, on
        </tbody>
        <tfoot className="bg-gradient-to-r from-slate-50 to-slate-100 border-t-2 border-slate-200">
         <tr>
-         <td colSpan={3} className="px-5 py-4 text-xs font-extrabold text-slate-500 uppercase tracking-wider">TOTALS ({filtered.length} records)</td>
+         <td colSpan={4} className="px-5 py-4 text-xs font-extrabold text-slate-500 uppercase tracking-wider">TOTALS ({filtered.length} records)</td>
          <td className="px-5 py-4 text-right font-extrabold text-slate-700 tabular-nums">{formatCurrency(filtered.reduce((a,s)=>a+s.gross,0))}</td>
-         <td className="px-5 py-4 text-right font-extrabold text-rose-600 tabular-nums">-{formatCurrency(filtered.reduce((a,s)=>a+s.tax,0))}</td>
+         <td className="px-5 py-4 text-right font-extrabold text-rose-600 tabular-nums">-{formatCurrency(filtered.reduce((a,s)=>a+s.deductions,0))}</td>
          <td className="px-5 py-4 text-right font-extrabold text-slate-900 tabular-nums">{formatCurrency(filtered.reduce((a,s)=>a+s.net,0))}</td>
          <td colSpan={2}/>
         </tr>
@@ -1646,7 +1497,7 @@ const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, on
     </div>
    )}
    {}
-   {viewMode === 'employees' && (
+   {viewMode === 'employees' && filtered.length > 0 && (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
      {employeeSummaries.filter(emp =>
       empFilter === 'All' || emp.name === empFilter
@@ -5653,7 +5504,7 @@ function App() {
  const [paymentAccount, setPaymentAccount] = useState('bank');
  const [clientWHT, setClientWHT] = useState('');
  const [partialAmount, setPartialAmount] = useState('');
- const [showSalarySlip, setShowSalarySlip] = useState(false);
+ const [slipData, setSlipData] = useState(null);
  const [selectedClientProfile, setSelectedClientProfile] = useState(null);
  const [selectedVendorProfile, setSelectedVendorProfile] = useState(null);
  const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -5763,6 +5614,13 @@ function App() {
   if (!d.date) return err('Please select a payment date.');
   if (!d.employeeName?.trim()) return err('Employee name is required.');
   if (!Number(d.basicSalary) || Number(d.basicSalary) <= 0) return err('Please enter a valid basic salary.');
+  const pay = computePayroll(d);
+  if (pay.gross <= 0) return err('Gross earnings must be greater than 0.');
+  if (pay.net < 0) return err('Deductions exceed gross earnings. Please review the figures.');
+  const negative = [...EARNING_FIELDS, ...DEDUCTION_FIELDS].find(f => Number(d[f.key]) < 0);
+  if (negative) return err(`${negative.label} cannot be negative.`);
+  if ((d.paymentMode || '') === 'Cheque' && !String(d.chequeNumber || '').trim())
+   return err('Cheque number is required when paying by cheque.');
   return true;
  }
  if (view === 'bank') {
@@ -5871,6 +5729,11 @@ function App() {
   setIsSubmitting(true);
   try {
    let data = { ...formData, date: formData.date || new Date().toISOString().split('T')[0] };
+   if (view === 'salaries') {
+    // Persist gross / total deductions / net alongside the components so that
+    // reports and exports never have to recompute from partial data.
+    data = withTotals({ ...data, payPeriod: data.payPeriod || data.date.slice(0, 7) });
+   }
    // Handle file upload if any
    if (fileToUpload && appSettings.imgbbKey) {
     try {
@@ -5974,7 +5837,7 @@ function App() {
  ).reduce((a, c) => a + (Number(c.cashIn) || 0), 0);
  const rev = invoiceRevenue + manualPettyCashIn;
  const expenseTotal = filteredExp.reduce((a, c) => a + (Number(c.amount) || 0), 0);
- const salaryTotal = filteredSal.reduce((a, c) => a + (Number(c.totalPayable) || 0), 0);
+ const salaryTotal = filteredSal.reduce((a, c) => a + netOf(c), 0);
  const pettyCashOut = filteredPetty.reduce((a, c) => a + (Number(c.cashOut) || 0), 0);
  const exp = expenseTotal + salaryTotal + pettyCashOut;
  const totalVendorBills = filteredBills.reduce((a, c) => a + (Number(c.amount) || 0), 0);
@@ -6005,7 +5868,7 @@ function App() {
   pettyCashOut,
  };
  }, [filteredPetty, filteredExp, filteredSal, invoices, filteredBills, selectedMonth, selectedYear]);
- const expenseChartData = [ { name: 'Petty', value: filteredPetty.reduce((a,c) => a+(Number(c.cashOut)||0),0) }, { name: 'Expenses', value: filteredExp.reduce((a,c) => a+(Number(c.amount)||0),0) }, { name: 'Salaries', value: filteredSal.reduce((a,c) => a+(Number(c.totalPayable)||0),0) } ].filter(d => d.value > 0);
+ const expenseChartData = [ { name: 'Petty', value: filteredPetty.reduce((a,c) => a+(Number(c.cashOut)||0),0) }, { name: 'Expenses', value: filteredExp.reduce((a,c) => a+(Number(c.amount)||0),0) }, { name: 'Salaries', value: filteredSal.reduce((a,c) => a + netOf(c), 0) } ].filter(d => d.value > 0);
  const COLORS = ['#8B5CF6', '#EC4899', '#F59E0B'];
  const monthlyChartData = useMemo(() => {
  const months = [];
@@ -6026,7 +5889,7 @@ function App() {
    .reduce((a, r) => a + (Number(r.cashIn)||0), 0);
   const exp = [
   ...expenses.filter(r => new Date(r.date || r.createdAt).getMonth() === mIdx && new Date(r.date || r.createdAt).getFullYear() === year).map(r => Number(r.amount)||0),
-  ...salaries.filter(r => new Date(r.date || r.createdAt).getMonth() === mIdx && new Date(r.date || r.createdAt).getFullYear() === year).map(r => Number(r.totalPayable)||0),
+  ...salaries.filter(r => new Date(r.date || r.createdAt).getMonth() === mIdx && new Date(r.date || r.createdAt).getFullYear() === year).map(r => netOf(r)),
   ...pettyCash.filter(r => new Date(r.date).getMonth() === mIdx && new Date(r.date).getFullYear() === year).map(r => Number(r.cashOut)||0),
   ].reduce((a, v) => a + v, 0);
   months.push({ name: monthName, Revenue: Math.round(rev), Expenses: Math.round(exp) });
@@ -6064,7 +5927,6 @@ function App() {
  const handleGenericImport = (event, collectionName) => {
   const file = event.target.files[0]; if (!file) return;
   (async (f, col) => {
-   const Papa = (await import('papaparse')).default;
    Papa.parse(f, { header: true, complete: async (results) => {
     if (results.data.length === 0) return toast("File is empty!", 'warning');
     const validRows = results.data.filter(row => Object.values(row).some(v => v));
@@ -6456,7 +6318,7 @@ function App() {
      return a + (r > 0 ? r : t);
     }, 0) + pettyCash.filter(r => inFilter(r.date) && !(r.description||'').toLowerCase().startsWith('inv payment:')).reduce((a,r)=>a+(Number(r.cashIn)||0),0);
     const mExpenses = expenses.filter(e => inFilter(e.date)).reduce((a,e)=>a+(Number(e.amount)||0),0);
-    const mSalaries = salaries.filter(s => inFilter(s.date)).reduce((a,s)=>a+(Number(s.totalPayable)||0),0);
+    const mSalaries = salaries.filter(s => inFilter(s.date)).reduce((a,s)=>a+netOf(s),0);
     const mPettyCash = pettyCash.filter(r => inFilter(r.date)).reduce((a,r)=>a+(Number(r.cashOut)||0),0);
     const mTotal = mExpenses + mSalaries + mPettyCash;
     const mProfit = mRevenue - mTotal;
@@ -6585,7 +6447,7 @@ function App() {
   {view === 'vendor-profile' && selectedVendorProfile && <VendorProfile vendor={selectedVendorProfile} vendorBills={vendorBills} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('vendors')} />}
   {view === 'expenses' && <ExpensesPage expenses={expenses} expenseCategories={expenseCategories} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onGenerateRecurring={handleGenerateRecurringExpenses} onApproveExpense={async (id) => { try { const res = await expensesAPI.update(id, { approvalStatus: 'Approved' }); setExpenses(prev => prev.map(e => e.id === id ? {...e, approvalStatus: 'Approved'} : e)); toast('Expense approved!', 'success'); } catch(e) { toast('Failed to approve.', 'error'); } }} onImportExpenses={(e) => handleGenericImport(e, 'expenses')} onNewExpense={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { if(!canWrite) return; setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = expenses.find(x=>x.id===id); handleDelete(id, 'expense', r?.description||''); }} />}
   {view === 'petty-cash' && <PettyCashPage pettyCash={pettyCash} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} appSettings={appSettings} onNewEntry={(type) => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0], _entryType: type || 'out' }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { if(!canWrite) return; setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = pettyCash.find(x=>x.id===id); handleDelete(id, 'petty', r?.description||''); }} />}
-  {view === 'salaries' && <SalariesPage salaries={salaries} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewSalary={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(s) => { if(!canWrite) return; setFormData({...s}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = salaries.find(x=>x.id===id); handleDelete(id, 'salary', r?.employeeName||''); }} onViewSlip={(s) => { if (s) { setFormData(s); setShowSalarySlip(true); } }} />}
+  {view === 'salaries' && <SalariesPage salaries={salaries} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} companyProfile={companyProfile} onNewSalary={() => { if(currentUser?.role !== 'Admin') return toast('Payroll is restricted to Admin users.', 'error'); const d = new Date().toISOString().split('T')[0]; setFormData({ date: d, payPeriod: d.slice(0,7), status: 'Unpaid', paymentMode: 'Bank Transfer' }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(s) => { if(currentUser?.role !== 'Admin') return toast('Payroll is restricted to Admin users.', 'error'); setFormData({...s}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = salaries.find(x=>x.id===id); handleDelete(id, 'salary', r?.employeeName||''); }} onViewSlip={(s) => { if (s) setSlipData(s); }} />}
   {view === 'quotations' && <QuotationGenerator clients={clients} onSave={(q) => saveToFirebase('quotations', q, q.id)} savedQuotations={quotations} onDeleteQuotation={(id) => { const r = quotations.find(x=>x.id===id); handleDelete(id, 'quotation', r?.client||''); }} onConvertToInvoice={handleConvertToInvoice} companyProfile={companyProfile} appSettings={appSettings} onUpdateSettings={setAppSettings} canWrite={canWrite} />}
   {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => { const r = invoices.find(x=>x.id===id); handleDelete(id, 'invoice', r?.client ? `Invoice #${r.invoiceNumber} — ${r.client}` : ''); }} onGenerateRecurring={handleGenerateRecurring} onReceivePayment={(inv, amt) => initiatePayment(inv, 'invoice', amt)} companyProfile={companyProfile} appSettings={appSettings} onUpdateSettings={setAppSettings} canWrite={canWrite} pendingClient={newInvoiceForClient} onClearPendingClient={() => setNewInvoiceForClient(null)} />}
   {view === 'vendors' && <VendorsPage vendors={vendors} vendorBills={vendorBills} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewVendor={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(v) => { if(!canWrite) return; setFormData({...v}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendors.find(x=>x.id===id); handleDelete(id, 'vendor', r?.name||''); }} onViewProfile={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
@@ -6637,8 +6499,18 @@ function App() {
        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Address</label>
        <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={companyProfile.address||''} onChange={e=>setCompanyProfile(p=>({...p,address:e.target.value}))} placeholder="Office address" />
       </div>
+      <div className="grid grid-cols-2 gap-4">
+       <div>
+        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">NTN</label>
+        <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={companyProfile.ntn||''} onChange={e=>setCompanyProfile(p=>({...p,ntn:e.target.value}))} placeholder="0000000-0" />
+       </div>
+       <div>
+        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">STRN (optional)</label>
+        <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={companyProfile.strn||''} onChange={e=>setCompanyProfile(p=>({...p,strn:e.target.value}))} placeholder="00-00-0000-000-00" />
+       </div>
+      </div>
       <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-xs font-medium text-emerald-700 flex items-center gap-2">
-       <CheckCircle size={14}/> Company name and tagline appear on all invoices, quotations, and salary slips.
+       <CheckCircle size={14}/> Company name, tagline, address and NTN appear on all invoices, quotations, and salary slips.
       </div>
      </div>
     </div>
@@ -7133,84 +7005,236 @@ function App() {
          <textarea rows={2} placeholder="Any additional notes about this vendor..." className="form-input resize-none" value={formData.notes||''} onChange={e=>setFormData({...formData,notes:e.target.value})}/>
         </div>
        </div>
-      )}}
-      {view === 'salaries' && (
+      )}
+      {view === 'salaries' && (() => {
+       const setF = (patch) => setFormData(prev => ({ ...prev, ...patch }));
+       const live = computePayroll(formData);
+       // Overtime is entered as hours × rate but stored as a single amount.
+       const otHours = Number(formData.overtimeHours) || 0;
+       const otRate  = Number(formData.overtimeRate) || 0;
+       const isCheque = (formData.paymentMode || 'Bank Transfer') === 'Cheque';
+       // Flag a cheque number already used on a different salary record.
+       const chequeClash = isCheque && String(formData.chequeNumber || '').trim()
+        ? salaries.find(x => x.id !== formData.id &&
+            String(x.chequeNumber || '').trim().toLowerCase() === String(formData.chequeNumber).trim().toLowerCase())
+        : null;
+       const money = (key, label, opts = {}) => (
+        <div key={key}>
+         <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">
+          {label}{opts.required && ' *'}
+         </label>
+         <input
+          type="number" min="0" step="0.01" placeholder="0" className="form-input"
+          value={formData[key] ?? ''}
+          onChange={e => setF({ [key]: e.target.value === '' ? '' : Number(e.target.value) })}
+         />
+        </div>
+       );
+       return (
        <>
-        {}
+        {/* ── Employee ───────────────────────────────────────────── */}
         <div className="pb-2 border-b border-slate-100">
-         <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest">Employee Info</p>
+         <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest">Employee Details</p>
         </div>
         <div className="grid grid-cols-2 gap-4">
          <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Employee Name *</label>
+          <input required placeholder="e.g. Ahmed Khan" className="form-input" value={formData.employeeName||''} onChange={e=>setF({employeeName:e.target.value})} />
+         </div>
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Employee ID</label>
+          <input placeholder="e.g. EMP-014" className="form-input" value={formData.employeeId||''} onChange={e=>setF({employeeId:e.target.value})} />
+         </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Designation</label>
+          <input placeholder="e.g. Senior Designer" className="form-input" value={formData.role||''} onChange={e=>setF({role:e.target.value})} />
+         </div>
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Department</label>
+          <input placeholder="e.g. Creative" className="form-input" value={formData.department||''} onChange={e=>setF({department:e.target.value})} />
+         </div>
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">CNIC</label>
+          <input placeholder="42101-1234567-8" className="form-input" value={formData.cnic||''} onChange={e=>setF({cnic:e.target.value})} />
+         </div>
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Date of Joining</label>
+          <input type="date" className="form-input" value={formData.joiningDate||''} onChange={e=>setF({joiningDate:e.target.value})} />
+         </div>
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Phone (WhatsApp)</label>
+          <input type="tel" placeholder="+92 300 0000000" className="form-input" value={formData.phone||''} onChange={e=>setF({phone:e.target.value})} />
+         </div>
+        </div>
+
+        {/* ── Period ─────────────────────────────────────────────── */}
+        <div className="pb-2 border-b border-slate-100 pt-2">
+         <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest">Pay Period</p>
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Salary Month *</label>
+          <input type="month" required className="form-input" value={formData.payPeriod || (formData.date||'').slice(0,7)} onChange={e=>setF({payPeriod:e.target.value})} />
+         </div>
+         <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Payment Date *</label>
-          <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})} />
+          <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setF({date:e.target.value})} />
          </div>
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Status</label>
-          <select className="form-select" value={formData.status||'Unpaid'} onChange={e=>setFormData({...formData,status:e.target.value})}>
+          <select className="form-select" value={formData.status||'Unpaid'} onChange={e=>setF({status:e.target.value})}>
            <option>Unpaid</option><option>Pending</option><option>Paid</option>
           </select>
          </div>
         </div>
-        <div>
-         <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Employee Name *</label>
-         <input required placeholder="e.g. Ahmed Khan" className="form-input" value={formData.employeeName||''} onChange={e=>setFormData({...formData,employeeName:e.target.value})} />
+
+        {/* ── Earnings ───────────────────────────────────────────── */}
+        <div className="pb-2 border-b border-slate-100 pt-2 flex justify-between items-baseline">
+         <p className="text-xs font-extrabold text-emerald-600 uppercase tracking-widest">Earnings</p>
+         <p className="text-xs font-bold text-slate-400">Gross <span className="text-emerald-600 tabular-nums">{formatCurrency(live.gross)}</span></p>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+         {money('basicSalary', 'Basic Salary', { required: true })}
+         {money('houseRent', 'House Rent Allowance')}
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+         {money('conveyance', 'Conveyance')}
+         {money('medicalAllowance', 'Medical')}
+         {money('specialAllowance', 'Special Allowance')}
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Overtime Hours</label>
+          <input type="number" min="0" step="0.5" placeholder="0" className="form-input" value={formData.overtimeHours ?? ''}
+           onChange={e => { const h = e.target.value === '' ? '' : Number(e.target.value);
+            setF({ overtimeHours: h, overtimeAmount: Math.round(((Number(h)||0) * otRate) * 100) / 100 }); }} />
+         </div>
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Rate / Hour</label>
+          <input type="number" min="0" step="0.01" placeholder="0" className="form-input" value={formData.overtimeRate ?? ''}
+           onChange={e => { const r = e.target.value === '' ? '' : Number(e.target.value);
+            setF({ overtimeRate: r, overtimeAmount: Math.round((otHours * (Number(r)||0)) * 100) / 100 }); }} />
+         </div>
+         {money('overtimeAmount', 'Overtime Amount')}
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+         {money('bonus', 'Bonus / Commission')}
+         {money('arrears', 'Arrears')}
         </div>
         <div className="grid grid-cols-2 gap-4">
          <div>
-          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Job Title / Role</label>
-          <input placeholder="e.g. Designer, Dev" className="form-input" value={formData.role||''} onChange={e=>setFormData({...formData,role:e.target.value})} />
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Other Earning — Label</label>
+          <input placeholder="e.g. Fuel Allowance" className="form-input" value={formData.otherEarningLabel||''} onChange={e=>setF({otherEarningLabel:e.target.value})} />
          </div>
-         <div>
-          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Department</label>
-          <input placeholder="e.g. Creative, Tech" className="form-input" value={formData.department||''} onChange={e=>setFormData({...formData,department:e.target.value})} />
-         </div>
+         {money('otherEarning', 'Other Earning — Amount')}
         </div>
-        <div>
-         <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Phone (for WhatsApp slip)</label>
-         <input type="tel" placeholder="+92 300 0000000" className="form-input" value={formData.phone||''} onChange={e=>setFormData({...formData,phone:e.target.value})} />
+
+        {/* ── Deductions ─────────────────────────────────────────── */}
+        <div className="pb-2 border-b border-slate-100 pt-2 flex justify-between items-baseline">
+         <p className="text-xs font-extrabold text-rose-600 uppercase tracking-widest">Deductions</p>
+         <p className="text-xs font-bold text-slate-400">Total <span className="text-rose-600 tabular-nums">{formatCurrency(live.totalDeductions)}</span></p>
         </div>
-        {}
-        <div className="pb-2 border-b border-slate-100 pt-2">
-         <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest">Salary Breakdown</p>
+        <div className="grid grid-cols-3 gap-4">
+         {money('taxDeduction', 'Income Tax / WHT')}
+         {money('eobi', 'EOBI')}
+         {money('providentFund', 'Provident Fund')}
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+         {money('loanDeduction', 'Loan / Advance')}
+         {money('absenceDeduction', 'Absence / Late')}
         </div>
         <div className="grid grid-cols-2 gap-4">
          <div>
-          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Basic Salary (PKR)</label>
-          <input type="number" placeholder="0" className="form-input" value={formData.basicSalary || ''} onChange={e => {
-           const basic = Number(e.target.value);
-           const tax = Number(formData.taxDeduction || 0);
-           setFormData({ ...formData, basicSalary: basic, totalPayable: basic - tax });
-          }} />
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Other Deduction — Label</label>
+          <input placeholder="e.g. Damage Recovery" className="form-input" value={formData.otherDeductionLabel||''} onChange={e=>setF({otherDeductionLabel:e.target.value})} />
          </div>
-         <div>
-          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Tax / WHT Deducted</label>
-          <input type="number" placeholder="0" className="form-input" value={formData.taxDeduction || ''} onChange={e => {
-           const tax = Number(e.target.value);
-           const basic = Number(formData.basicSalary || 0);
-           setFormData({ ...formData, taxDeduction: tax, totalPayable: basic - tax });
-          }} />
-         </div>
+         {money('otherDeduction', 'Other Deduction — Amount')}
         </div>
-        <div className="bg-gradient-to-r from-indigo-50 to-violet-50 p-4 rounded-2xl flex justify-between items-center border border-indigo-100">
+
+        {/* ── Live summary ───────────────────────────────────────── */}
+        <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-5 rounded-2xl flex justify-between items-center">
          <div>
           <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Net Payable</p>
-          <p className="text-2xl font-extrabold text-indigo-700 tabular-nums mt-0.5">{formatCurrency(formData.totalPayable || 0)}</p>
+          <p className="text-3xl font-extrabold text-white tabular-nums mt-0.5">{formatCurrency(live.net)}</p>
          </div>
-         {formData.taxDeduction > 0 && (
-          <div className="text-right">
-           <p className="text-xs font-bold text-rose-400 uppercase tracking-widest">Tax Saved</p>
-           <p className="text-sm font-extrabold text-rose-600">-{formatCurrency(formData.taxDeduction || 0)}</p>
+         <div className="text-right space-y-1">
+          <p className="text-xs text-slate-400 font-bold uppercase tracking-wide">Gross <span className="text-emerald-400 tabular-nums ml-1">{formatCurrency(live.gross)}</span></p>
+          <p className="text-xs text-slate-400 font-bold uppercase tracking-wide">Deductions <span className="text-rose-400 tabular-nums ml-1">-{formatCurrency(live.totalDeductions)}</span></p>
+         </div>
+        </div>
+        {live.net < 0 && (
+         <p className="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+          Deductions exceed gross earnings — please review the figures.
+         </p>
+        )}
+
+        {/* ── Payment ────────────────────────────────────────────── */}
+        <div className="pb-2 border-b border-slate-100 pt-2">
+         <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest">Payment Details</p>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Payment Mode</label>
+          <select className="form-select" value={formData.paymentMode || 'Bank Transfer'} onChange={e=>setF({paymentMode:e.target.value})}>
+           {PAYMENT_MODES.map(m => <option key={m}>{m}</option>)}
+          </select>
+         </div>
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Bank Name</label>
+          <input placeholder="e.g. Meezan Bank" className="form-input" value={formData.bankName||''} onChange={e=>setF({bankName:e.target.value})} />
+         </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Credited to Account / IBAN</label>
+          <input placeholder="PK00 MEZN 0000 0000 0000 0000" className="form-input" value={formData.accountNumber||''} onChange={e=>setF({accountNumber:e.target.value})} />
+         </div>
+         {!isCheque && (
+          <div>
+           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Transaction Reference</label>
+           <input className="form-input" placeholder="e.g. TRX-88213904" value={formData.transactionRef||''} onChange={e=>setF({transactionRef:e.target.value})} />
           </div>
          )}
         </div>
-        {}
+        {isCheque && (
+         <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+          <p className="text-xs font-extrabold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+           <CreditCard size={13}/> Cheque Details — required for verification
+          </p>
+          <div className="grid grid-cols-2 gap-4">
+           <div>
+            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Cheque Number *</label>
+            <input required className="form-input bg-white" placeholder="e.g. 0043271"
+             value={formData.chequeNumber||''} onChange={e=>setF({chequeNumber:e.target.value})} />
+           </div>
+           <div>
+            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Cheque Date</label>
+            <input type="date" className="form-input bg-white" value={formData.chequeDate || formData.date || ''} onChange={e=>setF({chequeDate:e.target.value})} />
+           </div>
+          </div>
+          {chequeClash && (
+           <p className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2">
+            Cheque #{formData.chequeNumber} is already recorded for {chequeClash.employeeName} on {chequeClash.date}. Please confirm this is not a duplicate entry.
+           </p>
+          )}
+          {!chequeClash && formData.chequeNumber && (
+           <p className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+            Cheque number is unused. It will appear on the payslip and the Salary Payment Statement.
+           </p>
+          )}
+         </div>
+        )}
         <div>
-         <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Notes (optional)</label>
-         <textarea rows={2} placeholder="e.g. Includes overtime, Advance deducted..." className="form-input resize-none" value={formData.notes||''} onChange={e=>setFormData({...formData,notes:e.target.value})}/>
+         <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Remarks (shown on payslip)</label>
+         <textarea rows={2} placeholder="e.g. Includes Eid bonus; advance of PKR 10,000 recovered." className="form-input resize-none" value={formData.notes||''} onChange={e=>setF({notes:e.target.value})}/>
         </div>
        </>
-      )}
+       );
+      })()}
       {view === 'vendor-bills' && (
        <div className="space-y-4">
         <div className="pb-2 border-b border-slate-100"><p className="text-xs font-extrabold text-rose-600 uppercase tracking-widest">Bill Details</p></div>
@@ -7369,7 +7393,7 @@ function App() {
         )}
        </div>
       )}
-      {view==='salaries' && <div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Payment Details (Optional)</label><div className="grid grid-cols-2 gap-4"><input placeholder="Bank Name" className="form-input bg-white" value={formData.bankName||''} onChange={e=>setFormData({...formData,bankName:e.target.value})} /><input placeholder="Cheque #" className="form-input bg-white" value={formData.chequeNumber||''} onChange={e=>setFormData({...formData,chequeNumber:e.target.value})} /></div></div>}{view==='expenses' && <div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Payment Method (Optional)</label><div className="grid grid-cols-2 gap-4"><input placeholder="Bank Name" className="form-input bg-white" value={formData.bankName||''} onChange={e=>setFormData({...formData,bankName:e.target.value})} /><input placeholder="Cheque / Ref #" className="form-input bg-white" value={formData.chequeNumber||''} onChange={e=>setFormData({...formData,chequeNumber:e.target.value})} /></div></div>}{view==='petty-cash' && <div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Payment Details (Optional)</label><div className="grid grid-cols-2 gap-4"><input placeholder="Bank Name" className="form-input bg-white" value={formData.bankName||''} onChange={e=>setFormData({...formData,bankName:e.target.value})} /><input placeholder="Ref / Receipt #" className="form-input bg-white" value={formData.chequeNumber||''} onChange={e=>setFormData({...formData,chequeNumber:e.target.value})} /></div></div>}
+      {view==='expenses' && <div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Payment Method (Optional)</label><div className="grid grid-cols-2 gap-4"><input placeholder="Bank Name" className="form-input bg-white" value={formData.bankName||''} onChange={e=>setFormData({...formData,bankName:e.target.value})} /><input placeholder="Cheque / Ref #" className="form-input bg-white" value={formData.chequeNumber||''} onChange={e=>setFormData({...formData,chequeNumber:e.target.value})} /></div></div>}{view==='petty-cash' && <div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Payment Details (Optional)</label><div className="grid grid-cols-2 gap-4"><input placeholder="Bank Name" className="form-input bg-white" value={formData.bankName||''} onChange={e=>setFormData({...formData,bankName:e.target.value})} /><input placeholder="Ref / Receipt #" className="form-input bg-white" value={formData.chequeNumber||''} onChange={e=>setFormData({...formData,chequeNumber:e.target.value})} /></div></div>}
       <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-5 rounded-2xl hover:bg-violet-50 transition-colors border-2 border-dashed border-slate-200 hover:border-violet-300 group"><div className="p-2 bg-white rounded-full text-slate-400 group-hover:text-violet-500 shadow-sm"><Upload size={20}/></div><span className="text-sm font-bold text-slate-500 group-hover:text-violet-600">{fileToUpload?fileToUpload.name:"Attach Receipt / Proof"}</span><input type="file" className="hidden" onChange={e=>setFileToUpload(e.target.files[0])}/></label>
       <button disabled={isSubmitting} className="w-full bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white py-4 rounded-2xl font-bold hover:shadow-lg hover:shadow-violet-200 transition-all transform hover:scale-[1.01] active:scale-95 flex justify-center items-center gap-2">{isSubmitting?<RefreshCw className="animate-spin" size={20}/>:<CheckCircle size={20}/>} {isSubmitting?'Saving...':'Save Record'}</button>
      </form>
@@ -7407,7 +7431,7 @@ function App() {
    </div>
   )}
   {}
-  {showSalarySlip && formData && <SalarySlip data={formData} onClose={() => setShowSalarySlip(false)} companyProfile={companyProfile} />}
+  {slipData && <PayslipModal data={slipData} onClose={() => setSlipData(null)} companyProfile={companyProfile} appSettings={appSettings} toast={toast} />}
   </main>
  </div>
  );

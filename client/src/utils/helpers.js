@@ -57,9 +57,6 @@ export async function hashPassword(password) {
 // CSV export
 export function exportToCSV(data, filename) {
   if (!data || !data.length) return;
-  const Papa = window.Papa;
-  if (!Papa) { console.error('PapaParse not loaded'); return; }
-  
   const cleanData = data.map(item => {
     const row = { ...item };
     if (row.items && Array.isArray(row.items)) {
@@ -68,7 +65,8 @@ export function exportToCSV(data, filename) {
     return row;
   });
 
-  import('papaparse').then(({ default: Papa }) => {
+  import('papaparse').then((mod) => {
+    const Papa = mod.default || mod;
     const csv = Papa.unparse(cleanData);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -118,15 +116,26 @@ export function printDocument(elementId, title) {
 // PDF download helper
 export async function downloadElementAsPDF(elementId, filename) {
   const el = document.getElementById(elementId);
-  if (!el) return;
-  const html2pdf = (await import('html2pdf.js')).default;
-  html2pdf().set({
-    margin: 10,
-    filename: filename,
-    image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-  }).from(el).save();
+  if (!el) {
+    console.error(`downloadElementAsPDF: #${elementId} not found`);
+    return false;
+  }
+  try {
+    const html2pdf = (await import('html2pdf.js')).default;
+    // Must be awaited — otherwise callers resolve before the file is written
+    // and always report failure.
+    await html2pdf().set({
+      margin: 10,
+      filename: filename,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true, logging: false },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    }).from(el).save();
+    return true;
+  } catch (err) {
+    console.error('PDF export failed:', err);
+    return false;
+  }
 }
 
 // Date helpers
