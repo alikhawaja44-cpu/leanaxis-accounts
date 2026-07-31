@@ -90,6 +90,7 @@ function createCrudRouter(collectionName, options = {}) {
       const record = await firestoreHelpers.update(collectionName, req.params.id, data);
       res.json(record);
     } catch (error) {
+      if (error.code === 'NOT_FOUND') return res.status(404).json({ error: 'Record not found' });
       console.error(`PUT ${collectionName} error:`, error);
       res.status(500).json({ error: 'Failed to update record' });
     }

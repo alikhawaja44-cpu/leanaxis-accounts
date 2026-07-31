@@ -4,7 +4,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import {
   clientsAPI, vendorsAPI, expensesAPI, pettyCashAPI, salariesAPI,
-  bankRecordsAPI, invoicesAPI, quotationsAPI, vendorBillsAPI, usersAPI, settingsAPI
+  bankRecordsAPI, invoicesAPI, quotationsAPI, vendorBillsAPI, usersAPI, settingsAPI,
+  employeesAPI
 } from '../utils/api';
 import { useAuth } from './AuthContext';
 import { useToast } from '../components/Toast';
@@ -13,6 +14,21 @@ import { updateCurrencyFormatter } from '../utils/helpers';
 const DataContext = createContext(null);
 
 const REFRESH_INTERVAL = 30000; // 30 seconds
+
+/**
+ * Replaces state only when the payload actually differs.
+ *
+ * The background refresh previously called every setter on every tick, so all
+ * consumers re-rendered every 30 seconds even when nothing had changed —
+ * wasted work, and it reset any component holding derived state.
+ */
+function applyIfChanged(setter, next, signatureRef, key) {
+  const sig = JSON.stringify(next);
+  if (signatureRef.current[key] === sig) return false;
+  signatureRef.current[key] = sig;
+  setter(next);
+  return true;
+}
 
 export function DataProvider({ children }) {
   const { isAuthenticated, user } = useAuth();
@@ -30,6 +46,7 @@ export function DataProvider({ children }) {
   const [vendorBills, setVendorBills] = useState([]);
   const [users, setUsers] = useState([]);
   const [appSettings, setAppSettingsState] = useState({});
+  const [employees, setEmployees] = useState([]);
   const [expenseCategories, setExpenseCategories] = useState([
     'Marketing', 'Operations', 'Software & Tools', 'Travel', 'Office Supplies',
     'Utilities', 'Rent', 'Professional Services', 'Maintenance', 'Other'
@@ -38,44 +55,56 @@ export function DataProvider({ children }) {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const refreshTimerRef = useRef(null);
+  const signaturesRef = useRef({});
+  // While a form is open the background refresh must not overwrite what the
+  // user is typing — Settings fields were resetting mid-edit every 30s.
+  const pausedRef = useRef(0);
 
   // ── Fetch all collections ──────────────────────────────────────────────────
   const fetchAll = useCallback(async (silent = false) => {
     if (!isAuthenticated) return;
+    // A silent (background) refresh yields to any open editor.
+    if (silent && pausedRef.current > 0) return;
     if (!silent) setIsInitialLoading(true);
 
     try {
-      const [
-        clientsRes, vendorsRes, expensesRes, pettyRes, salariesRes,
-        bankRes, invoicesRes, quotesRes, billsRes, settingsRes
-      ] = await Promise.allSettled([
-        clientsAPI.getAll(),
-        vendorsAPI.getAll(),
-        expensesAPI.getAll(),
-        pettyCashAPI.getAll(),
-        salariesAPI.getAll(),
-        bankRecordsAPI.getAll(),
-        invoicesAPI.getAll(),
-        quotationsAPI.getAll(),
-        vendorBillsAPI.getAll(),
-        settingsAPI.get(),
+      const sources = [
+        ['clients',     clientsAPI.getAll(),     setClients],
+        ['vendors',     vendorsAPI.getAll(),     setVendors],
+        ['expenses',    expensesAPI.getAll(),    setExpenses],
+        ['pettyCash',   pettyCashAPI.getAll(),   setPettyCash],
+        ['salaries',    salariesAPI.getAll(),    setSalaries],
+        ['employees',   employeesAPI.getAll(),   setEmployees],
+        ['bankRecords', bankRecordsAPI.getAll(), setBankRecords],
+        ['invoices',    invoicesAPI.getAll(),    setInvoices],
+        ['quotations',  quotationsAPI.getAll(),  setQuotations],
+        ['vendorBills', vendorBillsAPI.getAll(), setVendorBills],
+      ];
+
+      const [results, settingsRes] = await Promise.all([
+        Promise.allSettled(sources.map(([, p]) => p)),
+        settingsAPI.get().catch(() => null),
       ]);
 
-      if (clientsRes.status === 'fulfilled')   setClients(clientsRes.value.data || []);
-      if (vendorsRes.status === 'fulfilled')   setVendors(vendorsRes.value.data || []);
-      if (expensesRes.status === 'fulfilled')  setExpenses(expensesRes.value.data || []);
-      if (pettyRes.status === 'fulfilled')     setPettyCash(pettyRes.value.data || []);
-      if (salariesRes.status === 'fulfilled')  setSalaries(salariesRes.value.data || []);
-      if (bankRes.status === 'fulfilled')      setBankRecords(bankRes.value.data || []);
-      if (invoicesRes.status === 'fulfilled')  setInvoices(invoicesRes.value.data || []);
-      if (quotesRes.status === 'fulfilled')    setQuotations(quotesRes.value.data || []);
-      if (billsRes.status === 'fulfilled')     setVendorBills(billsRes.value.data || []);
+      results.forEach((res, i) => {
+        const [key, , setter] = sources[i];
+        // Payroll and employees 403 for non-Admin users by design; leave the
+        // existing (empty) state alone rather than treating it as an error.
+        if (res.status === 'fulfilled') {
+          applyIfChanged(setter, res.value.data || [], signaturesRef, key);
+        }
+      });
 
-      if (settingsRes.status === 'fulfilled') {
-        const s = settingsRes.value.data || {};
-        setAppSettingsState(s);
-        updateCurrencyFormatter(s.locale, s.currency);
-        if (s.expenseCategories) setExpenseCategories(s.expenseCategories);
+      if (settingsRes) {
+        const s = settingsRes.data || {};
+        // Never clobber settings while the Settings screen is open.
+        if (pausedRef.current === 0) {
+          applyIfChanged(setAppSettingsState, s, signaturesRef, 'settings');
+          updateCurrencyFormatter(s.locale, s.currency);
+          if (s.expenseCategories) {
+            applyIfChanged(setExpenseCategories, s.expenseCategories, signaturesRef, 'cats');
+          }
+        }
       }
 
       setLoadError(null);
@@ -86,6 +115,12 @@ export function DataProvider({ children }) {
       setIsInitialLoading(false);
     }
   }, [isAuthenticated]);
+
+  // Components call these around any editing session.
+  const pauseRefresh  = useCallback(() => { pausedRef.current += 1; }, []);
+  const resumeRefresh = useCallback(() => {
+    pausedRef.current = Math.max(0, pausedRef.current - 1);
+  }, []);
 
   // Fetch users separately (admin only)
   const fetchUsers = useCallback(async () => {
@@ -107,7 +142,9 @@ export function DataProvider({ children }) {
       // Reset on logout
       setClients([]); setVendors([]); setExpenses([]); setPettyCash([]);
       setSalaries([]); setBankRecords([]); setInvoices([]); setQuotations([]);
-      setVendorBills([]); setUsers([]); setAppSettingsState({});
+      setVendorBills([]); setUsers([]); setEmployees([]); setAppSettingsState({});
+      signaturesRef.current = {};
+      pausedRef.current = 0;
       setIsInitialLoading(false);
     }
   }, [isAuthenticated]);
@@ -124,8 +161,11 @@ export function DataProvider({ children }) {
     const newSettings = typeof updater === 'function'
       ? updater(appSettings)
       : { ...appSettings, ...updater };
-    
+
     setAppSettingsState(newSettings);
+    // Keep the signature in step so the next refresh does not see our own
+    // write as an incoming change and re-render everything.
+    signaturesRef.current.settings = JSON.stringify(newSettings);
     updateCurrencyFormatter(newSettings.locale, newSettings.currency);
     
     try {
@@ -177,7 +217,7 @@ export function DataProvider({ children }) {
   const value = {
     // Data
     clients, vendors, expenses, pettyCash, salaries, bankRecords,
-    invoices, quotations, vendorBills, users, appSettings,
+    invoices, quotations, vendorBills, users, appSettings, employees,
     expenseCategories, setExpenseCategories,
 
     // State
@@ -186,6 +226,7 @@ export function DataProvider({ children }) {
     // Refresh
     refresh: () => fetchAll(true),
     refreshUsers: fetchUsers,
+    pauseRefresh, resumeRefresh,
 
     // Settings
     setAppSettings: updateAppSettings,
@@ -193,6 +234,7 @@ export function DataProvider({ children }) {
     // Setters (for optimistic updates)
     setClients, setVendors, setExpenses, setPettyCash, setSalaries,
     setBankRecords, setInvoices, setQuotations, setVendorBills, setUsers,
+    setEmployees,
 
     // Generic mutations
     mutations,

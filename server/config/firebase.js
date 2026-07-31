@@ -102,9 +102,16 @@ const firestoreHelpers = {
     return { id: docRef.id, ...docData };
   },
 
-  // Update an existing document
+  // Update an existing document. Throws NOT_FOUND so routes can answer 404
+  // instead of leaking a generic 500 when the record no longer exists.
   async update(collectionName, id, data) {
     const db = getDb();
+    const existing = await db.collection(collectionName).doc(id).get();
+    if (!existing.exists) {
+      const err = new Error(`${collectionName}/${id} not found`);
+      err.code = 'NOT_FOUND';
+      throw err;
+    }
     const updateData = {
       ...data,
       lastEditedAt: new Date().toISOString(),
@@ -142,6 +149,44 @@ const firestoreHelpers = {
     
     await batch.commit();
     return true;
+  },
+
+  /**
+   * Runs a read-modify-write inside a Firestore transaction, then writes any
+   * extra documents atomically with it.
+   *
+   * Payment recording previously read a balance, added to it and wrote it back
+   * as two separate calls — two payments landing at the same moment would each
+   * read the old balance and one would be silently lost. A transaction retries
+   * on conflict so both are applied.
+   *
+   * @param {string} collectionName collection holding the document to update
+   * @param {string} id             document id
+   * @param {function} mutate       (currentData) => { update, creates: [{collection, data}] }
+   */
+  async transactUpdate(collectionName, id, mutate) {
+    const db = getDb();
+    return db.runTransaction(async (tx) => {
+      const ref = db.collection(collectionName).doc(id);
+      const snap = await tx.get(ref);
+      if (!snap.exists) {
+        const err = new Error(`${collectionName}/${id} not found`);
+        err.code = 'NOT_FOUND';
+        throw err;
+      }
+      const current = { id: snap.id, ...snap.data() };
+      const result = await mutate(current);
+      if (!result) return current;
+
+      if (result.update) tx.update(ref, result.update);
+      for (const c of result.creates || []) {
+        tx.set(db.collection(c.collection).doc(), {
+          ...c.data,
+          createdAt: c.data.createdAt || new Date().toISOString(),
+        });
+      }
+      return result.result || { id: snap.id, ...current, ...(result.update || {}) };
+    });
   },
 
   // Query with filters

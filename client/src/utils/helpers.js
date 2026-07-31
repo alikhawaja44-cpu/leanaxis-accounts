@@ -39,10 +39,85 @@ export function calcInvoiceTotal(items = [], taxRate = 0, discount = 0) {
     (s, it) => s + ((parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0)),
     0
   );
-  const discounted = subtotal - (subtotal * ((parseFloat(discount) || 0) / 100));
+  // Clamp to 0–100: the live preview already capped the discount, but the stored
+  // calculation did not, so a mistyped 150% produced a negative invoice.
+  const pct = Math.min(100, Math.max(0, parseFloat(discount) || 0));
+  const discounted = subtotal - (subtotal * (pct / 100));
   const { tax, total } = calculateTax(discounted, taxRate);
-  return { subtotal, discounted, tax, total };
+  return { subtotal, discounted, tax, total, discountAmount: subtotal - discounted };
 }
+
+/**
+ * The single source of truth for an invoice's money.
+ *
+ * This used to be recomputed inline in 24 different places across the app, and
+ * they disagreed with each other:
+ *   - 13 of them ignored `discount` entirely, over-stating the total on every
+ *     discounted invoice (client statements, receivables, dashboard revenue,
+ *     the command palette and the "record payment" amount were all affected).
+ *   - every one of them ignored `whtDeducted`, so an invoice whose client
+ *     withheld tax could never reach a zero balance and stayed on the books
+ *     as a phantom receivable forever.
+ *
+ * `settled` is what actually clears the invoice: cash received plus any tax the
+ * client withheld at source (which you never receive but are credited for).
+ */
+export function invoiceTotals(inv = {}) {
+  const { subtotal, discounted, tax, total } = calcInvoiceTotal(
+    inv?.items || [], inv?.taxRate, inv?.discount
+  );
+  const received = Number(inv?.amountReceived) || 0;
+  const wht = Number(inv?.whtDeducted) || 0;
+  const settled = received + wht;
+  const balance = Math.max(0, total - settled);
+  // A cent of tolerance so floating-point noise never leaves an invoice "unpaid".
+  const isPaid = inv?.status === 'Paid' || (total > 0 && balance <= 0.01);
+  return { subtotal, discounted, tax, total, received, wht, settled, balance, isPaid };
+}
+
+/**
+ * Does a free-text ledger description refer to this client/vendor?
+ *
+ * Client and vendor statements matched with a bare `description.includes(name)`.
+ * That is a substring test, so a client called "Ali" matched "Quality", "Salient"
+ * and "Alignment"; a vendor called "AL" matched almost everything. Unrelated
+ * transactions were pulled into their statements and their balances came out wrong.
+ *
+ * This requires the name to appear as a whole word (or whole phrase), and
+ * refuses to match on names shorter than two characters.
+ */
+export function descriptionMatchesParty(description, partyName) {
+  const desc = String(description || '').toLowerCase();
+  const name = String(partyName || '').toLowerCase().trim().replace(/\s+/g, ' ');
+  if (name.length < 2 || !desc) return false;
+
+  // Escape regex metacharacters — names legitimately contain . & ( ) + etc.
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // \b does not fire next to non-word characters (e.g. a trailing "."), so
+  // anchor on "start or non-word" / "end or non-word" instead.
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i').test(desc);
+}
+
+/**
+ * Escapes text before it is interpolated into a hand-built HTML string.
+ *
+ * The petty-cash ledger printer wrote descriptions, categories and reference
+ * numbers straight into a template literal. A description containing "<" broke
+ * the printed table, and any markup in a record was executed in the print window.
+ */
+export function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** Convenience: just the invoice total. */
+export const invoiceTotal = (inv) => invoiceTotals(inv).total;
+/** Convenience: what is still owed on an invoice. */
+export const invoiceBalance = (inv) => invoiceTotals(inv).balance;
 
 // Hash password (client side, for legacy compat)
 export async function hashPassword(password) {

@@ -64,6 +64,7 @@ export const pettyCashAPI = crudAPI('petty-cash');
 export const salariesAPI = crudAPI('salaries');
 export const bankRecordsAPI = crudAPI('bank-records');
 export const quotationsAPI = crudAPI('quotations');
+export const employeesAPI = crudAPI('employees');
 
 // ── Invoices (extended) ───────────────────────────────────────────────────────
 export const invoicesAPI = {

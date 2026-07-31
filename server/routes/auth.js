@@ -127,10 +127,23 @@ router.post('/change-password', requireAuth, async (req, res) => {
     if (!currentPassword || !newPassword) {
       return res.status(400).json({ error: 'Both passwords required' });
     }
+    if (typeof newPassword !== 'string' || newPassword.length < 8
+        || !/[A-Za-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      return res.status(400).json({
+        error: 'New password must be at least 8 characters and contain a letter and a number.',
+      });
+    }
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ error: 'New password must be different from the current one.' });
+    }
 
+    // A token can outlive the account it belongs to; without this the next line
+    // dereferenced null and returned a 500.
     const user = await firestoreHelpers.getById('users', req.user.id);
+    if (!user) return res.status(404).json({ error: 'Account no longer exists. Please log in again.' });
+
     const isValid = await verifyPassword(currentPassword, user.password);
-    
+
     if (!isValid) {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }

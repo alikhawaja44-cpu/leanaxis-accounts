@@ -15,28 +15,23 @@ import { useToast } from './components/Toast';
 // API clients
 import {
   clientsAPI, vendorsAPI, expensesAPI, pettyCashAPI, salariesAPI,
-  bankRecordsAPI, invoicesAPI, quotationsAPI, vendorBillsAPI, usersAPI, settingsAPI
+  bankRecordsAPI, invoicesAPI, quotationsAPI, vendorBillsAPI, usersAPI, settingsAPI,
+  employeesAPI
 } from './utils/api';
 
 // Utilities
-import { formatCurrency, calculateTax, calcInvoiceTotal, printDocument, downloadElementAsPDF, today, exportToCSV } from './utils/helpers';
+import { formatCurrency, calculateTax, calcInvoiceTotal, invoiceTotals, invoiceTotal, descriptionMatchesParty, escapeHtml, printDocument, downloadElementAsPDF, today, exportToCSV } from './utils/helpers';
 import {
   computePayroll, withTotals, payPeriodLabel, payPeriodKey,
   EARNING_FIELDS, DEDUCTION_FIELDS, PAYMENT_MODES, netOf, grossOf,
 } from './utils/payroll';
 import PayslipModal from './components/Payslip';
 import PaymentStatement, { buildStatementRows } from './components/PaymentStatement';
+import EmployeesPage from './components/EmployeesPage';
+import PayrollRun from './components/PayrollRun';
+import { draftSalaryFor, structureFor, validateEmployee, periodLabelOf, STRUCTURE_FIELDS, EMPLOYEE_STATUSES } from './utils/employees';
 
 // ── Helpers replicated inline for components ──────────────────────────────────
-const hashPassword = async (password) => {
-  if (!password) return '';
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-};
-
 const Logo = ({ className, white = false, companyName, tagline }) => (
  <div className={`flex items-center gap-3 ${className}`}>
   <img src="./logo.png" alt={companyName || 'Company'} className="h-10 object-contain" onError={(e) => {
@@ -49,61 +44,7 @@ const Logo = ({ className, white = false, companyName, tagline }) => (
   </div>
  </div>
 );
-class ErrorBoundary extends React.Component {
- constructor(props) { super(props); this.state = { hasError: false, error: null }; }
- static getDerivedStateFromError(error) { return { hasError: true, error }; }
- componentDidCatch(error, errorInfo) { console.error("Uncaught error:", error, errorInfo); }
- render() {
- if (this.state.hasError) return (
-  <div className="p-8 text-center bg-rose-50 min-h-screen flex flex-col items-center justify-center font-sans">
-   <h1 className="text-3xl font-bold text-rose-600 mb-4">Something went wrong.</h1>
-   <p className="text-rose-800 bg-rose-100 p-4 rounded-xl mb-6 max-w-md break-words font-mono text-sm shadow-sm">{this.state.error && this.state.error.toString()}</p>
-   <button onClick={() => window.location.reload()} className="bg-rose-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-rose-700 transition-colors shadow-lg shadow-rose-200">Reload Application</button>
-  </div>
- );
- return this.props.children;
- }
-}
 // Hook moved to DataContext
-function useStickyState(defaultValue, key) {
- const [value, setValue] = useState(() => {
- try { const stickyValue = window.localStorage.getItem(key); return stickyValue !== null ? JSON.parse(stickyValue) : defaultValue; } catch (e) { return defaultValue; }
- });
- useEffect(() => { try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (e) { console.warn('LocalStorage failed:', e); } }, [key, value]);
- return [value, setValue];
-}
-function useExpenseCategories() {
- const [categories, setCategories] = useState(['General', 'Office Rent', 'Utilities', 'Travel', 'Software', 'Meals', 'Other']);
- const [storedCats, setStoredCats] = useStickyState(categories, 'leanaxis_expense_categories');
- return [storedCats, setStoredCats];
-}
-function useCompanyProfile() {
- return useStickyState({
-  name: 'LeanAxis',
-  tagline: 'Creative Agency & Solutions',
-  address: '',
-  phone: '',
-  email: '',
-  website: '',
- }, 'leanaxis_company_profile');
-}
-function useAppSettings() {
- return useStickyState({
-  currency: 'PKR',
-  locale: 'en-PK',
-  invoicePrefix: 'INV',
-  invoiceCounter: 1,
-  defaultTaxRate: 0,
-  defaultPaymentTerms: 'Payment due within 30 days.',
-  pettyCashOpeningBalance: 0,
-  pettyCashMinBalance: 0,
-  quotePrefix: 'QT',
-  quoteCounter: 1,
-  billPrefix: 'BILL',
-  billCounter: 1,
-  darkMode: false,
- }, 'leanaxis_app_settings');
-}
 const LoginView = ({ onLogin, loading: externalLoading, error }) => {
  const [loginInput, setLoginInput] = useState('');
  const [password, setPassword] = useState('');
@@ -167,7 +108,7 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
  const addItem = () => setQuoteData({...quoteData, items: [...quoteData.items, { desc: '', qty: 1, rate: 0 }]});
  const updateItem = (index, field, val) => { const newItems = [...quoteData.items]; newItems[index][field] = val; setQuoteData({...quoteData, items: newItems}); };
  const removeItem = (index) => { if(quoteData.items.length > 1) setQuoteData({...quoteData, items: quoteData.items.filter((_, i) => i !== index)}); };
- const { subtotal, tax, total } = calculateTax(quoteData.items.reduce((acc, item) => acc + ((Number(item.qty)||0) * (Number(item.rate)||0)), 0), quoteData.taxRate);
+ const { subtotal, tax, total } = calculateTax((quoteData.items||[]).reduce((acc, item) => acc + ((Number(item.qty)||0) * (Number(item.rate)||0)), 0), quoteData.taxRate);
  const handleShareWhatsApp = () => {
   if (!quoteData.client || total === 0) return toast("Please select a client and add items first.", "warning");
   const message = `*QUOTATION ${quoteNumber}*\nFrom: ${companyProfile.name || 'Our Company'}%0ATo: ${quoteData.client}%0ADate: ${quoteData.date}${quoteData.validUntil?`%0AValid Until: ${quoteData.validUntil}`:''}%0A%0A` + quoteData.items.map(item => `- ${item.desc}: ${formatCurrency((parseFloat(item.qty)||0) * (parseFloat(item.rate)||0))}`).join('%0A') + `%0A%0A*Total Estimate: ${formatCurrency(total)}*`;
@@ -204,7 +145,7 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
        </thead>
        <tbody className="divide-y divide-slate-50">
         {savedQuotations.map(q => {
-         const qTotal = calculateTax(q.items.reduce((a, i) => a + ((Number(i.qty)||0) * (Number(i.rate)||0)), 0), q.taxRate).total;
+         const qTotal = calculateTax((q.items||[]).reduce((a, i) => a + ((Number(i.qty)||0) * (Number(i.rate)||0)), 0), q.taxRate).total;
          const isExpired = q.validUntil && new Date(q.validUntil) < new Date();
          return (
           <tr key={q.id} className="hover:bg-slate-50/50 transition-colors group">
@@ -394,17 +335,18 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
  const handleShareWhatsApp = (inv) => {
   const data   = inv || invoiceData;
   const invNum = inv ? (inv.invoiceNumber||'') : invoiceNumber;
-  const st     = inv ? calculateTax(inv.items.reduce((a,i)=>a+(Number(i.qty)||0)*(Number(i.rate)||0),0) - (inv.items.reduce((a,i)=>a+(Number(i.qty)||0)*(Number(i.rate)||0),0)*(Number(inv.discount)||0)/100), inv.taxRate) : { subtotal, tax, total };
+  const st     = inv ? invoiceTotals(inv) : { subtotal, tax, total, discountAmount: discountAmt, balance: total, received: 0 };
   if (!data.client || st.total === 0) return toast('Please select a client and add items first.', 'warning');
-  const received = Number(inv?.amountReceived||0);
-  const balance  = st.total - received;
+  const received = inv ? st.received : 0;
+  const balance  = inv ? st.balance : st.total;
+  const shownDiscount = inv ? (st.discountAmount || 0) : discountAmt;
   const msg = encodeURIComponent(
    `*INVOICE #${invNum}*\n` +
    `${companyProfile.name || 'Our Company'}\n\n` +
    `To: ${data.client}\n` +
    `Date: ${data.date}${data.dueDate ? `\nDue: ${data.dueDate}` : ''}\n\n` +
    `*Items:*\n` + (data.items||[]).map(i=>`• ${i.desc}: ${formatCurrency((Number(i.qty)||0)*(Number(i.rate)||0))}`).join('\n') + '\n\n' +
-   (Number(data.discount)>0 ? `Discount (${data.discount}%): -${formatCurrency(discountAmt)}\n` : '') +
+   (Number(data.discount)>0 ? `Discount (${data.discount}%): -${formatCurrency(shownDiscount)}\n` : '') +
    `Tax (${data.taxRate}%): ${formatCurrency(st.tax)}\n` +
    `*Total: ${formatCurrency(st.total)}*` +
    (received > 0 ? `\nReceived: ${formatCurrency(received)}\n*Balance Due: ${formatCurrency(balance)}*` : '') +
@@ -425,23 +367,17 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
   printDocument('invoice-preview-content', `Invoice ${invoiceNumber} — ${invoiceData.client}`);
  };
  const invStats = useMemo(() => {
-  const getTotal = inv => {
-   const s = inv.items?.reduce((a, i) => a + (Number(i.qty)||0)*(Number(i.rate)||0), 0)||0;
-   const disc = s * (Number(inv.discount)||0) / 100;
-   return calculateTax(s - disc, inv.taxRate).total;
-  };
   const today = new Date(); today.setHours(0,0,0,0);
   let totalRevenue=0, collected=0, outstanding=0, overdueAmt=0, overdueCount=0, draftCount=0, sentCount=0, partialCount=0;
   savedInvoices.forEach(inv => {
-   const t = getTotal(inv);
-   const recv = Number(inv.amountReceived)||0;
+   const { total: t, settled, balance } = invoiceTotals(inv);
    const isOverdue = inv.status !== 'Paid' && inv.dueDate && new Date(inv.dueDate) < today;
    totalRevenue += t;
    if (inv.status === 'Paid') collected += t;
    else {
-    outstanding += t - recv;
-    if (isOverdue) { overdueAmt += t - recv; overdueCount++; }
-    if (recv > 0 && inv.status !== 'Paid') partialCount++;
+    outstanding += balance;
+    if (isOverdue) { overdueAmt += balance; overdueCount++; }
+    if (settled > 0) partialCount++;
    }
    if (inv.status === 'Draft') draftCount++;
    if (inv.status === 'Sent') sentCount++;
@@ -454,39 +390,37 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
    const d = new Date(today.getFullYear(), today.getMonth()-5+i, 1);
    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
    const label = d.toLocaleString('default', { month: 'short' });
-   const getTotal = inv => { const s=inv.items?.reduce((a,it)=>a+(parseFloat(it.qty)||0)*(parseFloat(it.rate)||0),0)||0; return calculateTax(s-(s*(Number(inv.discount)||0)/100),inv.taxRate).total; };
-   const invoiced = savedInvoices.filter(inv => (inv.date||'').slice(0,7) === key).reduce((a,inv) => a+getTotal(inv), 0);
-   const paid     = savedInvoices.filter(inv => inv.status==='Paid' && (inv.date||'').slice(0,7) === key).reduce((a,inv) => a+getTotal(inv), 0);
+   const invoiced = savedInvoices.filter(inv => (inv.date||'').slice(0,7) === key).reduce((a,inv) => a+invoiceTotal(inv), 0);
+   const paid     = savedInvoices.filter(inv => inv.status==='Paid' && (inv.date||'').slice(0,7) === key).reduce((a,inv) => a+invoiceTotal(inv), 0);
    return { name: label, Invoiced: invoiced, Collected: paid };
   });
  }, [savedInvoices]);
  const agingData = useMemo(() => {
   const today = new Date(); today.setHours(0,0,0,0);
-  const buckets = { '0–30 days': 0, '31–60 days': 0, '61–90 days': 0, '90+ days': 0 };
+  const buckets = { 'Not yet due': 0, '0–30 days': 0, '31–60 days': 0, '61–90 days': 0, '90+ days': 0 };
   savedInvoices.filter(inv => inv.status !== 'Paid' && inv.dueDate).forEach(inv => {
    const days = Math.floor((today - new Date(inv.dueDate)) / 86400000);
-   const getTotal = inv => { const s=inv.items?.reduce((a,it)=>a+(parseFloat(it.qty)||0)*(parseFloat(it.rate)||0),0)||0; return calculateTax(s-(s*(Number(inv.discount)||0)/100),inv.taxRate).total; };
-   const bal = getTotal(inv) - (Number(inv.amountReceived)||0);
-   if (days <= 30) buckets['0–30 days'] += bal;
+   const bal = invoiceTotals(inv).balance;
+   // Invoices that have not reached their due date are not aged debt.
+   if (days <= 0) buckets['Not yet due'] += bal;
+   else if (days <= 30) buckets['0–30 days'] += bal;
    else if (days <= 60) buckets['31–60 days'] += bal;
    else if (days <= 90) buckets['61–90 days'] += bal;
    else buckets['90+ days'] += bal;
   });
   return Object.entries(buckets).map(([name, value]) => ({ name, value })).filter(b => b.value > 0);
  }, [savedInvoices]);
- const AGING_COLORS = ['#10b981','#f59e0b','#f97316','#ef4444'];
+ const AGING_COLORS = ['#94a3b8','#10b981','#f59e0b','#f97316','#ef4444'];
  const displayedInvoices = useMemo(() => {
-  const getTotal = inv => { const s=inv.items?.reduce((a,i)=>a+(Number(i.qty)||0)*(Number(i.rate)||0),0)||0; return calculateTax(s-(s*(Number(inv.discount)||0)/100),inv.taxRate).total; };
   const today = new Date(); today.setHours(0,0,0,0);
   let res = savedInvoices.map(inv => {
-   const total = getTotal(inv);
-   const received = Number(inv.amountReceived)||0;
+   const { total, received, settled, balance } = invoiceTotals(inv);
    const isOverdue = inv.status !== 'Paid' && inv.dueDate && new Date(inv.dueDate) < today;
    const isPaid = inv.status === 'Paid';
-   const isPartial = !isPaid && received > 0;
+   const isPartial = !isPaid && settled > 0;
    const daysOverdue = isOverdue ? Math.floor((today - new Date(inv.dueDate)) / 86400000) : 0;
    const statusLabel = isPaid ? 'Paid' : isOverdue ? 'Overdue' : isPartial ? 'Partial' : (inv.status||'Draft');
-   return {...inv, _total: total, _received: received, _balance: total - received, _isPaid: isPaid, _isOverdue: isOverdue, _isPartial: isPartial, _daysOverdue: daysOverdue, _statusLabel: statusLabel };
+   return {...inv, _total: total, _received: received, _balance: balance, _isPaid: isPaid, _isOverdue: isOverdue, _isPartial: isPartial, _daysOverdue: daysOverdue, _statusLabel: statusLabel };
   });
   if (invSearch)      res = res.filter(inv => (inv.client||'').toLowerCase().includes(invSearch.toLowerCase()) || (inv.invoiceNumber||'').toLowerCase().includes(invSearch.toLowerCase()));
   if (invStatusFilter !== 'All') res = res.filter(inv => inv._statusLabel === invStatusFilter);
@@ -1125,7 +1059,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
   </div>
  );
 };
-const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, onViewSlip, companyProfile = {} }) => {
+const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, onViewSlip, onRunPayroll, companyProfile = {} }) => {
  const toast = useToast();
  const [search, setSearch] = useState('');
  const [empFilter, setEmpFilter] = useState('All');
@@ -1371,6 +1305,12 @@ const SalariesPage = ({ salaries, currentUser, onNewSalary, onEdit, onDelete, on
       row['Status'] = s.status || 'Unpaid';
       return row;
      }), 'Payroll_Register')} className="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 shadow-sm"><Download size={15}/> Export</button>
+     {onRunPayroll && (
+      <button onClick={onRunPayroll}
+       className="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-sm hover:bg-slate-800 transition-all">
+       <Users size={16}/> Run Payroll
+      </button>
+     )}
      <button onClick={onNewSalary}
       className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-200 hover:shadow-xl hover:scale-105 active:scale-95 transition-all">
       <Plus size={16}/> New Payslip
@@ -1873,7 +1813,7 @@ const ExpensesPage = ({ expenses, expenseCategories, currentUser, onNewExpense, 
           <td className="px-5 py-3.5">
            <p className="text-sm font-bold text-slate-800 leading-snug">{item.description || '—'}</p>
            {item.proofUrl && (
-            <a href={item.proofUrl} target="_blank" rel="noreferrer"
+            <a href={item.proofUrl} target="_blank" rel="noopener noreferrer"
              className="text-xs text-violet-500 hover:text-violet-700 font-medium mt-0.5 flex items-center gap-1">
              <FileText size={10}/> View Receipt
             </a>
@@ -1972,7 +1912,7 @@ const ExpensesPage = ({ expenses, expenseCategories, currentUser, onNewExpense, 
           )}
          </div>
          {item.proofUrl && (
-          <a href={item.proofUrl} target="_blank" rel="noreferrer"
+          <a href={item.proofUrl} target="_blank" rel="noopener noreferrer"
            className="mt-3 flex items-center gap-1.5 text-xs font-bold text-violet-500 hover:text-violet-700 transition-colors">
            <FileText size={11}/> View Receipt
           </a>
@@ -1998,6 +1938,7 @@ const PETTY_CATEGORIES = [
  'Repairs & Maintenance', 'Miscellaneous', 'Advance', 'Refund / Receipt'
 ];
 const PettyCashPage = ({ pettyCash, currentUser, canWrite, canDelete, onNewEntry, onEdit, onDelete, appSettings = {} }) => {
+ const toast = useToast();
  const [search, setSearch]           = useState('');
  const [typeFilter, setTypeFilter]   = useState('All');
  const [catFilter, setCatFilter]     = useState('All');
@@ -2062,15 +2003,18 @@ const PettyCashPage = ({ pettyCash, currentUser, canWrite, canDelete, onNewEntry
  const isLowBalance = !isNegative && minBalance > 0 && kpis.balance <= minBalance;
  const printLedger = () => {
   const w = window.open('', '_blank');
+  // Pop-up blockers return null; without this the next line throws.
+  if (!w) return toast('Please allow pop-ups to print the ledger.', 'warning');
+  const e = escapeHtml;
   const rows = filtered.map(item => `
    <tr style="border-bottom:1px solid #f1f5f9">
-    <td style="padding:7px 10px;font-size:12px;color:#475569">${item.date}</td>
-    <td style="padding:7px 10px;font-size:12px;font-weight:600;color:#1e293b">${item.description||'—'}${item.paidTo?`<br><span style="color:#94a3b8;font-size:11px">→ ${item.paidTo}</span>`:''}</td>
-    <td style="padding:7px 10px;font-size:11px;color:#64748b">${item.category||'—'}</td>
+    <td style="padding:7px 10px;font-size:12px;color:#475569">${e(item.date)}</td>
+    <td style="padding:7px 10px;font-size:12px;font-weight:600;color:#1e293b">${e(item.description)||'—'}${item.paidTo?`<br><span style="color:#94a3b8;font-size:11px">→ ${e(item.paidTo)}</span>`:''}</td>
+    <td style="padding:7px 10px;font-size:11px;color:#64748b">${e(item.category)||'—'}</td>
     <td style="padding:7px 10px;font-size:12px;color:#dc2626;text-align:right;font-weight:700">${item.out>0?formatCurrency(item.out):'—'}</td>
     <td style="padding:7px 10px;font-size:12px;color:#16a34a;text-align:right;font-weight:700">${item.inp>0?formatCurrency(item.inp):'—'}</td>
     <td style="padding:7px 10px;font-size:12px;text-align:right;font-weight:800;color:${item.balance<0?'#dc2626':'#1e293b'}">${formatCurrency(item.balance)}</td>
-    <td style="padding:7px 10px;font-size:11px;color:#94a3b8">${item.refNumber||'—'}</td>
+    <td style="padding:7px 10px;font-size:11px;color:#94a3b8">${e(item.refNumber)||'—'}</td>
    </tr>`).join('');
   const ob = openingBalance > 0 ? `<tr style="background:#f5f3ff"><td style="padding:7px 10px;font-size:12px;color:#8b5cf6">—</td><td style="padding:7px 10px;font-weight:700;font-size:12px;color:#5b21b6">Opening Balance</td><td style="padding:7px 10px;font-size:11px;color:#8b5cf6">Opening</td><td style="text-align:right;color:#94a3b8;padding:7px 10px">—</td><td style="padding:7px 10px;text-align:right;font-weight:700;color:#5b21b6">${formatCurrency(openingBalance)}</td><td style="padding:7px 10px;text-align:right;font-weight:800;color:#5b21b6">${formatCurrency(openingBalance)}</td><td>—</td></tr>` : '';
   w.document.write(`<!DOCTYPE html><html><head><title>Petty Cash Ledger</title><style>body{font-family:system-ui,sans-serif;padding:24px;color:#1e293b}table{width:100%;border-collapse:collapse}th{background:#f8fafc;padding:10px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#94a3b8;text-align:left;border-bottom:2px solid #e2e8f0}@media print{button{display:none!important}}</style></head><body>
@@ -2388,11 +2332,11 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
    date: inv.date,
    description: `Invoice Service`,
    type: 'Invoice',
-   debit: calculateTax(inv.items.reduce((a, i) => a + (i.qty * i.rate), 0), inv.taxRate).total,
+   debit: calcInvoiceTotal(inv.items || [], inv.taxRate, inv.discount).total,
    credit: 0,
    rawDate: new Date(inv.date)
   }));
-  const clientBank = bankRecords.filter(r => cleanName(r.description).includes(target) && r.amount > 0).map(r => ({
+  const clientBank = bankRecords.filter(r => descriptionMatchesParty(r.description, selectedClient) && Number(r.amount) > 0).map(r => ({
    id: r.id,
    date: r.date,
    description: r.description,
@@ -2401,7 +2345,7 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
    credit: Number(r.amount),
    rawDate: new Date(r.date)
   }));
-  const clientCash = pettyCash.filter(r => cleanName(r.description).includes(target) && Number(r.cashIn) > 0).map(r => ({
+  const clientCash = pettyCash.filter(r => descriptionMatchesParty(r.description, selectedClient) && Number(r.cashIn) > 0).map(r => ({
    id: r.id,
    date: r.date,
    description: r.description,
@@ -2510,10 +2454,10 @@ const ClientsPage = ({
   const name = (client.name || '').toLowerCase().trim();
   const clientInvs = invoices.filter(inv => (inv.client || '').toLowerCase().trim() === name);
   const totalBilled = clientInvs.reduce((a, inv) =>
-   a + calculateTax((inv.items||[]).reduce((s,it)=>s+((parseFloat(it.qty)||0)*(parseFloat(it.rate)||0)),0), inv.taxRate).total, 0);
+   a + invoiceTotal(inv), 0);
   const totalReceived = clientInvs.filter(i => i.status === 'Paid').reduce((a, inv) => {
    const r = Number(inv.amountReceived);
-   const t = calculateTax((inv.items||[]).reduce((s,it)=>s+((parseFloat(it.qty)||0)*(parseFloat(it.rate)||0)),0), inv.taxRate).total;
+   const t = invoiceTotal(inv);
    return a + (r > 0 ? r : t);
   }, 0) + (Number(client.advanceReceived)||0);
   const outstanding = Math.max(0, totalBilled - totalReceived);
@@ -2918,34 +2862,27 @@ const ClientProfile = ({ client, invoices, bankRecords, pettyCash, onBack, onCre
  ), [invoices, client]);
  const payments = useMemo(() => {
   const target = (client.name || '').toLowerCase().trim();
-  const fromBank = bankRecords.filter(r =>
-   (r.description || '').toLowerCase().includes(target) && Number(r.amount) > 0 &&
-   !(r.description || '').toLowerCase().startsWith('inv payment:')
-  ).map(r => ({ id: r.id, date: r.date, ref: r.description, amount: Number(r.amount), method: 'Bank Transfer', icon: '🏦' }));
-  const fromInvBank = bankRecords.filter(r =>
-   (r.description || '').toLowerCase().startsWith('inv payment:') &&
-   (r.description || '').toLowerCase().includes(target) && Number(r.amount) > 0
-  ).map(r => ({ id: r.id, date: r.date, ref: r.description, amount: Number(r.amount), method: 'Bank (Invoice)', icon: '🏦' }));
-  const fromCash = pettyCash.filter(r =>
-   (r.description || '').toLowerCase().includes(target) && Number(r.cashIn) > 0 &&
-   !(r.description || '').toLowerCase().startsWith('inv payment:')
-  ).map(r => ({ id: r.id, date: r.date, ref: r.description, amount: Number(r.cashIn), method: 'Cash Receipt', icon: '💵' }));
-  const fromCashInv = pettyCash.filter(r =>
-   (r.description || '').toLowerCase().startsWith('inv payment:') &&
-   (r.description || '').toLowerCase().includes(target) && Number(r.cashIn) > 0
-  ).map(r => ({ id: r.id, date: r.date, ref: r.description, amount: Number(r.cashIn), method: 'Cash (Invoice)', icon: '💵' }));
-  const all = [...fromBank, ...fromInvBank, ...fromCash, ...fromCashInv];
+  const isInv = (r) => (r.description || '').toLowerCase().startsWith('inv payment:');
+  const mine  = (r) => descriptionMatchesParty(r.description, client.name);
+  const all = [
+   ...bankRecords.filter(r => mine(r) && Number(r.amount) > 0).map(r => ({
+    id: `bank:${r.id}`, date: r.date, ref: r.description, amount: Number(r.amount),
+    method: isInv(r) ? 'Bank (Invoice)' : 'Bank Transfer', icon: '🏦' })),
+   ...pettyCash.filter(r => mine(r) && Number(r.cashIn) > 0).map(r => ({
+    id: `cash:${r.id}`, date: r.date, ref: r.description, amount: Number(r.cashIn),
+    method: isInv(r) ? 'Cash (Invoice)' : 'Cash Receipt', icon: '💵' })),
+  ];
+  // Keys are namespaced by collection: a bank record and a petty-cash record
+  // could otherwise share an id and one would be silently dropped.
   const seen = new Set();
   return all.filter(p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; })
    .sort((a, b) => new Date(b.date) - new Date(a.date));
  }, [bankRecords, pettyCash, client]);
  const invoiceSummary = useMemo(() => clientInvoices.map(inv => {
-  const subtotal = (inv.items || []).reduce((s, it) => s + ((parseFloat(it.qty)||0)*(parseFloat(it.rate)||0)), 0);
-  const total = calculateTax(subtotal, inv.taxRate).total;
-  const received = Number(inv.amountReceived) || 0;
+  const { total, received, settled, balance } = invoiceTotals(inv);
   const isOverdue = inv.status !== 'Paid' && inv.dueDate && new Date(inv.dueDate) < today;
-  const outstanding = inv.status === 'Paid' ? 0 : total - received;
-  const statusLabel = inv.status === 'Paid' ? 'Paid' : isOverdue ? 'Overdue' : received > 0 ? 'Partial' : (inv.status || 'Unpaid');
+  const outstanding = inv.status === 'Paid' ? 0 : balance;
+  const statusLabel = inv.status === 'Paid' ? 'Paid' : isOverdue ? 'Overdue' : settled > 0 ? 'Partial' : (inv.status || 'Unpaid');
   return { ...inv, total, received, outstanding, isOverdue, statusLabel };
  }).sort((a,b) => new Date(b.date) - new Date(a.date)), [clientInvoices]);
  const filteredInvoices = useMemo(() => {
@@ -3920,7 +3857,9 @@ const VendorBillsPage = ({ vendorBills, vendors, currentUser, onNewBill, onEdit,
  const [sortBy,       setSortBy]       = useState('date-desc');
  const today = new Date(); today.setHours(0,0,0,0);
  const enriched = useMemo(() => vendorBills.map(b => {
-  const gross   = (Number(b.billAmount)||Number(b.amount)||0) + (Number(b.taxDeduction)||0);
+  // billAmount is the gross figure; amount is net of WHT. Only legacy records
+  // that stored just `amount` need the tax added back to reconstruct gross.
+  const gross   = Number(b.billAmount) || ((Number(b.amount)||0) + (Number(b.taxDeduction)||0));
   const net     = Number(b.amount) || 0;
   const wht     = Number(b.taxDeduction) || 0;
   const paid    = Number(b.paidAmount) || 0;
@@ -4902,17 +4841,16 @@ const VendorProfile = ({ vendor, vendorBills, bankRecords, pettyCash, onBack }) 
  ), [vendorBills, vendor]);
  const payments = useMemo(() => {
   const target = (vendor.name || '').toLowerCase().trim();
-  const fromBank = bankRecords.filter(r =>
-   (r.description || '').toLowerCase().includes(target) && Number(r.amount) < 0
-  ).map(r => ({ id: r.id, date: r.date, ref: r.description, amount: Math.abs(Number(r.amount)), method: 'Bank Transfer' }));
-  const fromBankBillPayment = bankRecords.filter(r =>
-   (r.description || '').toLowerCase().startsWith('bill payment:') &&
-   (r.description || '').toLowerCase().includes(target)
-  ).map(r => ({ id: r.id, date: r.date, ref: r.description, amount: Math.abs(Number(r.amount)), method: 'Bank (Bill)' }));
-  const fromCash = pettyCash.filter(r =>
-   (r.description || '').toLowerCase().includes(target) && Number(r.cashOut) > 0
-  ).map(r => ({ id: r.id, date: r.date, ref: r.description, amount: Number(r.cashOut), method: 'Cash' }));
-  const allPayments = [...fromBank, ...fromBankBillPayment, ...fromCash]
+  const isBill = (r) => (r.description || '').toLowerCase().startsWith('bill payment:');
+  const mine   = (r) => descriptionMatchesParty(r.description, vendor.name);
+  const allPayments = [
+   ...bankRecords.filter(r => mine(r) && Number(r.amount) < 0).map(r => ({
+    id: `bank:${r.id}`, date: r.date, ref: r.description,
+    amount: Math.abs(Number(r.amount)), method: isBill(r) ? 'Bank (Bill)' : 'Bank Transfer' })),
+   ...pettyCash.filter(r => mine(r) && Number(r.cashOut) > 0).map(r => ({
+    id: `cash:${r.id}`, date: r.date, ref: r.description,
+    amount: Number(r.cashOut), method: 'Cash' })),
+  ]
    .filter((p, i, arr) => arr.findIndex(x => x.id === p.id) === i)
    .sort((a, b) => new Date(b.date) - new Date(a.date));
   return allPayments;
@@ -5058,19 +4996,25 @@ const ReceivablesPayables = ({ clients, invoices, vendors, vendorBills, bankReco
    (inv.client || '').toLowerCase().trim() === (client.name || '').toLowerCase().trim()
   );
   const totalBilled = clientInvoices.reduce((a, inv) =>
-   a + calculateTax((inv.items||[]).reduce((s,it)=>s+((parseFloat(it.qty)||0)*(parseFloat(it.rate)||0)),0), inv.taxRate).total, 0);
-  const totalReceived = clientInvoices.filter(i=>i.status==='Paid').reduce((a, inv) => {
-   const r = Number(inv.amountReceived);
-   const t = calculateTax((inv.items||[]).reduce((s,it)=>s+((parseFloat(it.qty)||0)*(parseFloat(it.rate)||0)),0), inv.taxRate).total;
-   return a + (r > 0 ? r : t);
+   a + invoiceTotal(inv), 0);
+  // Count every receipt, not just those on fully-paid invoices. The old version
+  // ignored partial payments here while the aging buckets below did include them,
+  // so the two halves of this screen disagreed on the same client.
+  const totalReceived = clientInvoices.reduce((a, inv) => {
+   const { total, settled } = invoiceTotals(inv);
+   return a + (inv.status === 'Paid' && settled === 0 ? total : settled);
   }, 0) + (Number(client.advanceReceived)||0);
-  const outstanding = Math.max(0, totalBilled - totalReceived);
+  // Outstanding is the sum of the per-invoice balances, so it always agrees
+  // with the aging breakdown.
+  const outstanding = Math.max(0, clientInvoices.reduce(
+   (a, inv) => a + (inv.status === 'Paid' ? 0 : invoiceTotals(inv).balance), 0
+  ) - (Number(client.advanceReceived)||0));
   const today = new Date(); today.setHours(0,0,0,0);
   const overdueInvs = clientInvoices.filter(i => i.status!=='Paid' && i.dueDate && new Date(i.dueDate) < today);
   const aging = { current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0 };
   clientInvoices.filter(i => i.status !== 'Paid').forEach(inv => {
-   const invTotal = calculateTax((inv.items||[]).reduce((s,it)=>s+((parseFloat(it.qty)||0)*(parseFloat(it.rate)||0)),0), inv.taxRate).total;
-   const bal = invTotal - (Number(inv.amountReceived)||0);
+   const invTotal = invoiceTotal(inv);
+   const bal = invoiceTotals(inv).balance;
    if (!inv.dueDate) { aging.current += bal; return; }
    const days = Math.floor((today - new Date(inv.dueDate)) / 86400000);
    if (days <= 0) aging.current += bal;
@@ -5235,10 +5179,10 @@ const TaxReport = ({ invoices, salaries, expenses, vendorBills, month, year }) =
  const filteredInvoices = filter(invoices);
  const filteredSalaries = filter(salaries);
  const filteredExpenses = filter(expenses);
- const outputTax = filteredInvoices.reduce((acc, inv) => {
-  const { tax } = calculateTax(inv.items.reduce((a, i) => a + (i.qty * i.rate), 0), inv.taxRate);
-  return acc + tax;
- }, 0);
+ // Use the same routine as the invoice itself so the report cannot disagree
+ // with the document it is reporting on (the old version skipped the discount).
+ const invoiceTax = (inv) => calcInvoiceTotal(inv?.items || [], inv?.taxRate, inv?.discount);
+ const outputTax = filteredInvoices.reduce((acc, inv) => acc + invoiceTax(inv).tax, 0);
  const salaryWHT = filteredSalaries.reduce((acc, sal) => acc + (Number(sal.taxDeduction) || 0), 0);
  const vendorWHT = (items) => items.reduce((acc, bill) => acc + (Number(bill.taxDeduction) || 0), 0);
  const filteredBills = (bills) => {
@@ -5297,9 +5241,9 @@ const TaxReport = ({ invoices, salaries, expenses, vendorBills, month, year }) =
        <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider sticky top-0"><tr><th className="p-4">Client</th><th className="p-4 text-right">Taxable</th><th className="p-4 text-right">Tax</th></tr></thead>
        <tbody className="divide-y divide-slate-50">
         {filteredInvoices.map(inv => {
-         const { subtotal, tax } = calculateTax(inv.items.reduce((a, i) => a + (i.qty * i.rate), 0), inv.taxRate);
+         const { discounted, tax } = invoiceTax(inv);
          if(tax === 0) return null;
-         return <tr key={inv.id} className="hover:bg-slate-50/50"><td className="p-4 text-sm font-bold text-slate-700">{inv.client}</td><td className="p-4 text-sm text-right text-slate-500">{formatCurrency(subtotal)}</td><td className="p-4 text-sm text-right font-bold text-indigo-600">{formatCurrency(tax)}</td></tr>;
+         return <tr key={inv.id} className="hover:bg-slate-50/50"><td className="p-4 text-sm font-bold text-slate-700">{inv.client}</td><td className="p-4 text-sm text-right text-slate-500">{formatCurrency(discounted)}</td><td className="p-4 text-sm text-right font-bold text-indigo-600">{formatCurrency(tax)}</td></tr>;
         })}
        </tbody>
       </table>
@@ -5384,7 +5328,7 @@ const GlobalCommandPalette = ({ isOpen, onClose, invoices, clients, expenses, ve
   ];
   navItems.filter(n => n.label.toLowerCase().includes(q)).forEach(n => hits.push(n));
   invoices.filter(i => (i.client||'').toLowerCase().includes(q) || (i.invoiceNumber||'').toLowerCase().includes(q))
-   .slice(0,4).forEach(i => hits.push({ label:`${i.invoiceNumber||'Invoice'} — ${i.client}`, sub: `${i.status} · ${formatCurrency(calculateTax((i.items||[]).reduce((s,it)=>s+(it.qty||0)*(it.rate||0),0),i.taxRate).total)}`, view:'invoices', icon:'📄', type:'Invoice' }));
+   .slice(0,4).forEach(i => hits.push({ label:`${i.invoiceNumber||'Invoice'} — ${i.client}`, sub: `${i.status} · ${formatCurrency(invoiceTotal(i))}`, view:'invoices', icon:'📄', type:'Invoice' }));
   clients.filter(c => (c.name||'').toLowerCase().includes(q) || (c.projectName||'').toLowerCase().includes(q))
    .slice(0,4).forEach(c => hits.push({ label:c.name, sub: c.projectName||'Client', view:'clients', icon:'👥', type:'Client', clientObj: c }));
   quotations.filter(qt => (qt.client||'').toLowerCase().includes(q) || (qt.quoteNumber||'').toLowerCase().includes(q))
@@ -5486,7 +5430,9 @@ function App() {
   expenseCategories, setExpenseCategories,
   setClients, setVendors, setExpenses, setPettyCash, setSalaries,
   setBankRecords, setInvoices, setQuotations, setVendorBills, setUsers,
+  employees, setEmployees,
   isInitialLoading, refresh, refreshUsers, mutations,
+  pauseRefresh, resumeRefresh,
  } = useData();
  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
  const [view, setView] = useState('dashboard');
@@ -5494,6 +5440,14 @@ function App() {
  const [selectedYear, setSelectedYear] = useState('All');
  const [searchTerm, setSearchTerm] = useState('');
  const [showForm, setShowForm] = useState(false);
+ // Hold the background refresh while any editor is open, so a 30-second tick
+ // cannot overwrite half-typed input (this used to reset the Settings fields).
+ useEffect(() => {
+  if (!showForm && view !== 'settings') return;
+  pauseRefresh();
+  return resumeRefresh;
+ }, [showForm, view, pauseRefresh, resumeRefresh]);
+
  const [formData, setFormData] = useState({});
  const [fileToUpload, setFileToUpload] = useState(null);
  const [isEditingUser, setIsEditingUser] = useState(false);
@@ -5505,6 +5459,7 @@ function App() {
  const [clientWHT, setClientWHT] = useState('');
  const [partialAmount, setPartialAmount] = useState('');
  const [slipData, setSlipData] = useState(null);
+ const [showPayrollRun, setShowPayrollRun] = useState(false);
  const [selectedClientProfile, setSelectedClientProfile] = useState(null);
  const [selectedVendorProfile, setSelectedVendorProfile] = useState(null);
  const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -5576,6 +5531,7 @@ function App() {
    'petty': { api: pettyCashAPI, setter: setPettyCash },
    'expense': { api: expensesAPI, setter: setExpenses },
    'salary': { api: salariesAPI, setter: setSalaries },
+   'employee': { api: employeesAPI, setter: setEmployees },
    'bank': { api: bankRecordsAPI, setter: setBankRecords },
    'client': { api: clientsAPI, setter: setClients },
    'vendor': { api: vendorsAPI, setter: setVendors },
@@ -5608,6 +5564,11 @@ function App() {
   if (!d.date) return err('Please select a date.');
   if (!d.description?.trim()) return err('Description is required.');
   if (!Number(d.amount) || Number(d.amount) <= 0) return err('Please enter a valid amount greater than 0.');
+  return true;
+ }
+ if (view === 'employees') {
+  const msg = validateEmployee(d, employees);
+  if (msg) return err(msg);
   return true;
  }
  if (view === 'salaries') {
@@ -5651,6 +5612,47 @@ function App() {
  }
  return true;
  };
+ // Records a salary revision on an employee's history, newest entry wins for
+ // any pay period on or after its effective date.
+ const handleSalaryRevision = async (employee, revision) => {
+  if (currentUser?.role !== 'Admin') return toast('Payroll is restricted to Admin users.', 'error');
+  try {
+   const history = [...(employee.salaryHistory || []), { ...revision, revisedBy: currentUser.username }]
+    .sort((a, b) => String(a.effectiveFrom).localeCompare(String(b.effectiveFrom)));
+   // Mirror the newest structure onto the record so list views stay cheap.
+   const latest = history[history.length - 1] || {};
+   const flat = STRUCTURE_FIELDS.reduce((acc, k) => ({ ...acc, [k]: Number(latest[k]) || 0 }), {});
+   const res = await employeesAPI.update(employee.id, { ...employee, ...flat, salaryHistory: history });
+   setEmployees(prev => prev.map(e => e.id === employee.id ? res.data : e));
+   toast('Salary revision saved.', 'success');
+  } catch (e) {
+   toast(e.response?.data?.error || 'Could not save the revision.', 'error');
+  }
+ };
+
+ // Bulk payroll: creates one draft payslip per selected employee.
+ const handlePayrollRun = async (drafts, period) => {
+  if (currentUser?.role !== 'Admin') return toast('Payroll is restricted to Admin users.', 'error');
+  const created = [];
+  const failed = [];
+  for (const d of drafts) {
+   try {
+    const res = await salariesAPI.create(d);
+    created.push(res.data);
+   } catch (e) {
+    failed.push(d.employeeName || 'Unknown');
+   }
+  }
+  if (created.length) setSalaries(prev => [...created, ...prev]);
+  setShowPayrollRun(false);
+  if (failed.length) {
+   toast(`Generated ${created.length}. Failed for: ${failed.join(', ')}.`, 'warning');
+  } else {
+   toast(`Generated ${created.length} payslip${created.length !== 1 ? 's' : ''} for ${periodLabelOf(period)}.`, 'success');
+  }
+  if (created.length) setView('salaries');
+ };
+
  const handleEdit = (item) => { if (currentUser.role !== 'Admin') return toast('Access denied. Admin role required.', 'error'); setFormData({ ...item }); setIsEditingRecord(true); setShowForm(true); };
  const handleDuplicate = (item) => { const { id, createdAt, lastEditedAt, ...dataToCopy } = item; setFormData({ ...dataToCopy, date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); };
  const handleMasterExport = async () => {
@@ -5713,6 +5715,7 @@ function App() {
    'petty-cash': { api: pettyCashAPI, setter: setPettyCash },
    'expenses': { api: expensesAPI, setter: setExpenses },
    'salaries': { api: salariesAPI, setter: setSalaries },
+   'employees': { api: employeesAPI, setter: setEmployees },
    'bank': { api: bankRecordsAPI, setter: setBankRecords },
    'clients': { api: clientsAPI, setter: setClients },
    'vendors': { api: vendorsAPI, setter: setVendors },
@@ -5729,6 +5732,15 @@ function App() {
   setIsSubmitting(true);
   try {
    let data = { ...formData, date: formData.date || new Date().toISOString().split('T')[0] };
+   if (view === 'employees' && !isEditingRecord) {
+    // First structure becomes the opening entry of the revision history.
+    data.salaryHistory = [{
+     ...STRUCTURE_FIELDS.reduce((a, k) => ({ ...a, [k]: Number(data[k]) || 0 }), {}),
+     effectiveFrom: data.joiningDate || new Date().toISOString().split('T')[0],
+     reason: 'Initial salary',
+     revisedBy: currentUser.username,
+    }];
+   }
    if (view === 'salaries') {
     // Persist gross / total deductions / net alongside the components so that
     // reports and exports never have to recompute from partial data.
@@ -5767,6 +5779,11 @@ function App() {
   r.onerror = rej;
   r.readAsDataURL(file);
  });
+ const saveExpenseCategories = (next) => {
+  const list = Array.from(new Set(next.map(c => String(c).trim()).filter(Boolean)));
+  setExpenseCategories(list);
+  setAppSettings(prev => ({ ...prev, expenseCategories: list }));
+ };
  const initiatePayment = (item, type, amount) => { setPaymentConfig({ data: item, type, amount }); setPaymentAccount('bank'); setClientWHT(''); setPartialAmount(String(amount)); setShowPaymentModal(true); };
  const executePayment = async () => {
   if (!paymentConfig) return;
@@ -5786,8 +5803,11 @@ function App() {
     const res = await invoicesAPI.recordPayment(data.id, {
      partialAmount: paying, clientWHT: wht, paymentAccount
     });
+    // whtDeducted must be merged too, otherwise the balance shown immediately
+    // after recording a payment ignores the tax withheld until the next refresh.
     setInvoices(prev => prev.map(inv => inv.id === data.id
-     ? { ...inv, status: res.data.status, amountReceived: res.data.amountReceived }
+     ? { ...inv, status: res.data.status, amountReceived: res.data.amountReceived,
+         whtDeducted: res.data.whtDeducted ?? inv.whtDeducted }
      : inv
     ));
    }
@@ -5824,12 +5844,8 @@ function App() {
  };
  const paidInvoices = invoices.filter(inv => inv.status === 'Paid' && inFilter(inv.date));
  const invoiceRevenue = paidInvoices.reduce((a, inv) => {
-  const received = Number(inv.amountReceived);
-  const total = calculateTax(
-  (inv.items || []).reduce((s, it) => s + ((it.qty || 0) * (it.rate || 0)), 0),
-  inv.taxRate
-  ).total;
-  return a + (received > 0 ? received : total);
+  const { total, settled } = invoiceTotals(inv);
+  return a + (settled > 0 ? settled : total);
  }, 0);
  // Invoice payments via petty cash get description "Inv Payment: ..." — exclude those from double count
  const manualPettyCashIn = filteredPetty.filter(r =>
@@ -5842,12 +5858,10 @@ function App() {
  const exp = expenseTotal + salaryTotal + pettyCashOut;
  const totalVendorBills = filteredBills.reduce((a, c) => a + (Number(c.amount) || 0), 0);
  const totalVendorPaid = filteredBills.reduce((a, c) => a + (Number(c.paidAmount) || 0), 0);
+ // Outstanding should be what is still owed, not the full invoice value.
  const unpaidInvoicesTotal = invoices
   .filter(inv => inv.status !== 'Paid')
-  .reduce((a, inv) => a + calculateTax(
-  (inv.items || []).reduce((s, it) => s + ((it.qty || 0) * (it.rate || 0)), 0),
-  inv.taxRate
-  ).total, 0);
+  .reduce((a, inv) => a + invoiceTotals(inv).balance, 0);
  const today = new Date(); today.setHours(0, 0, 0, 0);
  const overdueCount = invoices.filter(inv =>
   inv.status !== 'Paid' && inv.dueDate && new Date(inv.dueDate) < today
@@ -5880,9 +5894,8 @@ function App() {
   const rev = invoices
   .filter(inv => inv.status === 'Paid' && new Date(inv.date).getMonth() === mIdx && new Date(inv.date).getFullYear() === year)
   .reduce((a, inv) => {
-   const received = Number(inv.amountReceived);
-   const total = calculateTax((inv.items||[]).reduce((s,it) => s+(it.qty*it.rate),0), inv.taxRate).total;
-   return a + (received > 0 ? received : total);
+   const { total, settled } = invoiceTotals(inv);
+   return a + (settled > 0 ? settled : total);
   }, 0)
   + pettyCash
    .filter(r => new Date(r.date).getMonth() === mIdx && new Date(r.date).getFullYear() === year && !(r.description||'').toLowerCase().startsWith('inv payment:'))
@@ -5914,7 +5927,7 @@ function App() {
  );
  const ActionButtons = ({ item, type }) => (
   <div className="flex gap-2 justify-center items-center">
-   {item.proofUrl && <a href={item.proofUrl} target="_blank" className="p-2 bg-sky-50 text-sky-600 rounded-xl hover:bg-sky-100 transition-colors shadow-sm"><LinkIcon size={16} /></a>}
+   {item.proofUrl && <a href={item.proofUrl} target="_blank" rel="noopener noreferrer" className="p-2 bg-sky-50 text-sky-600 rounded-xl hover:bg-sky-100 transition-colors shadow-sm"><LinkIcon size={16} /></a>}
    {type !== 'user' && canWrite && <button onClick={() => handleDuplicate(item)} className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors shadow-sm" title="Duplicate"><Copy size={16} /></button>}
    {canWrite && (
    <button onClick={() => type === 'user' ? (setFormData({...item}), setIsEditingUser(true), setShowForm(true)) : handleEdit(item)} className="p-2 text-violet-600 bg-violet-50 hover:bg-violet-100 rounded-xl transition-colors shadow-sm"><Edit size={16} /></button>
@@ -5993,6 +6006,7 @@ function App() {
    <NavButton id="vendors" icon={Truck} label="Vendors" />
    <NavButton id="vendor-bills" icon={FileText} label="Vendor Bills" />
    <div className="pt-5 pb-1.5 px-4 text-[10px] font-extrabold text-slate-600 uppercase tracking-widest">Finance</div>
+   <NavButton id="employees" icon={Briefcase} label="Employees" />
    <NavButton id="salaries" icon={Users} label="Team Salaries" />
    <NavButton id="bank" icon={Building2} label="Bank Accounts" />
    <NavButton id="receivables-payables" icon={CreditCard} label="Receivables & Payables" />
@@ -6026,6 +6040,7 @@ function App() {
      view === 'vendor-profile' && selectedVendorProfile ? selectedVendorProfile.name :
      view === 'receivables-payables' ? 'Receivables & Payables' :
      view === 'tax-report' ? 'Tax Liability' :
+     view === 'employees' ? 'Employees' :
      view === 'salaries' ? 'Team Salaries' :
      view === 'expenses' ? 'Expenses' :
      view === 'vendors' ? 'Vendors' :
@@ -6035,10 +6050,10 @@ function App() {
      view === 'petty-cash' ? 'Petty Cash' :
      view.replace(/-/g, ' ')}
     </h2>
-    <p className="text-slate-500 font-medium">{view === 'salaries' ? 'Payroll, payslips & employee analytics' : view === 'expenses' ? 'Business expenses, categories & tax credits' : view === 'petty-cash' ? 'Cash float, ledger & expense tracking' : view === 'vendors' ? 'Suppliers, service vendors & payables' : view === 'vendor-bills' ? 'Bills, WHT tracking & payment status' : view === 'manage-users' ? 'Team accounts, roles & access control' : view === 'bank' ? 'Transactions, cash flow & account ledger' : 'Overview & Management'}</p>
+    <p className="text-slate-500 font-medium">{view === 'employees' ? 'Staff records, salary structures & increment history' : view === 'salaries' ? 'Payroll, payslips & employee analytics' : view === 'expenses' ? 'Business expenses, categories & tax credits' : view === 'petty-cash' ? 'Cash float, ledger & expense tracking' : view === 'vendors' ? 'Suppliers, service vendors & payables' : view === 'vendor-bills' ? 'Bills, WHT tracking & payment status' : view === 'manage-users' ? 'Team accounts, roles & access control' : view === 'bank' ? 'Transactions, cash flow & account ledger' : 'Overview & Management'}</p>
    </div>
    <div className="flex flex-col sm:flex-row gap-4 w-full xl:w-auto">
-    {!['dashboard','receivables-payables','client-profile','vendor-profile','tax-report','reports','statements','clients','salaries','petty-cash','expenses','vendors','vendor-bills','manage-users','bank'].includes(view) && <div className="relative flex-1 sm:w-72 group"><Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/><input className="w-full pl-12 pr-4 py-3 rounded-2xl border-none bg-white shadow-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-violet-500 outline-none transition-all font-medium text-slate-600" placeholder="Search records..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
+    {!['dashboard','receivables-payables','client-profile','vendor-profile','tax-report','reports','statements','clients','employees','salaries','petty-cash','expenses','vendors','vendor-bills','manage-users','bank'].includes(view) && <div className="relative flex-1 sm:w-72 group"><Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/><input className="w-full pl-12 pr-4 py-3 rounded-2xl border-none bg-white shadow-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-violet-500 outline-none transition-all font-medium text-slate-600" placeholder="Search records..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
     {['clients'].includes(view) && (
      <div className="flex gap-3">
       <label className="bg-white px-4 py-3 rounded-2xl font-bold text-sm text-slate-600 shadow-sm ring-1 ring-slate-200 hover:ring-violet-300 hover:text-violet-600 transition-all cursor-pointer flex items-center gap-2">
@@ -6049,7 +6064,7 @@ function App() {
       </button>
      </div>
     )}
-    {canWrite && !['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report','clients','salaries','petty-cash','expenses','vendors','vendor-bills','manage-users','bank'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
+    {canWrite && !['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report','clients','employees','salaries','petty-cash','expenses','vendors','vendor-bills','manage-users','bank'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
    </div>
   </header>
   {view === 'dashboard' && (
@@ -6064,8 +6079,8 @@ function App() {
      const cashFloat = (appSettings.pettyCashOpeningBalance||0) + pettyCash.reduce((a,r) => a + (Number(r.cashIn)||0) - (Number(r.cashOut)||0), 0);
      const thisMonthExp = expenses.filter(e => e.date && e.date.startsWith(todayStr.slice(0,7))).reduce((a,e)=>a+(Number(e.amount)||0), 0);
      const lastMonthStart = new Date(today.getFullYear(), today.getMonth()-1, 1).toISOString().slice(0,7);
-     const lastMonthRev = invoices.filter(i => i.status === 'Paid' && i.paidDate && i.paidDate.startsWith(lastMonthStart)).reduce((a,i)=>a+calculateTax((i.items||[]).reduce((s,it)=>s+(it.qty||0)*(it.rate||0),0),i.taxRate).total,0);
-     const thisMonthRev = invoices.filter(i => i.status === 'Paid' && i.paidDate && i.paidDate.startsWith(todayStr.slice(0,7))).reduce((a,i)=>a+calculateTax((i.items||[]).reduce((s,it)=>s+(it.qty||0)*(it.rate||0),0),i.taxRate).total,0);
+     const lastMonthRev = invoices.filter(i => i.status === 'Paid' && i.paidDate && i.paidDate.startsWith(lastMonthStart)).reduce((a,i)=>a+invoiceTotal(i),0);
+     const thisMonthRev = invoices.filter(i => i.status === 'Paid' && i.paidDate && i.paidDate.startsWith(todayStr.slice(0,7))).reduce((a,i)=>a+invoiceTotal(i),0);
      const netProfit = thisMonthRev - thisMonthExp;
      const lastNetProfit = lastMonthRev - expenses.filter(e => e.date && e.date.startsWith(lastMonthStart)).reduce((a,e)=>a+(Number(e.amount)||0),0);
      const profitTrend = lastNetProfit !== 0 ? ((netProfit - lastNetProfit) / Math.abs(lastNetProfit) * 100).toFixed(0) : null;
@@ -6135,8 +6150,8 @@ function App() {
        </div>
        <div className="space-y-2">
         {dueSoon.slice(0,4).map(inv => {
-         const total = calculateTax((inv.items||[]).reduce((s,it)=>s+((parseFloat(it.qty)||0)*(parseFloat(it.rate)||0)),0), inv.taxRate).total;
-         const balance = total - (Number(inv.amountReceived)||0);
+         const total = invoiceTotal(inv);
+         const balance = invoiceTotals(inv).balance;
          const daysLeft = Math.ceil((new Date(inv.dueDate) - today) / 86400000);
          return (
           <div key={inv.id} onClick={() => setView('invoices')} className="flex justify-between items-center bg-white rounded-xl px-4 py-2.5 cursor-pointer hover:bg-amber-50 transition-colors">
@@ -6221,7 +6236,7 @@ function App() {
         const cInvs = invoices.filter(inv => (inv.client||'').toLowerCase().trim() === (c.name||'').toLowerCase().trim() && inv.status !== 'Paid');
         return cInvs.length > 0;
        }).slice(0, 5).map(c => {
-        const outstanding = invoices.filter(inv => (inv.client||'').toLowerCase().trim() === (c.name||'').toLowerCase().trim() && inv.status !== 'Paid').reduce((a, inv) => a + calculateTax((inv.items||[]).reduce((s,it)=>s+((parseFloat(it.qty)||0)*(parseFloat(it.rate)||0)),0), inv.taxRate).total, 0);
+        const outstanding = invoices.filter(inv => (inv.client||'').toLowerCase().trim() === (c.name||'').toLowerCase().trim() && inv.status !== 'Paid').reduce((a, inv) => a + invoiceTotals(inv).balance, 0);
         return (
          <div key={c.id} onClick={() => { setSelectedClientProfile(c); setView('client-profile'); }} className="flex justify-between items-center p-4 hover:bg-slate-50/50 cursor-pointer transition-colors">
           <div>
@@ -6314,15 +6329,24 @@ function App() {
     const label = d.toLocaleString('default', { month: 'short', year: '2-digit' });
     const inFilter = (ds) => { if (!ds) return false; const dt = new Date(ds); return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}` === key; };
     const mRevenue = invoices.filter(inv => inv.status==='Paid' && inFilter(inv.paidDate||inv.date)).reduce((a,inv) => {
-     const r = Number(inv.amountReceived); const t = calculateTax((inv.items||[]).reduce((s,it)=>s+((parseFloat(it.qty)||0)*(parseFloat(it.rate)||0)),0),inv.taxRate).total;
+     const { total: t, settled: r } = invoiceTotals(inv);
      return a + (r > 0 ? r : t);
     }, 0) + pettyCash.filter(r => inFilter(r.date) && !(r.description||'').toLowerCase().startsWith('inv payment:')).reduce((a,r)=>a+(Number(r.cashIn)||0),0);
     const mExpenses = expenses.filter(e => inFilter(e.date)).reduce((a,e)=>a+(Number(e.amount)||0),0);
     const mSalaries = salaries.filter(s => inFilter(s.date)).reduce((a,s)=>a+netOf(s),0);
     const mPettyCash = pettyCash.filter(r => inFilter(r.date)).reduce((a,r)=>a+(Number(r.cashOut)||0),0);
-    const mTotal = mExpenses + mSalaries + mPettyCash;
+    // Vendor bills paid from the bank were missing from the P&L entirely — only
+    // bills that happened to be paid out of petty cash appeared, so cost of sales
+    // was understated and profit over-stated. Petty-cash bill payments are already
+    // inside mPettyCash, so only the bank side is added here.
+    const mVendorPaid = bankRecords.filter(r =>
+     inFilter(r.date) &&
+     (r.description||'').toLowerCase().startsWith('bill payment:') &&
+     Number(r.amount) < 0
+    ).reduce((a,r)=>a+Math.abs(Number(r.amount)||0),0);
+    const mTotal = mExpenses + mSalaries + mPettyCash + mVendorPaid;
     const mProfit = mRevenue - mTotal;
-    months.push({ key, label, revenue: mRevenue, expenses: mExpenses, salaries: mSalaries, petty: mPettyCash, total: mTotal, profit: mProfit });
+    months.push({ key, label, revenue: mRevenue, expenses: mExpenses, salaries: mSalaries, petty: mPettyCash, vendors: mVendorPaid, total: mTotal, profit: mProfit });
    }
    const ytdRevenue = months.reduce((a,m)=>a+m.revenue,0);
    const ytdExpenses = months.reduce((a,m)=>a+m.total,0);
@@ -6358,12 +6382,12 @@ function App() {
      <div id="pl-report-printable" className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
       <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
        <h3 className="font-extrabold text-slate-800">Month-by-Month Breakdown</h3>
-       <button onClick={() => exportToCSV(months.map(m=>({Month:m.label,Revenue:m.revenue,Expenses:m.expenses,Salaries:m.salaries,'Petty Cash':m.petty,'Total Costs':m.total,'Net Profit':m.profit})), 'PL_Report')} className="flex items-center gap-1.5 text-xs font-bold text-violet-600 hover:text-violet-800 bg-violet-50 px-3 py-1.5 rounded-lg transition-colors">
+       <button onClick={() => exportToCSV(months.map(m=>({Month:m.label,Revenue:m.revenue,Expenses:m.expenses,Salaries:m.salaries,'Petty Cash':m.petty,'Vendor Bills':m.vendors,'Total Costs':m.total,'Net Profit':m.profit})), 'PL_Report')} className="flex items-center gap-1.5 text-xs font-bold text-violet-600 hover:text-violet-800 bg-violet-50 px-3 py-1.5 rounded-lg transition-colors">
         <Download size={13}/> CSV
        </button>
       </div>
       <div className="overflow-x-auto">
-       <table className="w-full text-left min-w-[700px]">
+       <table className="w-full text-left min-w-[820px]">
         <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
          <tr>
           <th className="px-5 py-3.5">Month</th>
@@ -6371,6 +6395,7 @@ function App() {
           <th className="px-5 py-3.5 text-right text-rose-500">Expenses</th>
           <th className="px-5 py-3.5 text-right text-rose-500">Salaries</th>
           <th className="px-5 py-3.5 text-right text-rose-500">Petty Cash</th>
+          <th className="px-5 py-3.5 text-right text-rose-500">Vendor Bills</th>
           <th className="px-5 py-3.5 text-right text-slate-500">Total Costs</th>
           <th className="px-5 py-3.5 text-right">Net Profit</th>
          </tr>
@@ -6383,6 +6408,7 @@ function App() {
            <td className="px-5 py-3.5 text-right text-slate-500 tabular-nums">{m.expenses > 0 ? formatCurrency(m.expenses) : <span className="text-slate-200">—</span>}</td>
            <td className="px-5 py-3.5 text-right text-slate-500 tabular-nums">{m.salaries > 0 ? formatCurrency(m.salaries) : <span className="text-slate-200">—</span>}</td>
            <td className="px-5 py-3.5 text-right text-slate-500 tabular-nums">{m.petty > 0 ? formatCurrency(m.petty) : <span className="text-slate-200">—</span>}</td>
+           <td className="px-5 py-3.5 text-right text-slate-500 tabular-nums">{m.vendors > 0 ? formatCurrency(m.vendors) : <span className="text-slate-200">—</span>}</td>
            <td className="px-5 py-3.5 text-right font-bold text-slate-600 tabular-nums">{m.total > 0 ? formatCurrency(m.total) : <span className="text-slate-200">—</span>}</td>
            <td className={`px-5 py-3.5 text-right font-extrabold tabular-nums ${m.profit > 0 ? 'text-emerald-600' : m.profit < 0 ? 'text-rose-600' : 'text-slate-300'}`}>
             {m.profit !== 0 ? formatCurrency(m.profit) : '—'}
@@ -6397,6 +6423,7 @@ function App() {
           <td className="px-5 py-4 text-right font-extrabold text-rose-600 tabular-nums">{formatCurrency(months.reduce((a,m)=>a+m.expenses,0))}</td>
           <td className="px-5 py-4 text-right font-extrabold text-rose-600 tabular-nums">{formatCurrency(months.reduce((a,m)=>a+m.salaries,0))}</td>
           <td className="px-5 py-4 text-right font-extrabold text-rose-600 tabular-nums">{formatCurrency(months.reduce((a,m)=>a+m.petty,0))}</td>
+          <td className="px-5 py-4 text-right font-extrabold text-rose-600 tabular-nums">{formatCurrency(months.reduce((a,m)=>a+m.vendors,0))}</td>
           <td className="px-5 py-4 text-right font-extrabold text-slate-700 tabular-nums">{formatCurrency(ytdExpenses)}</td>
           <td className={`px-5 py-4 text-right font-extrabold text-xl tabular-nums ${ytdProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(ytdProfit)}</td>
          </tr>
@@ -6443,11 +6470,18 @@ function App() {
   {view === 'statements' && <ClientStatement clients={clients} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} />}
   {view === 'receivables-payables' && <ReceivablesPayables clients={clients} invoices={invoices} vendors={vendors} vendorBills={vendorBills} bankRecords={bankRecords} pettyCash={pettyCash} onViewClient={(c) => { setSelectedClientProfile(c); setView('client-profile'); }} onViewVendor={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
   {view === 'clients' && <ClientsPage clients={clients} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onViewProfile={(c) => { setSelectedClientProfile(c); setView('client-profile'); }} onEdit={(c) => { if(!canWrite) return; setFormData({...c}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = clients.find(x=>x.id===id); handleDelete(id, 'client', r?.name||''); }} onNewClient={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} />}
-  {view === 'client-profile' && selectedClientProfile && <ClientProfile client={selectedClientProfile} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('clients')} onCreateInvoice={(client) => { setNewInvoiceForClient(client); setView('invoices'); }} onRecordPayment={(inv) => initiatePayment(inv, 'invoice', calculateTax((inv.items||[]).reduce((s,it)=>s+((parseFloat(it.qty)||0)*(parseFloat(it.rate)||0)),0), inv.taxRate).total - (Number(inv.amountReceived)||0))} />}
+  {view === 'client-profile' && selectedClientProfile && <ClientProfile client={selectedClientProfile} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('clients')} onCreateInvoice={(client) => { setNewInvoiceForClient(client); setView('invoices'); }} onRecordPayment={(inv) => initiatePayment(inv, 'invoice', invoiceTotals(inv).balance)} />}
   {view === 'vendor-profile' && selectedVendorProfile && <VendorProfile vendor={selectedVendorProfile} vendorBills={vendorBills} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('vendors')} />}
   {view === 'expenses' && <ExpensesPage expenses={expenses} expenseCategories={expenseCategories} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onGenerateRecurring={handleGenerateRecurringExpenses} onApproveExpense={async (id) => { try { const res = await expensesAPI.update(id, { approvalStatus: 'Approved' }); setExpenses(prev => prev.map(e => e.id === id ? {...e, approvalStatus: 'Approved'} : e)); toast('Expense approved!', 'success'); } catch(e) { toast('Failed to approve.', 'error'); } }} onImportExpenses={(e) => handleGenericImport(e, 'expenses')} onNewExpense={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { if(!canWrite) return; setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = expenses.find(x=>x.id===id); handleDelete(id, 'expense', r?.description||''); }} />}
   {view === 'petty-cash' && <PettyCashPage pettyCash={pettyCash} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} appSettings={appSettings} onNewEntry={(type) => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0], _entryType: type || 'out' }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { if(!canWrite) return; setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = pettyCash.find(x=>x.id===id); handleDelete(id, 'petty', r?.description||''); }} />}
-  {view === 'salaries' && <SalariesPage salaries={salaries} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} companyProfile={companyProfile} onNewSalary={() => { if(currentUser?.role !== 'Admin') return toast('Payroll is restricted to Admin users.', 'error'); const d = new Date().toISOString().split('T')[0]; setFormData({ date: d, payPeriod: d.slice(0,7), status: 'Unpaid', paymentMode: 'Bank Transfer' }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(s) => { if(currentUser?.role !== 'Admin') return toast('Payroll is restricted to Admin users.', 'error'); setFormData({...s}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = salaries.find(x=>x.id===id); handleDelete(id, 'salary', r?.employeeName||''); }} onViewSlip={(s) => { if (s) setSlipData(s); }} />}
+  {view === 'employees' && <EmployeesPage
+   employees={employees} salaries={salaries} canWrite={currentUser?.role === 'Admin'} toast={toast}
+   onNew={() => { if(currentUser?.role !== 'Admin') return toast('Employee records are restricted to Admin users.', 'error'); setFormData({ status: 'Active', paymentMode: 'Bank Transfer', joiningDate: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }}
+   onEdit={(e) => { if(currentUser?.role !== 'Admin') return toast('Employee records are restricted to Admin users.', 'error'); setFormData({ ...e }); setIsEditingRecord(true); setShowForm(true); }}
+   onDelete={(e) => handleDelete(e.id, 'employee', e.name || '')}
+   onRevise={handleSalaryRevision}
+  />}
+  {view === 'salaries' && <SalariesPage salaries={salaries} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} companyProfile={companyProfile} onNewSalary={() => { if(currentUser?.role !== 'Admin') return toast('Payroll is restricted to Admin users.', 'error'); const d = new Date().toISOString().split('T')[0]; setFormData({ date: d, payPeriod: d.slice(0,7), status: 'Unpaid', paymentMode: 'Bank Transfer' }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(s) => { if(currentUser?.role !== 'Admin') return toast('Payroll is restricted to Admin users.', 'error'); setFormData({...s}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = salaries.find(x=>x.id===id); handleDelete(id, 'salary', r?.employeeName||''); }} onViewSlip={(s) => { if (s) setSlipData(s); }} onRunPayroll={currentUser?.role === 'Admin' ? () => setShowPayrollRun(true) : null} />}
   {view === 'quotations' && <QuotationGenerator clients={clients} onSave={(q) => saveToFirebase('quotations', q, q.id)} savedQuotations={quotations} onDeleteQuotation={(id) => { const r = quotations.find(x=>x.id===id); handleDelete(id, 'quotation', r?.client||''); }} onConvertToInvoice={handleConvertToInvoice} companyProfile={companyProfile} appSettings={appSettings} onUpdateSettings={setAppSettings} canWrite={canWrite} />}
   {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => { const r = invoices.find(x=>x.id===id); handleDelete(id, 'invoice', r?.client ? `Invoice #${r.invoiceNumber} — ${r.client}` : ''); }} onGenerateRecurring={handleGenerateRecurring} onReceivePayment={(inv, amt) => initiatePayment(inv, 'invoice', amt)} companyProfile={companyProfile} appSettings={appSettings} onUpdateSettings={setAppSettings} canWrite={canWrite} pendingClient={newInvoiceForClient} onClearPendingClient={() => setNewInvoiceForClient(null)} />}
   {view === 'vendors' && <VendorsPage vendors={vendors} vendorBills={vendorBills} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewVendor={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(v) => { if(!canWrite) return; setFormData({...v}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendors.find(x=>x.id===id); handleDelete(id, 'vendor', r?.name||''); }} onViewProfile={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
@@ -6648,8 +6682,8 @@ function App() {
       <div className="p-2 bg-rose-100 rounded-xl text-rose-600"><Receipt size={20}/></div>
       Expense Categories
      </h3>
-     <div className="flex flex-wrap gap-2 mb-4">{expenseCategories.map(cat => (<span key={cat} className="bg-slate-50 border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2">{cat} <button onClick={() => setExpenseCategories(expenseCategories.filter(c => c !== cat))} className="hover:text-rose-500 transition-colors"><X size={14}/></button></span>))}</div>
-     <div className="relative"><Plus size={18} className="absolute left-4 top-4 text-slate-400"/><input className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none transition-all" placeholder="Add new category... (Press Enter)" onKeyDown={e => { if(e.key === 'Enter' && e.target.value) { setExpenseCategories([...expenseCategories, e.target.value]); e.target.value = ''; } }}/></div>
+     <div className="flex flex-wrap gap-2 mb-4">{expenseCategories.map(cat => (<span key={cat} className="bg-slate-50 border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2">{cat} <button onClick={() => saveExpenseCategories(expenseCategories.filter(c => c !== cat))} className="hover:text-rose-500 transition-colors"><X size={14}/></button></span>))}</div>
+     <div className="relative"><Plus size={18} className="absolute left-4 top-4 text-slate-400"/><input className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none transition-all" placeholder="Add new category... (Press Enter)" onKeyDown={e => { if(e.key === 'Enter' && e.target.value.trim()) { e.preventDefault(); saveExpenseCategories([...expenseCategories, e.target.value]); e.target.value = ''; } }}/></div>
     </div>
     {}
     <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
@@ -6690,7 +6724,7 @@ function App() {
      <div className="space-y-5">
       <div>
        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">ImgBB API Key (Receipt Uploads)</label>
-       <div className="flex gap-3"><input type="password" className="flex-1 bg-slate-50 border border-slate-200 p-3.5 rounded-xl text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none" value={imgbbKey} onChange={e => setImgbbKey(e.target.value)} placeholder="Enter API key..." /><a href="https://api.imgbb.com/" target="_blank" className="bg-slate-100 text-slate-600 px-5 py-3.5 rounded-xl text-sm font-bold hover:bg-slate-200 transition-colors">Get Key</a></div>
+       <div className="flex gap-3"><input type="password" className="flex-1 bg-slate-50 border border-slate-200 p-3.5 rounded-xl text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none" value={imgbbKey} onChange={e => setImgbbKey(e.target.value)} placeholder="Enter API key..." /><a href="https://api.imgbb.com/" target="_blank" rel="noopener noreferrer" className="bg-slate-100 text-slate-600 px-5 py-3.5 rounded-xl text-sm font-bold hover:bg-slate-200 transition-colors">Get Key</a></div>
       </div>
       <div className="grid grid-cols-2 gap-4">
        <button onClick={handleMasterExport} className="bg-violet-50 text-violet-700 py-4 rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-violet-100 transition-colors"><Download size={20} /> Backup Data</button>
@@ -6740,7 +6774,7 @@ function App() {
      {}
      <div className="flex justify-between items-center px-8 py-6 border-b border-slate-100 flex-shrink-0">
       <div>
-       <h3 className="text-xl font-extrabold text-slate-800">{view==='clients' ? (isEditingRecord ? 'Edit Client' : 'New Client') : view==='salaries' ? (isEditingRecord ? 'Edit Payslip' : 'New Payslip') : view==='petty-cash' ? (isEditingRecord ? 'Edit Entry' : 'New Cash Entry') : view==='expenses' ? (isEditingRecord ? 'Edit Expense' : 'New Expense') : view==='vendors' ? (isEditingRecord ? 'Edit Vendor' : 'New Vendor') : view==='vendor-bills' ? (isEditingRecord ? 'Edit Bill' : 'New Vendor Bill') : view==='manage-users' ? (isEditingUser ? 'Edit User' : 'Add New User') : view==='bank' ? (isEditingRecord ? 'Edit Transaction' : 'New Bank Entry') : 'Record Details'}</h3>
+       <h3 className="text-xl font-extrabold text-slate-800">{view==='employees' ? (isEditingRecord ? 'Edit Employee' : 'New Employee') : view==='clients' ? (isEditingRecord ? 'Edit Client' : 'New Client') : view==='salaries' ? (isEditingRecord ? 'Edit Payslip' : 'New Payslip') : view==='petty-cash' ? (isEditingRecord ? 'Edit Entry' : 'New Cash Entry') : view==='expenses' ? (isEditingRecord ? 'Edit Expense' : 'New Expense') : view==='vendors' ? (isEditingRecord ? 'Edit Vendor' : 'New Vendor') : view==='vendor-bills' ? (isEditingRecord ? 'Edit Bill' : 'New Vendor Bill') : view==='manage-users' ? (isEditingUser ? 'Edit User' : 'Add New User') : view==='bank' ? (isEditingRecord ? 'Edit Transaction' : 'New Bank Entry') : 'Record Details'}</h3>
        <p className="text-xs text-slate-400 mt-0.5 font-medium">{view==='clients'?'Fill in client details below':view==='expenses'?'Record a new business expense':view==='vendor-bills'?'Enter bill details and amounts':view==='salaries'?'Record salary payment':view==='bank'?'Add bank transaction':'Fill in the details below'}</p>
       </div>
       <button onClick={()=>setShowForm(false)} className="p-2 bg-slate-100 rounded-xl text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors flex-shrink-0"><X size={20}/></button>
@@ -7006,6 +7040,133 @@ function App() {
         </div>
        </div>
       )}
+      {view === 'employees' && (() => {
+       const setF = (patch) => setFormData(prev => ({ ...prev, ...patch }));
+       const money = (key, label) => (
+        <div key={key}>
+         <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">{label}</label>
+         <input type="number" min="0" step="0.01" placeholder="0" className="form-input"
+          value={formData[key] ?? ''}
+          onChange={e => setF({ [key]: e.target.value === '' ? '' : Number(e.target.value) })} />
+        </div>
+       );
+       const gross = ['basicSalary','houseRent','conveyance','medicalAllowance','specialAllowance']
+        .reduce((a,k) => a + (Number(formData[k]) || 0), 0);
+       return (
+       <>
+        <div className="pb-2 border-b border-slate-100">
+         <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest">Personal Details</p>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Full Name *</label>
+          <input required placeholder="e.g. Ahmed Raza Khan" className="form-input" value={formData.name||''} onChange={e=>setF({name:e.target.value})} />
+         </div>
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Employee ID *</label>
+          <input required placeholder="e.g. LA-0142" className="form-input" value={formData.employeeId||''} onChange={e=>setF({employeeId:e.target.value})} />
+         </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Designation</label>
+          <input placeholder="e.g. Senior Art Director" className="form-input" value={formData.designation||''} onChange={e=>setF({designation:e.target.value})} />
+         </div>
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Department</label>
+          <input placeholder="e.g. Creative" className="form-input" value={formData.department||''} onChange={e=>setF({department:e.target.value})} />
+         </div>
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">CNIC</label>
+          <input placeholder="42101-1234567-8" className="form-input" value={formData.cnic||''} onChange={e=>setF({cnic:e.target.value})} />
+         </div>
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Phone</label>
+          <input type="tel" placeholder="+92 300 0000000" className="form-input" value={formData.phone||''} onChange={e=>setF({phone:e.target.value})} />
+         </div>
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Email</label>
+          <input type="email" placeholder="name@company.com" className="form-input" value={formData.email||''} onChange={e=>setF({email:e.target.value})} />
+         </div>
+        </div>
+
+        <div className="pb-2 border-b border-slate-100 pt-2">
+         <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest">Employment</p>
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Date of Joining</label>
+          <input type="date" className="form-input" value={formData.joiningDate||''} onChange={e=>setF({joiningDate:e.target.value})} />
+         </div>
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Status</label>
+          <select className="form-select" value={formData.status||'Active'} onChange={e=>setF({status:e.target.value})}>
+           {EMPLOYEE_STATUSES.map(st => <option key={st}>{st}</option>)}
+          </select>
+         </div>
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Exit Date</label>
+          <input type="date" className="form-input" value={formData.exitDate||''} onChange={e=>setF({exitDate:e.target.value})}
+           disabled={(formData.status||'Active')==='Active'} />
+         </div>
+        </div>
+
+        <div className="pb-2 border-b border-slate-100 pt-2 flex justify-between items-baseline">
+         <p className="text-xs font-extrabold text-emerald-600 uppercase tracking-widest">Salary Structure</p>
+         <p className="text-xs font-bold text-slate-400">Gross <span className="text-emerald-600 tabular-nums">{formatCurrency(gross)}</span></p>
+        </div>
+        {isEditingRecord && (formData.salaryHistory||[]).length > 0 && (
+         <p className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2">
+          Editing these figures changes the current structure without adding a history entry.
+          To record a raise with an effective date, close this and use <strong>Revise Salary</strong> instead.
+         </p>
+        )}
+        <div className="grid grid-cols-2 gap-4">
+         {money('basicSalary','Basic Salary *')}
+         {money('houseRent','House Rent Allowance')}
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+         {money('conveyance','Conveyance')}
+         {money('medicalAllowance','Medical')}
+         {money('specialAllowance','Special Allowance')}
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+         {money('eobi','EOBI (monthly)')}
+         {money('providentFund','Provident Fund (monthly)')}
+        </div>
+        <p className="text-xs text-slate-400">
+         These recur every month and pre-fill each payslip. One-off items — bonus, overtime,
+         loan recovery, income tax — are entered on the payslip itself.
+        </p>
+
+        <div className="pb-2 border-b border-slate-100 pt-2">
+         <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest">Payment Details</p>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Payment Mode</label>
+          <select className="form-select" value={formData.paymentMode||'Bank Transfer'} onChange={e=>setF({paymentMode:e.target.value})}>
+           {PAYMENT_MODES.map(m => <option key={m}>{m}</option>)}
+          </select>
+         </div>
+         <div>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Bank Name</label>
+          <input placeholder="e.g. Meezan Bank" className="form-input" value={formData.bankName||''} onChange={e=>setF({bankName:e.target.value})} />
+         </div>
+        </div>
+        <div>
+         <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Account / IBAN</label>
+         <input placeholder="PK00 MEZN 0000 0000 0000 0000" className="form-input" value={formData.accountNumber||''} onChange={e=>setF({accountNumber:e.target.value})} />
+        </div>
+        <div>
+         <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Notes</label>
+         <textarea rows={2} placeholder="Any internal notes about this employee..." className="form-input resize-none" value={formData.notes||''} onChange={e=>setF({notes:e.target.value})}/>
+        </div>
+       </>
+       );
+      })()}
       {view === 'salaries' && (() => {
        const setF = (patch) => setFormData(prev => ({ ...prev, ...patch }));
        const live = computePayroll(formData);
@@ -7036,6 +7197,40 @@ function App() {
         <div className="pb-2 border-b border-slate-100">
          <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest">Employee Details</p>
         </div>
+        {employees.length > 0 ? (
+         <div className="bg-indigo-50/60 border border-indigo-200 rounded-2xl p-4">
+          <label className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-1.5 block">
+           Load from employee record
+          </label>
+          <select className="form-select bg-white" value={formData.employeeRef || ''}
+           onChange={e => {
+            const emp = employees.find(x => x.id === e.target.value);
+            if (!emp) return setF({ employeeRef: '' });
+            const period = formData.payPeriod || (formData.date||'').slice(0,7) || new Date().toISOString().slice(0,7);
+            if (!structureFor(emp, period)) {
+             toast(`${emp.name} has no salary structure effective for ${periodLabelOf(period)}.`, 'warning');
+            }
+            // Keep anything already typed for this payslip; only fill from the record.
+            setF({ ...draftSalaryFor(emp, period, formData.date), status: formData.status || 'Unpaid' });
+           }}>
+           <option value="">— Enter manually —</option>
+           {employees
+            .filter(e => (e.status || 'Active') === 'Active' || e.id === formData.employeeRef)
+            .map(e => (
+             <option key={e.id} value={e.id}>
+              {e.name}{e.employeeId ? ` (${e.employeeId})` : ''}{e.designation ? ` — ${e.designation}` : ''}
+             </option>
+            ))}
+          </select>
+          <p className="text-xs text-slate-500 mt-1.5">
+           Fills name, ID, CNIC, bank details and the salary structure in force for the selected month.
+          </p>
+         </div>
+        ) : (
+         <p className="text-xs font-medium text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+          Tip: add your team under <strong>Employees</strong> to stop retyping these details every month.
+         </p>
+        )}
         <div className="grid grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Employee Name *</label>
@@ -7431,6 +7626,13 @@ function App() {
    </div>
   )}
   {}
+  {showPayrollRun && (
+   <PayrollRun
+    employees={employees} salaries={salaries} companyProfile={companyProfile} toast={toast}
+    onClose={() => setShowPayrollRun(false)}
+    onGenerate={handlePayrollRun}
+   />
+  )}
   {slipData && <PayslipModal data={slipData} onClose={() => setSlipData(null)} companyProfile={companyProfile} appSettings={appSettings} toast={toast} />}
   </main>
  </div>

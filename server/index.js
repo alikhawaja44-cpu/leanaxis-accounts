@@ -75,6 +75,8 @@ app.use('/api/petty-cash',  createCrudRouter('petty_cash'));
 app.use('/api/salaries',    createCrudRouter('salaries', { adminOnly: true, readAdminOnly: true }));
 app.use('/api/bank-records', createCrudRouter('bank_records'));
 app.use('/api/quotations',  createCrudRouter('quotations'));
+// Employee master records hold CNICs and salary structures — Admin only.
+app.use('/api/employees',   createCrudRouter('employees', { adminOnly: true, readAdminOnly: true }));
 app.use('/api/debts',       createCrudRouter('debts'));
 
 // ── Health Check ─────────────────────────────────────────────────────────────
