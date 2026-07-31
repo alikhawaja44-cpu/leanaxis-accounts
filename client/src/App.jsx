@@ -29,6 +29,7 @@ import PayslipModal from './components/Payslip';
 import PaymentStatement, { buildStatementRows } from './components/PaymentStatement';
 import EmployeesPage from './components/EmployeesPage';
 import PayrollRun from './components/PayrollRun';
+import SuggestInput, { collectSuggestions } from './components/SuggestInput';
 import { draftSalaryFor, structureFor, validateEmployee, periodLabelOf, STRUCTURE_FIELDS, EMPLOYEE_STATUSES } from './utils/employees';
 
 // ── Helpers replicated inline for components ──────────────────────────────────
@@ -768,7 +769,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
          {clients.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
         </select>
        </div>
-       <div className="grid grid-cols-2 gap-4">
+       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Invoice Date</label>
          <input type="date" className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl text-sm font-medium text-slate-700 focus:ring-2 focus:ring-violet-500 outline-none"
@@ -788,7 +789,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
          </div>
         </div>
        </div>
-       <div className="grid grid-cols-3 gap-3">
+       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Tax Rate (%)</label>
          <input type="number" min="0" max="100" placeholder="0" className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl text-sm font-medium text-slate-700 focus:ring-2 focus:ring-violet-500 outline-none"
@@ -808,7 +809,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
         </div>
        </div>
        {true && (
-        <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-2 gap-3">
+        <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-3">
          <div>
           <label className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-1.5 block">Amount Received</label>
           <input inputMode="decimal" placeholder="0"
@@ -4881,7 +4882,7 @@ const VendorProfile = ({ vendor, vendorBills, bankRecords, pettyCash, onBack }) 
       {vendor.serviceType && <p className="text-slate-400 font-medium ml-1">Service: <span className="text-slate-200">{vendor.serviceType}</span></p>}
       {vendor.contact && <p className="text-slate-500 text-sm ml-1 mt-1">{vendor.contact}</p>}
      </div>
-     <div className="grid grid-cols-3 gap-4">
+     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
       {[
        { l: 'Total Bills', v: totalBilled, c: 'text-white' },
        { l: 'Total Paid', v: totalPaid, c: 'text-emerald-400' },
@@ -4980,7 +4981,7 @@ const VendorProfile = ({ vendor, vendorBills, bankRecords, pettyCash, onBack }) 
       </p>
       <p className={`text-4xl font-extrabold ${totalOutstanding > 0 ? 'text-amber-800' : 'text-emerald-800'}`}>{formatCurrency(totalOutstanding)}</p>
      </div>
-     <div className="grid grid-cols-2 gap-6 text-center">
+     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-center">
       <div><p className="text-xs text-slate-500 font-bold uppercase mb-1">Total Bills</p><p className="text-lg font-extrabold text-slate-800">{formatCurrency(totalBilled)}</p></div>
       <div><p className="text-xs text-emerald-600 font-bold uppercase mb-1">Paid Out</p><p className="text-lg font-extrabold text-emerald-700">{formatCurrency(totalPaid)}</p></div>
      </div>
@@ -5081,7 +5082,7 @@ const ReceivablesPayables = ({ clients, invoices, vendors, vendorBills, bankReco
    </div>
    {activeTab === 'receivables' && (
     <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-     <div className="p-5 border-b border-slate-100 grid grid-cols-3 gap-4">
+     <div className="p-5 border-b border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-4">
       <div className="text-center"><p className="text-xs text-slate-400 font-bold uppercase">Total Invoiced</p><p className="text-lg font-extrabold text-slate-800">{formatCurrency(totalBilled)}</p></div>
       <div className="text-center"><p className="text-xs text-emerald-600 font-bold uppercase">Collected</p><p className="text-lg font-extrabold text-emerald-700">{formatCurrency(totalReceived)}</p></div>
       <div className="text-center"><p className="text-xs text-rose-600 font-bold uppercase">Outstanding</p><p className="text-lg font-extrabold text-rose-700">{formatCurrency(totalReceivables)}</p></div>
@@ -5134,7 +5135,7 @@ const ReceivablesPayables = ({ clients, invoices, vendors, vendorBills, bankReco
    )}
    {activeTab === 'payables' && (
     <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-     <div className="p-5 border-b border-slate-100 grid grid-cols-3 gap-4">
+     <div className="p-5 border-b border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-4">
       <div className="text-center"><p className="text-xs text-slate-400 font-bold uppercase">Total Bills</p><p className="text-lg font-extrabold text-slate-800">{formatCurrency(totalBills)}</p></div>
       <div className="text-center"><p className="text-xs text-emerald-600 font-bold uppercase">Paid Out</p><p className="text-lg font-extrabold text-emerald-700">{formatCurrency(totalPaidOut)}</p></div>
       <div className="text-center"><p className="text-xs text-rose-600 font-bold uppercase">Still Owe</p><p className="text-lg font-extrabold text-rose-700">{formatCurrency(totalPayables)}</p></div>
@@ -5787,6 +5788,31 @@ function App() {
   r.onerror = rej;
   r.readAsDataURL(file);
  });
+ /**
+  * Suggestion lists derived from data already in the system, so the same bank,
+  * payee or job title is spelled consistently every time it is entered.
+  * Consistency matters beyond tidiness: client and vendor statements match
+  * transactions by name, so a typo silently drops money off a statement.
+  */
+ const suggest = useMemo(() => ({
+  banks: collectSuggestions([
+   [bankRecords, 'bank'], [expenses, 'bankName'], [pettyCash, 'bankName'],
+   [salaries, 'bankName'], [employees, 'bankName'], [vendorBills, 'bankName'],
+  ]),
+  payees: collectSuggestions([
+   [vendors, 'name'], [expenses, 'vendor'], [pettyCash, 'paidTo'],
+  ]),
+  expenseDescriptions: collectSuggestions([[expenses, 'description']]),
+  pettyDescriptions:   collectSuggestions([[pettyCash, 'description']]),
+  bankDescriptions:    collectSuggestions([[bankRecords, 'description']]),
+  designations: collectSuggestions([[employees, 'designation'], [salaries, 'role']]),
+  departments:  collectSuggestions([[employees, 'department'], [salaries, 'department']]),
+  serviceTypes: collectSuggestions([[vendors, 'serviceType']]),
+  cities:       collectSuggestions([[clients, 'address']]),
+  projects:     collectSuggestions([[clients, 'projectName']]),
+  accounts:     collectSuggestions([[employees, 'accountNumber'], [salaries, 'accountNumber']]),
+ }), [bankRecords, expenses, pettyCash, salaries, employees, vendorBills, vendors, clients]);
+
  const saveExpenseCategories = (next) => {
   const list = Array.from(new Set(next.map(c => String(c).trim()).filter(Boolean)));
   setExpenseCategories(list);
@@ -6105,7 +6131,7 @@ function App() {
   <main className={`min-h-screen pt-24 md:pt-10 p-6 md:p-10 transition-all duration-300 ${rail ? 'md:ml-24' : 'md:ml-80'}`}>
   <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-10 gap-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
    <div>
-    <h2 className="text-4xl font-extrabold text-slate-900 capitalize tracking-tight mb-1">
+    <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-slate-900 capitalize tracking-tight mb-1 break-words">
      {view === 'client-profile' && selectedClientProfile ? selectedClientProfile.name :
      view === 'vendor-profile' && selectedVendorProfile ? selectedVendorProfile.name :
      view === 'receivables-payables' ? 'Receivables & Payables' :
@@ -6434,7 +6460,7 @@ function App() {
       </button>
      </div>
      {}
-     <div className="grid grid-cols-3 gap-4">
+     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
       <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-3xl">
        <p className="text-xs font-bold text-emerald-600 uppercase tracking-widest mb-1">12-Month Revenue</p>
        <p className="text-2xl font-extrabold text-emerald-800">{formatCurrency(ytdRevenue)}</p>
@@ -6579,7 +6605,7 @@ function App() {
       Company Profile
      </h3>
      <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
        <div>
         <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Company Name *</label>
         <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={companyProfile.name||''} onChange={e=>setCompanyProfile(p=>({...p,name:e.target.value}))} placeholder="e.g. LeanAxis" />
@@ -6589,7 +6615,7 @@ function App() {
         <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={companyProfile.tagline||''} onChange={e=>setCompanyProfile(p=>({...p,tagline:e.target.value}))} placeholder="e.g. Creative Agency & Solutions" />
        </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
        <div>
         <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Phone</label>
         <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={companyProfile.phone||''} onChange={e=>setCompanyProfile(p=>({...p,phone:e.target.value}))} placeholder="+92 300 0000000" />
@@ -6603,7 +6629,7 @@ function App() {
        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Address</label>
        <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={companyProfile.address||''} onChange={e=>setCompanyProfile(p=>({...p,address:e.target.value}))} placeholder="Office address" />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
        <div>
         <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">NTN</label>
         <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={companyProfile.ntn||''} onChange={e=>setCompanyProfile(p=>({...p,ntn:e.target.value}))} placeholder="0000000-0" />
@@ -6624,7 +6650,7 @@ function App() {
       <div className="p-2 bg-emerald-100 rounded-xl text-emerald-600"><DollarSign size={20}/></div>
       Currency & Locale
      </h3>
-     <div className="grid grid-cols-2 gap-4">
+     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Currency Code</label>
        <select className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500 appearance-none" value={appSettings.currency||'PKR'} onChange={e=>{
@@ -6648,7 +6674,7 @@ function App() {
       Invoice Settings
      </h3>
      <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
        <div>
         <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Invoice Prefix</label>
         <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={appSettings.invoicePrefix||'INV'} onChange={e=>setAppSettings(p=>({...p,invoicePrefix:e.target.value}))} placeholder="INV" />
@@ -6677,7 +6703,7 @@ function App() {
       <div className="p-2 bg-amber-100 rounded-xl text-amber-600"><FileText size={20}/></div>
       Quotation Numbering
      </h3>
-     <div className="grid grid-cols-2 gap-4">
+     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Quotation Prefix</label>
        <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-amber-400"
@@ -6699,7 +6725,7 @@ function App() {
       <div className="p-2 bg-rose-100 rounded-xl text-rose-600"><Receipt size={20}/></div>
       Vendor Bill Numbering
      </h3>
-     <div className="grid grid-cols-2 gap-4">
+     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Bill Prefix</label>
        <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-rose-400"
@@ -6721,7 +6747,7 @@ function App() {
       <div className="p-2 bg-amber-100 rounded-xl text-amber-600"><Wallet size={20}/></div>
       Petty Cash Settings
      </h3>
-     <div className="grid grid-cols-2 gap-6">
+     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
       <div>
        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Opening Balance</label>
        <input type="number" min="0" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-amber-400"
@@ -6796,7 +6822,7 @@ function App() {
        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">ImgBB API Key (Receipt Uploads)</label>
        <div className="flex gap-3"><input type="password" className="flex-1 bg-slate-50 border border-slate-200 p-3.5 rounded-xl text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none" value={appSettings.imgbbKey || ''} onChange={e => setAppSettings(p => ({...p, imgbbKey: e.target.value}))} placeholder="Enter API key..." /><a href="https://api.imgbb.com/" target="_blank" rel="noopener noreferrer" className="bg-slate-100 text-slate-600 px-5 py-3.5 rounded-xl text-sm font-bold hover:bg-slate-200 transition-colors">Get Key</a></div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
        <button onClick={handleMasterExport} className="bg-violet-50 text-violet-700 py-4 rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-violet-100 transition-colors"><Download size={20} /> Backup Data</button>
        <label className="bg-slate-50 text-slate-700 py-4 rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-slate-100 transition-colors cursor-pointer border border-slate-200"><Upload size={20} /> Restore Data <input type="file" accept=".json" onChange={handleImport} className="hidden" /></label>
       </div>
@@ -6840,9 +6866,9 @@ function App() {
   )}
   {showForm && (
    <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-stretch justify-end z-50" onClick={e=>{if(e.target===e.currentTarget)setShowForm(false);}}>
-    <div className={`bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 ${['clients','vendor-bills','salaries','manage-users'].includes(view)?'w-full max-w-xl':'w-full max-w-md'}`}>
+    <div className={`bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 ${['clients','vendor-bills','salaries','employees','manage-users'].includes(view)?'w-full sm:max-w-xl':'w-full sm:max-w-md'}`}>
      {}
-     <div className="flex justify-between items-center px-8 py-6 border-b border-slate-100 flex-shrink-0">
+     <div className="flex justify-between items-center px-5 sm:px-8 py-5 sm:py-6 border-b border-slate-100 flex-shrink-0">
       <div>
        <h3 className="text-xl font-extrabold text-slate-800">{view==='employees' ? (isEditingRecord ? 'Edit Employee' : 'New Employee') : view==='clients' ? (isEditingRecord ? 'Edit Client' : 'New Client') : view==='salaries' ? (isEditingRecord ? 'Edit Payslip' : 'New Payslip') : view==='petty-cash' ? (isEditingRecord ? 'Edit Entry' : 'New Cash Entry') : view==='expenses' ? (isEditingRecord ? 'Edit Expense' : 'New Expense') : view==='vendors' ? (isEditingRecord ? 'Edit Vendor' : 'New Vendor') : view==='vendor-bills' ? (isEditingRecord ? 'Edit Bill' : 'New Vendor Bill') : view==='manage-users' ? (isEditingUser ? 'Edit User' : 'Add New User') : view==='bank' ? (isEditingRecord ? 'Edit Transaction' : 'New Bank Entry') : 'Record Details'}</h3>
        <p className="text-xs text-slate-400 mt-0.5 font-medium">{view==='clients'?'Fill in client details below':view==='expenses'?'Record a new business expense':view==='vendor-bills'?'Enter bill details and amounts':view==='salaries'?'Record salary payment':view==='bank'?'Add bank transaction':'Fill in the details below'}</p>
@@ -6850,7 +6876,7 @@ function App() {
       <button onClick={()=>setShowForm(false)} className="p-2 bg-slate-100 rounded-xl text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors flex-shrink-0"><X size={20}/></button>
      </div>
      {}
-     <div className="flex-1 overflow-y-auto px-8 py-6">
+     <div className="flex-1 overflow-y-auto px-5 sm:px-8 py-5 sm:py-6">
      <form id="main-slide-form" onSubmit={handleAddSubmit} className="space-y-5">
       {}
       {view==='manage-users' && (
@@ -6900,20 +6926,20 @@ function App() {
       )}
       {view==='clients' && (
        <div className="space-y-5">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Date Added</label><input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/></div>
          <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Status</label><select className="form-select" value={formData.status||'Ongoing'} onChange={e=>setFormData({...formData,status:e.target.value})}><option>Ongoing</option><option>Retainer</option><option>Completed</option><option>Lead</option></select></div>
         </div>
         <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Client / Company Name *</label><input required placeholder="e.g. ABC Corp" className="form-input" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/></div>
-        <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Project / Service Name</label><input placeholder="e.g. Brand Identity 2025" className="form-input" value={formData.projectName||''} onChange={e=>setFormData({...formData,projectName:e.target.value})}/></div>
-        <div className="grid grid-cols-2 gap-4">
+        <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Project / Service Name</label><SuggestInput options={suggest.projects} placeholder="e.g. Brand Identity 2025" className="form-input" value={formData.projectName} onChange={e=>setFormData({...formData,projectName:e.target.value})}/></div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Phone</label><input type="tel" placeholder="+92 300 0000000" className="form-input" value={formData.phone||''} onChange={e=>setFormData({...formData,phone:e.target.value})}/></div>
          <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Email</label><input type="email" placeholder="client@email.com" className="form-input" value={formData.email||''} onChange={e=>setFormData({...formData,email:e.target.value})}/></div>
         </div>
-        <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Address / City</label><input placeholder="e.g. Lahore, Pakistan" className="form-input" value={formData.address||''} onChange={e=>setFormData({...formData,address:e.target.value})}/></div>
+        <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Address / City</label><SuggestInput options={suggest.cities} placeholder="e.g. Lahore, Pakistan" className="form-input" value={formData.address} onChange={e=>setFormData({...formData,address:e.target.value})}/></div>
         <div className="pt-1 pb-1 border-t border-slate-100">
          <p className="text-xs font-extrabold text-violet-600 uppercase tracking-widest mb-4">Financial Details</p>
-         <div className="grid grid-cols-2 gap-4">
+         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Contract Value</label><input type="number" placeholder="0" className="form-input" value={formData.projectTotal||''} onChange={e=>setFormData({...formData,projectTotal:e.target.value})}/></div>
           <div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Opening Advance</label><input type="number" placeholder="0" className="form-input" value={formData.advanceReceived||''} onChange={e=>setFormData({...formData,advanceReceived:e.target.value})}/></div>
          </div>
@@ -6935,7 +6961,7 @@ function App() {
         <div className="pb-2 border-b border-slate-100">
          <p className="text-xs font-extrabold text-sky-600 uppercase tracking-widest">Transaction Details</p>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Date *</label>
           <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/>
@@ -6950,11 +6976,11 @@ function App() {
         </div>
         <div>
          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Bank Name *</label>
-         <input required placeholder="e.g. HBL, Meezan, UBL" className="form-input" value={formData.bank||''} onChange={e=>setFormData({...formData,bank:e.target.value})}/>
+         <SuggestInput required options={suggest.banks} placeholder="e.g. HBL, Meezan, UBL" className="form-input" value={formData.bank} onChange={e=>setFormData({...formData,bank:e.target.value})}/>
         </div>
         <div>
          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Description / Reference</label>
-         <input placeholder="e.g. Client payment, Salary transfer, Utility bill" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})}/>
+         <SuggestInput options={suggest.bankDescriptions} placeholder="e.g. Client payment, Salary transfer, Utility bill" className="form-input" value={formData.description} onChange={e=>setFormData({...formData,description:e.target.value})}/>
         </div>
         <div className="pb-2 border-b border-slate-100 pt-1">
          <p className="text-xs font-extrabold text-sky-600 uppercase tracking-widest">Amount</p>
@@ -7007,7 +7033,7 @@ function App() {
           {(formData._entryType||'out')==='in' ? '💰 Cash In — Replenishment / Receipt' : '💸 Cash Out — Expense'}
          </p>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Date *</label>
           <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})}/>
@@ -7024,14 +7050,14 @@ function App() {
         </div>
         <div>
          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Description *</label>
-         <input required placeholder={(formData._entryType||'out')==='in'?'e.g. Cash replenishment from accounts...':'e.g. Stationery purchase, Lunch meeting...'} className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})}/>
+         <SuggestInput required options={suggest.pettyDescriptions} placeholder={(formData._entryType||'out')==='in'?'e.g. Cash replenishment from accounts...':'e.g. Stationery purchase, Lunch meeting...'} className="form-input" value={formData.description} onChange={e=>setFormData({...formData,description:e.target.value})}/>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">
            {(formData._entryType||'out')==='in'?'Received From':'Paid To'} (optional)
           </label>
-          <input placeholder={(formData._entryType||'out')==='in'?'e.g. Accounts Dept':'e.g. Ali Stationery'} className="form-input" value={formData.paidTo||''} onChange={e=>setFormData({...formData,paidTo:e.target.value})}/>
+          <SuggestInput options={suggest.payees} placeholder={(formData._entryType||'out')==='in'?'e.g. Accounts Dept':'e.g. Ali Stationery'} className="form-input" value={formData.paidTo} onChange={e=>setFormData({...formData,paidTo:e.target.value})}/>
          </div>
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Ref / Receipt # (optional)</label>
@@ -7073,10 +7099,10 @@ function App() {
          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Vendor / Supplier Name *</label>
          <input required placeholder="e.g. Ali Printers, MediaEdge" className="form-input" value={formData.name||''} onChange={e=>setFormData({...formData,name:e.target.value})}/>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Service Type</label>
-          <input placeholder="e.g. Printing, Media, IT" className="form-input" value={formData.serviceType||''} onChange={e=>setFormData({...formData,serviceType:e.target.value})}/>
+          <SuggestInput options={suggest.serviceTypes} placeholder="e.g. Printing, Media, IT" className="form-input" value={formData.serviceType} onChange={e=>setFormData({...formData,serviceType:e.target.value})}/>
          </div>
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Contact / Phone</label>
@@ -7088,7 +7114,7 @@ function App() {
          <input type="email" placeholder="vendor@email.com" className="form-input" value={formData.email||''} onChange={e=>setFormData({...formData,email:e.target.value})}/>
         </div>
         <div className="pb-2 border-b border-slate-100 pt-1"><p className="text-xs font-extrabold text-violet-600 uppercase tracking-widest">Financials (optional)</p></div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Total Amount Payable</label>
           <input type="number" placeholder="0" className="form-input" value={formData.amountPayable||''} onChange={e=>setFormData({...formData,amountPayable:e.target.value})}/>
@@ -7127,7 +7153,7 @@ function App() {
         <div className="pb-2 border-b border-slate-100">
          <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest">Personal Details</p>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Full Name *</label>
           <input required placeholder="e.g. Ahmed Raza Khan" className="form-input" value={formData.name||''} onChange={e=>setF({name:e.target.value})} />
@@ -7137,17 +7163,17 @@ function App() {
           <input required placeholder="e.g. LA-0142" className="form-input" value={formData.employeeId||''} onChange={e=>setF({employeeId:e.target.value})} />
          </div>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Designation</label>
-          <input placeholder="e.g. Senior Art Director" className="form-input" value={formData.designation||''} onChange={e=>setF({designation:e.target.value})} />
+          <SuggestInput options={suggest.designations} placeholder="e.g. Senior Art Director" className="form-input" value={formData.designation} onChange={e=>setF({designation:e.target.value})} />
          </div>
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Department</label>
-          <input placeholder="e.g. Creative" className="form-input" value={formData.department||''} onChange={e=>setF({department:e.target.value})} />
+          <SuggestInput options={suggest.departments} placeholder="e.g. Creative" className="form-input" value={formData.department} onChange={e=>setF({department:e.target.value})} />
          </div>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">CNIC</label>
           <input placeholder="42101-1234567-8" className="form-input" value={formData.cnic||''} onChange={e=>setF({cnic:e.target.value})} />
@@ -7165,7 +7191,7 @@ function App() {
         <div className="pb-2 border-b border-slate-100 pt-2">
          <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest">Employment</p>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Date of Joining</label>
           <input type="date" className="form-input" value={formData.joiningDate||''} onChange={e=>setF({joiningDate:e.target.value})} />
@@ -7193,16 +7219,16 @@ function App() {
           To record a raise with an effective date, close this and use <strong>Revise Salary</strong> instead.
          </p>
         )}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          {money('basicSalary','Basic Salary *')}
          {money('houseRent','House Rent Allowance')}
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
          {money('conveyance','Conveyance')}
          {money('medicalAllowance','Medical')}
          {money('specialAllowance','Special Allowance')}
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          {money('eobi','EOBI (monthly)')}
          {money('providentFund','Provident Fund (monthly)')}
         </div>
@@ -7214,7 +7240,7 @@ function App() {
         <div className="pb-2 border-b border-slate-100 pt-2">
          <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest">Payment Details</p>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Payment Mode</label>
           <select className="form-select" value={formData.paymentMode||'Bank Transfer'} onChange={e=>setF({paymentMode:e.target.value})}>
@@ -7223,12 +7249,12 @@ function App() {
          </div>
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Bank Name</label>
-          <input placeholder="e.g. Meezan Bank" className="form-input" value={formData.bankName||''} onChange={e=>setF({bankName:e.target.value})} />
+          <SuggestInput options={suggest.banks} placeholder="e.g. Meezan Bank" className="form-input" value={formData.bankName} onChange={e=>setF({bankName:e.target.value})} />
          </div>
         </div>
         <div>
          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Account / IBAN</label>
-         <input placeholder="PK00 MEZN 0000 0000 0000 0000" className="form-input" value={formData.accountNumber||''} onChange={e=>setF({accountNumber:e.target.value})} />
+         <SuggestInput options={suggest.accounts} placeholder="PK00 MEZN 0000 0000 0000 0000" className="form-input" value={formData.accountNumber} onChange={e=>setF({accountNumber:e.target.value})} />
         </div>
         <div>
          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Notes</label>
@@ -7301,7 +7327,7 @@ function App() {
           Tip: add your team under <strong>Employees</strong> to stop retyping these details every month.
          </p>
         )}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Employee Name *</label>
           <input required placeholder="e.g. Ahmed Khan" className="form-input" value={formData.employeeName||''} onChange={e=>setF({employeeName:e.target.value})} />
@@ -7311,17 +7337,17 @@ function App() {
           <input placeholder="e.g. EMP-014" className="form-input" value={formData.employeeId||''} onChange={e=>setF({employeeId:e.target.value})} />
          </div>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Designation</label>
-          <input placeholder="e.g. Senior Designer" className="form-input" value={formData.role||''} onChange={e=>setF({role:e.target.value})} />
+          <SuggestInput options={suggest.designations} placeholder="e.g. Senior Designer" className="form-input" value={formData.role} onChange={e=>setF({role:e.target.value})} />
          </div>
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Department</label>
-          <input placeholder="e.g. Creative" className="form-input" value={formData.department||''} onChange={e=>setF({department:e.target.value})} />
+          <SuggestInput options={suggest.departments} placeholder="e.g. Creative" className="form-input" value={formData.department} onChange={e=>setF({department:e.target.value})} />
          </div>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">CNIC</label>
           <input placeholder="42101-1234567-8" className="form-input" value={formData.cnic||''} onChange={e=>setF({cnic:e.target.value})} />
@@ -7340,7 +7366,7 @@ function App() {
         <div className="pb-2 border-b border-slate-100 pt-2">
          <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest">Pay Period</p>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Salary Month *</label>
           <input type="month" required className="form-input" value={formData.payPeriod || (formData.date||'').slice(0,7)} onChange={e=>setF({payPeriod:e.target.value})} />
@@ -7362,16 +7388,16 @@ function App() {
          <p className="text-xs font-extrabold text-emerald-600 uppercase tracking-widest">Earnings</p>
          <p className="text-xs font-bold text-slate-400">Gross <span className="text-emerald-600 tabular-nums">{formatCurrency(live.gross)}</span></p>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          {money('basicSalary', 'Basic Salary', { required: true })}
          {money('houseRent', 'House Rent Allowance')}
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
          {money('conveyance', 'Conveyance')}
          {money('medicalAllowance', 'Medical')}
          {money('specialAllowance', 'Special Allowance')}
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Overtime Hours</label>
           <input type="number" min="0" step="0.5" placeholder="0" className="form-input" value={formData.overtimeHours ?? ''}
@@ -7386,11 +7412,11 @@ function App() {
          </div>
          {money('overtimeAmount', 'Overtime Amount')}
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          {money('bonus', 'Bonus / Commission')}
          {money('arrears', 'Arrears')}
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Other Earning — Label</label>
           <input placeholder="e.g. Fuel Allowance" className="form-input" value={formData.otherEarningLabel||''} onChange={e=>setF({otherEarningLabel:e.target.value})} />
@@ -7403,16 +7429,16 @@ function App() {
          <p className="text-xs font-extrabold text-rose-600 uppercase tracking-widest">Deductions</p>
          <p className="text-xs font-bold text-slate-400">Total <span className="text-rose-600 tabular-nums">{formatCurrency(live.totalDeductions)}</span></p>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
          {money('taxDeduction', 'Income Tax / WHT')}
          {money('eobi', 'EOBI')}
          {money('providentFund', 'Provident Fund')}
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          {money('loanDeduction', 'Loan / Advance')}
          {money('absenceDeduction', 'Absence / Late')}
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Other Deduction — Label</label>
           <input placeholder="e.g. Damage Recovery" className="form-input" value={formData.otherDeductionLabel||''} onChange={e=>setF({otherDeductionLabel:e.target.value})} />
@@ -7441,7 +7467,7 @@ function App() {
         <div className="pb-2 border-b border-slate-100 pt-2">
          <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest">Payment Details</p>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Payment Mode</label>
           <select className="form-select" value={formData.paymentMode || 'Bank Transfer'} onChange={e=>setF({paymentMode:e.target.value})}>
@@ -7450,13 +7476,13 @@ function App() {
          </div>
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Bank Name</label>
-          <input placeholder="e.g. Meezan Bank" className="form-input" value={formData.bankName||''} onChange={e=>setF({bankName:e.target.value})} />
+          <SuggestInput options={suggest.banks} placeholder="e.g. Meezan Bank" className="form-input" value={formData.bankName} onChange={e=>setF({bankName:e.target.value})} />
          </div>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Credited to Account / IBAN</label>
-          <input placeholder="PK00 MEZN 0000 0000 0000 0000" className="form-input" value={formData.accountNumber||''} onChange={e=>setF({accountNumber:e.target.value})} />
+          <SuggestInput options={suggest.accounts} placeholder="PK00 MEZN 0000 0000 0000 0000" className="form-input" value={formData.accountNumber} onChange={e=>setF({accountNumber:e.target.value})} />
          </div>
          {!isCheque && (
           <div>
@@ -7470,7 +7496,7 @@ function App() {
           <p className="text-xs font-extrabold text-slate-500 uppercase tracking-widest flex items-center gap-2">
            <CreditCard size={13}/> Cheque Details — required for verification
           </p>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
            <div>
             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Cheque Number *</label>
             <input required className="form-input bg-white" placeholder="e.g. 0043271"
@@ -7503,7 +7529,7 @@ function App() {
       {view === 'vendor-bills' && (
        <div className="space-y-4">
         <div className="pb-2 border-b border-slate-100"><p className="text-xs font-extrabold text-rose-600 uppercase tracking-widest">Bill Details</p></div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Bill Date *</label>
           <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})} />
@@ -7520,7 +7546,7 @@ function App() {
           {vendors.map(v=><option key={v.id} value={v.name}>{v.name}</option>)}
          </select>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Bill # / Ref</label>
           <div className="relative">
@@ -7539,10 +7565,10 @@ function App() {
         </div>
         <div>
          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Description</label>
-         <input placeholder="e.g. Printing charges for Q1 campaign" className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})} />
+         <SuggestInput options={suggest.expenseDescriptions} placeholder="e.g. Printing charges for Q1 campaign" className="form-input" value={formData.description} onChange={e=>setFormData({...formData,description:e.target.value})} />
         </div>
         <div className="pb-2 border-b border-slate-100 pt-1"><p className="text-xs font-extrabold text-rose-600 uppercase tracking-widest">Amounts</p></div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Gross Bill Amount *</label>
           <input type="number" placeholder="0" className="form-input" value={formData.billAmount||''} onChange={e=>{
@@ -7597,7 +7623,7 @@ function App() {
         <div className="pb-2 border-b border-slate-100">
          <p className="text-xs font-extrabold text-rose-500 uppercase tracking-widest">Expense Details</p>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Date *</label>
           <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setFormData({...formData,date:e.target.value})} />
@@ -7611,16 +7637,16 @@ function App() {
         </div>
         <div>
          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Description *</label>
-         <input required placeholder="e.g. Monthly office rent, Software subscription..." className="form-input" value={formData.description||''} onChange={e=>setFormData({...formData,description:e.target.value})} />
+         <SuggestInput required options={suggest.expenseDescriptions} placeholder="e.g. Monthly office rent, Software subscription..." className="form-input" value={formData.description} onChange={e=>setFormData({...formData,description:e.target.value})} />
         </div>
         <div>
          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Vendor / Supplier (optional)</label>
-         <input placeholder="e.g. PTCL, Adobe, Mall of Lahore..." className="form-input" value={formData.vendor||''} onChange={e=>setFormData({...formData,vendor:e.target.value})} />
+         <SuggestInput options={suggest.payees} placeholder="e.g. PTCL, Adobe, Mall of Lahore..." className="form-input" value={formData.vendor} onChange={e=>setFormData({...formData,vendor:e.target.value})} />
         </div>
         <div className="pb-2 border-b border-slate-100 pt-1">
          <p className="text-xs font-extrabold text-rose-500 uppercase tracking-widest">Amount</p>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Total Amount *</label>
           <input type="number" required placeholder="0" className="form-input" value={formData.amount||''} onChange={e=>setFormData({...formData,amount:e.target.value})} />
@@ -7658,7 +7684,7 @@ function App() {
         )}
        </div>
       )}
-      {view==='expenses' && <div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Payment Method (Optional)</label><div className="grid grid-cols-2 gap-4"><input placeholder="Bank Name" className="form-input bg-white" value={formData.bankName||''} onChange={e=>setFormData({...formData,bankName:e.target.value})} /><input placeholder="Cheque / Ref #" className="form-input bg-white" value={formData.chequeNumber||''} onChange={e=>setFormData({...formData,chequeNumber:e.target.value})} /></div></div>}{view==='petty-cash' && <div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Payment Details (Optional)</label><div className="grid grid-cols-2 gap-4"><input placeholder="Bank Name" className="form-input bg-white" value={formData.bankName||''} onChange={e=>setFormData({...formData,bankName:e.target.value})} /><input placeholder="Ref / Receipt #" className="form-input bg-white" value={formData.chequeNumber||''} onChange={e=>setFormData({...formData,chequeNumber:e.target.value})} /></div></div>}
+      {view==='expenses' && <div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Payment Method (Optional)</label><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><SuggestInput options={suggest.banks} placeholder="Bank Name" className="form-input bg-white" value={formData.bankName} onChange={e=>setFormData({...formData,bankName:e.target.value})} /><input placeholder="Cheque / Ref #" className="form-input bg-white" value={formData.chequeNumber||''} onChange={e=>setFormData({...formData,chequeNumber:e.target.value})} /></div></div>}{view==='petty-cash' && <div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Payment Details (Optional)</label><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><SuggestInput options={suggest.banks} placeholder="Bank Name" className="form-input bg-white" value={formData.bankName} onChange={e=>setFormData({...formData,bankName:e.target.value})} /><input placeholder="Ref / Receipt #" className="form-input bg-white" value={formData.chequeNumber||''} onChange={e=>setFormData({...formData,chequeNumber:e.target.value})} /></div></div>}
       <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-5 rounded-2xl hover:bg-violet-50 transition-colors border-2 border-dashed border-slate-200 hover:border-violet-300 group"><div className="p-2 bg-white rounded-full text-slate-400 group-hover:text-violet-500 shadow-sm"><Upload size={20}/></div><span className="text-sm font-bold text-slate-500 group-hover:text-violet-600">{fileToUpload?fileToUpload.name:"Attach Receipt / Proof"}</span><input type="file" className="hidden" onChange={e=>setFileToUpload(e.target.files[0])}/></label>
       <button disabled={isSubmitting} className="w-full bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white py-4 rounded-2xl font-bold hover:shadow-lg hover:shadow-violet-200 transition-all transform hover:scale-[1.01] active:scale-95 flex justify-center items-center gap-2">{isSubmitting?<RefreshCw className="animate-spin" size={20}/>:<CheckCircle size={20}/>} {isSubmitting?'Saving...':'Save Record'}</button>
      </form>

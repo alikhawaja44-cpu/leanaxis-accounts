@@ -9,6 +9,7 @@
 import React, { useMemo, useState } from 'react';
 import { X, Printer, Download, Share2, Loader2 } from 'lucide-react';
 import { formatCurrency } from '../utils/helpers';
+import FitToWidth from './FitToWidth';
 import {
   computePayroll,
   payPeriodLabel,
@@ -462,9 +463,9 @@ const PayslipModal = ({ data, onClose, companyProfile = {}, appSettings = {}, to
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/85 backdrop-blur-sm flex items-start justify-center z-50 p-4 overflow-y-auto">
+    <div className="fixed inset-0 bg-slate-900/85 backdrop-blur-sm flex items-start justify-center z-50 p-0 sm:p-4 overflow-y-auto">
       <style>{PAYSLIP_CSS}</style>
-      <div className="bg-white rounded-2xl w-full max-w-[860px] shadow-2xl my-4 flex flex-col overflow-hidden">
+      <div className="bg-white rounded-none sm:rounded-2xl w-full max-w-[860px] shadow-2xl my-0 sm:my-4 flex flex-col overflow-hidden min-h-screen sm:min-h-0">
         <div className="flex justify-between items-center px-6 py-4 bg-slate-50 border-b border-slate-200 flex-shrink-0">
           <div>
             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Official Payslip</p>
@@ -481,30 +482,32 @@ const PayslipModal = ({ data, onClose, companyProfile = {}, appSettings = {}, to
           </button>
         </div>
 
-        <div className="overflow-auto bg-slate-100 p-5 flex justify-center">
-          <div style={{ boxShadow: '0 4px 24px rgba(15,23,42,.14)' }}>
-            <PayslipDocument data={data} companyProfile={companyProfile} appSettings={appSettings} />
-          </div>
+        <div className="overflow-y-auto bg-slate-100 p-3 sm:p-5">
+          <FitToWidth width={A4_WIDTH_PX} className="mx-auto">
+            <div style={{ boxShadow: '0 4px 24px rgba(15,23,42,.14)' }}>
+              <PayslipDocument data={data} companyProfile={companyProfile} appSettings={appSettings} />
+            </div>
+          </FitToWidth>
         </div>
 
-        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex flex-wrap gap-3 flex-shrink-0">
+        <div className="px-4 sm:px-6 py-4 border-t border-slate-200 bg-slate-50 flex flex-wrap gap-2 sm:gap-3 flex-shrink-0">
           <button
             onClick={handleDownloadPDF}
             disabled={busy}
-            className="flex-1 min-w-[150px] bg-slate-900 text-white py-3 rounded-xl font-bold text-sm hover:bg-slate-800 disabled:opacity-60 transition-colors flex justify-center items-center gap-2 shadow-sm"
+            className="flex-1 min-w-[130px] bg-slate-900 text-white py-3 rounded-xl font-bold text-sm hover:bg-slate-800 disabled:opacity-60 transition-colors flex justify-center items-center gap-2 shadow-sm"
           >
             {busy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
             {busy ? 'Preparing…' : 'Download PDF'}
           </button>
           <button
             onClick={handlePrint}
-            className="flex-1 min-w-[120px] bg-white border border-slate-300 text-slate-700 py-3 rounded-xl font-bold text-sm hover:bg-slate-100 transition-colors flex justify-center items-center gap-2 shadow-sm"
+            className="flex-1 min-w-[100px] bg-white border border-slate-300 text-slate-700 py-3 rounded-xl font-bold text-sm hover:bg-slate-100 transition-colors flex justify-center items-center gap-2 shadow-sm"
           >
             <Printer size={16} /> Print
           </button>
           <button
             onClick={handleWhatsApp}
-            className="flex-1 min-w-[150px] bg-[#25D366] text-white py-3 rounded-xl font-bold text-sm hover:bg-[#20bd5a] transition-all shadow-sm flex justify-center items-center gap-2"
+            className="flex-1 min-w-[130px] bg-[#25D366] text-white py-3 rounded-xl font-bold text-sm hover:bg-[#20bd5a] transition-all shadow-sm flex justify-center items-center gap-2"
           >
             <Share2 size={16} /> Send via WhatsApp
           </button>

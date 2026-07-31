@@ -35,8 +35,9 @@ export function calculateTax(amount, taxRate = 0) {
 
 // Invoice total calculation
 export function calcInvoiceTotal(items = [], taxRate = 0, discount = 0) {
-  const subtotal = (items || []).reduce(
-    (s, it) => s + ((parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0)),
+  // Guard each line item: a null entry in the array used to throw.
+  const subtotal = (Array.isArray(items) ? items : []).reduce(
+    (s, it) => s + ((parseFloat(it?.qty) || 0) * (parseFloat(it?.rate) || 0)),
     0
   );
   // Clamp to 0–100: the live preview already capped the discount, but the stored

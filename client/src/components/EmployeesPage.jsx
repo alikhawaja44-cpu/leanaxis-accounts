@@ -89,7 +89,7 @@ const RevisionModal = ({ employee, onClose, onSave, toast }) => {
         </div>
 
         <div className="p-6 space-y-4 overflow-y-auto">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Effective From *</label>
               <input type="date" required className="form-input" value={form.effectiveFrom}
@@ -106,13 +106,13 @@ const RevisionModal = ({ employee, onClose, onSave, toast }) => {
           <div className="pb-2 border-b border-slate-100 pt-1">
             <p className="text-xs font-extrabold text-emerald-600 uppercase tracking-widest">New Earnings</p>
           </div>
-          <div className="grid grid-cols-2 gap-4">{STRUCTURE_EARNINGS.slice(0, 2).map(money)}</div>
-          <div className="grid grid-cols-3 gap-4">{STRUCTURE_EARNINGS.slice(2).map(money)}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{STRUCTURE_EARNINGS.slice(0, 2).map(money)}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{STRUCTURE_EARNINGS.slice(2).map(money)}</div>
 
           <div className="pb-2 border-b border-slate-100 pt-1">
             <p className="text-xs font-extrabold text-rose-600 uppercase tracking-widest">Recurring Deductions</p>
           </div>
-          <div className="grid grid-cols-2 gap-4">{STRUCTURE_DEDUCTIONS.map(money)}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{STRUCTURE_DEDUCTIONS.map(money)}</div>
 
           <div className={`rounded-2xl p-5 flex justify-between items-center ${
             delta.amount > 0 ? 'bg-emerald-50 border border-emerald-200'

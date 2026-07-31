@@ -23,21 +23,24 @@ export const STRUCTURE_FIELDS = [...STRUCTURE_EARNINGS, ...STRUCTURE_DEDUCTIONS]
 export const EMPLOYEE_STATUSES = ['Active', 'On Leave', 'Resigned', 'Terminated'];
 
 /** Pulls just the structure fields out of any object. */
-export function pickStructure(src = {}) {
+export function pickStructure(src) {
+  const o = src || {};
   return STRUCTURE_FIELDS.reduce((acc, k) => {
-    acc[k] = num(src[k]);
+    acc[k] = num(o[k]);
     return acc;
   }, {});
 }
 
 /** Gross of a structure (earnings only). */
-export function structureGross(st = {}) {
-  return STRUCTURE_EARNINGS.reduce((a, k) => a + num(st[k]), 0);
+export function structureGross(st) {
+  const o = st || {};
+  return STRUCTURE_EARNINGS.reduce((a, k) => a + num(o[k]), 0);
 }
 
 /** Sorted revision history, newest first. */
-export function sortedHistory(employee = {}) {
-  return [...(employee.salaryHistory || [])]
+export function sortedHistory(employee) {
+  const e = employee || {};
+  return (Array.isArray(e.salaryHistory) ? [...e.salaryHistory] : [])
     .filter((h) => h && h.effectiveFrom)
     .sort((a, b) => String(b.effectiveFrom).localeCompare(String(a.effectiveFrom)));
 }
@@ -49,19 +52,20 @@ export function sortedHistory(employee = {}) {
  * @param {string} periodKey  "YYYY-MM"; defaults to the current month
  * @returns {object|null} structure fields, or null if the employee has no history
  */
-export function structureFor(employee = {}, periodKey) {
+export function structureFor(employee, periodKey) {
+  const e = employee || {};
   const key = periodKey || new Date().toISOString().slice(0, 7);
   // Compare against the last day of the pay month so a revision effective
   // mid-month still applies to that month's payslip.
   const cutoff = `${key}-31`;
 
-  const applicable = sortedHistory(employee).find(
+  const applicable = sortedHistory(e).find(
     (h) => String(h.effectiveFrom) <= cutoff
   );
   if (applicable) return pickStructure(applicable);
 
   // No history yet — fall back to any structure stored on the record itself.
-  const flat = pickStructure(employee);
+  const flat = pickStructure(e);
   return STRUCTURE_FIELDS.some((k) => flat[k] !== 0) ? flat : null;
 }
 
@@ -73,7 +77,8 @@ export const currentStructure = (employee) =>
  * Builds a draft salary record for an employee for a pay period, ready to be
  * saved as a payslip.
  */
-export function draftSalaryFor(employee = {}, periodKey, paymentDate) {
+export function draftSalaryFor(employeeInput, periodKey, paymentDate) {
+  const employee = employeeInput || {};
   const st = structureFor(employee, periodKey) || {};
   const date = paymentDate || lastDayOf(periodKey);
   return {
@@ -115,7 +120,8 @@ export function periodLabelOf(periodKey) {
  * Compares two structures and returns the change between them.
  * Used to render "increased by 12.5%" on the revision timeline.
  */
-export function revisionDelta(newer = {}, older = null) {
+export function revisionDelta(newerInput, older = null) {
+  const newer = newerInput || {};
   const newGross = structureGross(newer);
   if (!older) return { amount: 0, percent: 0, isFirst: true, gross: newGross };
   const oldGross = structureGross(older);
@@ -125,7 +131,9 @@ export function revisionDelta(newer = {}, older = null) {
 }
 
 /** Validates an employee record before save. Returns an error string or null. */
-export function validateEmployee(e = {}, allEmployees = []) {
+export function validateEmployee(input, allEmployeesInput) {
+  const e = input || {};
+  const allEmployees = Array.isArray(allEmployeesInput) ? allEmployeesInput : [];
   if (!String(e.name || '').trim()) return 'Employee name is required.';
   if (!String(e.employeeId || '').trim()) return 'Employee ID is required.';
 
@@ -145,9 +153,10 @@ export function validateEmployee(e = {}, allEmployees = []) {
 }
 
 /** Employees who should appear in a payroll run for the given period. */
-export function activeForPeriod(employees = [], periodKey) {
+export function activeForPeriod(employees, periodKey) {
   const cutoff = `${periodKey}-31`;
-  return employees.filter((e) => {
+  return (Array.isArray(employees) ? employees : []).filter((raw) => {
+    const e = raw || {};
     if (e.status && e.status !== 'Active' && e.status !== 'On Leave') return false;
     if (e.joiningDate && String(e.joiningDate) > cutoff) return false;
     if (e.exitDate && String(e.exitDate) < `${periodKey}-01`) return false;

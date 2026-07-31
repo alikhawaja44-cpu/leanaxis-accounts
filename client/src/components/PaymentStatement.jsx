@@ -10,6 +10,7 @@ import React, { useMemo } from 'react';
 import { Printer, CreditCard } from 'lucide-react';
 import { formatCurrency } from '../utils/helpers';
 import { computePayroll, payPeriodLabel, payPeriodKey } from '../utils/payroll';
+import FitToWidth from './FitToWidth';
 
 const A4_LANDSCAPE_PX = 1123; // 297mm @ 96dpi
 
@@ -82,7 +83,8 @@ const fmtDate = (d) => {
 };
 
 /** Adds payment metadata and duplicate-cheque flags to a list of salary records. */
-export function buildStatementRows(salaries = []) {
+export function buildStatementRows(salariesInput) {
+  const salaries = (Array.isArray(salariesInput) ? salariesInput : []).filter(Boolean);
   const counts = salaries.reduce((acc, s) => {
     const c = String(s.chequeNumber || '').trim().toLowerCase();
     if (c) acc[c] = (acc[c] || 0) + 1;
@@ -270,7 +272,7 @@ const PaymentStatement = ({ rows = [], companyProfile = {}, periodLabel, toast =
   return (
     <div className="space-y-4">
       <style>{STATEMENT_CSS}</style>
-      <div className="flex justify-between items-center bg-white rounded-2xl border border-slate-200 shadow-sm px-5 py-4">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-white rounded-2xl border border-slate-200 shadow-sm px-4 sm:px-5 py-4">
         <div className="flex items-center gap-2 text-slate-600">
           <CreditCard size={16} className="text-indigo-500" />
           <p className="text-sm font-bold">
@@ -284,10 +286,12 @@ const PaymentStatement = ({ rows = [], companyProfile = {}, periodLabel, toast =
           <Printer size={15} /> Print Statement
         </button>
       </div>
-      <div className="bg-slate-100 rounded-2xl p-5 overflow-auto">
-        <div style={{ boxShadow: '0 4px 24px rgba(15,23,42,.14)', width: 'fit-content', margin: '0 auto' }}>
-          <PaymentStatementDocument rows={rows} companyProfile={companyProfile} periodLabel={periodLabel} />
-        </div>
+      <div className="bg-slate-100 rounded-2xl p-3 sm:p-5 overflow-hidden">
+        <FitToWidth width={A4_LANDSCAPE_PX}>
+          <div style={{ boxShadow: '0 4px 24px rgba(15,23,42,.14)' }}>
+            <PaymentStatementDocument rows={rows} companyProfile={companyProfile} periodLabel={periodLabel} />
+          </div>
+        </FitToWidth>
       </div>
     </div>
   );

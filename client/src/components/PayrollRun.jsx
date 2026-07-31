@@ -108,7 +108,7 @@ const PayrollRun = ({
           </div>
 
           {/* Summary */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {[
               { l: 'Employees', v: drafts.length, sub: `${pending.length} eligible`, icon: Users, c: 'text-slate-800', bg: 'bg-white border-slate-200' },
               { l: 'Gross Payroll', v: formatCurrency(totals.gross), sub: `less ${formatCurrency(totals.deductions)}`, icon: Wallet, c: 'text-slate-800', bg: 'bg-white border-slate-200' },

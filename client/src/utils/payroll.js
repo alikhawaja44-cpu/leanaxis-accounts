@@ -46,7 +46,8 @@ export const PAYMENT_MODES = ['Bank Transfer', 'Cheque', 'Cash', 'Online / Mobil
  * @param {object} s raw salary record
  * @returns {{earnings, deductions, gross, totalDeductions, net, hasBreakdown}}
  */
-export function computePayroll(s = {}) {
+export function computePayroll(input) {
+  const s = input || {};
   const build = (fields) =>
     fields.map((f) => ({
       key: f.key,
@@ -89,7 +90,8 @@ export const deductionsOf = (s) => computePayroll(s).totalDeductions;
  * `grossSalary`, `totalDeductions` and `totalPayable` are always stored
  * in sync with the component fields.
  */
-export function withTotals(s = {}) {
+export function withTotals(input) {
+  const s = input || {};
   const { gross, totalDeductions, net } = computePayroll(s);
   return { ...s, grossSalary: gross, totalDeductions, totalPayable: net };
 }
@@ -98,7 +100,8 @@ export function withTotals(s = {}) {
  * Derives the pay period label. Prefers an explicit `payPeriod` (YYYY-MM),
  * falling back to the payment date.
  */
-export function payPeriodLabel(s = {}) {
+export function payPeriodLabel(input) {
+  const s = input || {};
   const src = s.payPeriod ? `${s.payPeriod}-01` : s.date;
   if (!src) return '—';
   const d = new Date(src);
@@ -107,7 +110,8 @@ export function payPeriodLabel(s = {}) {
 }
 
 /** Sortable YYYY-MM key for a record's pay period. */
-export function payPeriodKey(s = {}) {
+export function payPeriodKey(input) {
+  const s = input || {};
   if (s.payPeriod) return String(s.payPeriod).slice(0, 7);
   if (!s.date) return '';
   const d = new Date(s.date);
@@ -116,7 +120,8 @@ export function payPeriodKey(s = {}) {
 }
 
 /** Stable, human-readable payslip reference number. */
-export function payslipNumber(s = {}) {
+export function payslipNumber(input) {
+  const s = input || {};
   const period = (payPeriodKey(s) || '000000').replace('-', '');
   const emp =
     (s.employeeId && String(s.employeeId).replace(/\s+/g, '').toUpperCase()) ||
