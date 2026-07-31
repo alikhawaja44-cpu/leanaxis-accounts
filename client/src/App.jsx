@@ -20,7 +20,7 @@ import {
 } from './utils/api';
 
 // Utilities
-import { formatCurrency, calculateTax, calcInvoiceTotal, invoiceTotals, invoiceTotal, descriptionMatchesParty, escapeHtml, printDocument, downloadElementAsPDF, today, exportToCSV } from './utils/helpers';
+import { formatCurrency, calculateTax, calcInvoiceTotal, invoiceTotals, invoiceTotal, descriptionMatchesParty, escapeHtml, printDocument, downloadElementAsPDF, today, exportToCSV, updateCurrencyFormatter } from './utils/helpers';
 import {
   computePayroll, withTotals, payPeriodLabel, payPeriodKey,
   EARNING_FIELDS, DEDUCTION_FIELDS, PAYMENT_MODES, netOf, grossOf,
@@ -5435,6 +5435,17 @@ function App() {
   pauseRefresh, resumeRefresh,
  } = useData();
  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+ // Desktop rail collapse. Remembered so it survives a reload.
+ const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+  try { return localStorage.getItem('leanaxis_sidebar_collapsed') === '1'; } catch { return false; }
+ });
+ const toggleSidebarCollapsed = useCallback(() => {
+  setIsSidebarCollapsed(v => {
+   const next = !v;
+   try { localStorage.setItem('leanaxis_sidebar_collapsed', next ? '1' : '0'); } catch { /* private mode */ }
+   return next;
+  });
+ }, []);
  const [view, setView] = useState('dashboard');
  const [selectedMonth, setSelectedMonth] = useState('All');
  const [selectedYear, setSelectedYear] = useState('All');
@@ -5494,12 +5505,9 @@ function App() {
  window.addEventListener('keydown', handler);
  return () => window.removeEventListener('keydown', handler);
  }, [showForm, showCommandPalette]);
- React.useEffect(() => {
- try {
-  _currencyFormatter = new Intl.NumberFormat(appSettings.locale || 'en-PK', {
-  style: 'currency', currency: appSettings.currency || 'PKR', maximumFractionDigits: 0
-  });
- } catch(e) {  }
+ useEffect(() => {
+  // Use the exported setter; the formatter itself is private to helpers.js.
+  updateCurrencyFormatter(appSettings.locale, appSettings.currency);
  }, [appSettings.currency, appSettings.locale]);
  // data from DataContext
  // data from DataContext
@@ -5784,6 +5792,35 @@ function App() {
   setExpenseCategories(list);
   setAppSettings(prev => ({ ...prev, expenseCategories: list }));
  };
+ /**
+  * Persists a record from the invoice/quotation builders.
+  * `saveToFirebase` was referenced here but never defined anywhere in the
+  * codebase, so every Save Invoice / Save Quote click threw a ReferenceError
+  * inside the click handler and the record was silently never written.
+  */
+ const saveRecord = async (collection, record, existingId) => {
+  const api = collection === 'invoices' ? invoicesAPI : quotationsAPI;
+  const setter = collection === 'invoices' ? setInvoices : setQuotations;
+  const label = collection === 'invoices' ? 'Invoice' : 'Quotation';
+  if (!canWrite) return toast('You do not have permission to save records.', 'error');
+  try {
+   const payload = { ...record };
+   delete payload.id;
+   if (existingId) {
+    const res = await api.update(existingId, payload);
+    setter(prev => prev.map(x => x.id === existingId ? res.data : x));
+    toast(`${label} updated.`, 'success');
+    return res.data;
+   }
+   const res = await api.create(payload);
+   setter(prev => [res.data, ...prev]);
+   toast(`${label} saved.`, 'success');
+   return res.data;
+  } catch (e) {
+   toast(e.response?.data?.error || `Could not save ${label.toLowerCase()}.`, 'error');
+   throw e;
+  }
+ };
  const initiatePayment = (item, type, amount) => { setPaymentConfig({ data: item, type, amount }); setPaymentAccount('bank'); setClientWHT(''); setPartialAmount(String(amount)); setShowPaymentModal(true); };
  const executePayment = async () => {
   if (!paymentConfig) return;
@@ -5919,10 +5956,21 @@ function App() {
  years.add(currentYear); years.add(currentYear + 1);
  return Array.from(years).sort((a,b) => b - a);
  }, [invoices, expenses, salaries, pettyCash, bankRecords]);
+ // The rail only applies on desktop; the mobile drawer always shows full labels.
+ const rail = isSidebarCollapsed && !isSidebarOpen;
+ const SectionLabel = ({ children }) => rail
+  ? <div className="my-3 mx-auto h-px w-8 bg-slate-700/70" />
+  : <div className="pt-5 pb-1.5 px-4 text-[10px] font-extrabold text-slate-600 uppercase tracking-widest">{children}</div>;
  const NavButton = ({ id, icon: Icon, label }) => (
- <button onClick={() => { setView(id); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-2xl transition-all duration-200 group relative overflow-hidden ${view === id ? 'bg-white text-violet-700 shadow-xl shadow-violet-900/10' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+ <button
+  onClick={() => { setView(id); setIsSidebarOpen(false); }}
+  title={rail ? label : undefined}
+  aria-label={label}
+  aria-current={view === id ? 'page' : undefined}
+  className={`w-full flex items-center ${rail ? 'justify-center px-0' : 'gap-4 px-5'} py-3.5 rounded-2xl transition-all duration-200 group relative ${view === id ? 'bg-white text-violet-700 shadow-xl shadow-violet-900/10' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
   <div className={`absolute left-0 top-0 bottom-0 w-1 bg-violet-500 rounded-r-full transition-transform duration-300 ${view === id ? 'scale-y-100' : 'scale-y-0'}`}></div>
-  <Icon size={20} className={`transition-transform duration-300 ${view === id ? 'scale-110' : 'group-hover:scale-110'}`} /> <span className="font-bold text-sm tracking-wide">{label}</span>
+  <Icon size={20} className={`flex-shrink-0 transition-transform duration-300 ${view === id ? 'scale-110' : 'group-hover:scale-110'}`} />
+  {!rail && <span className="font-bold text-sm tracking-wide">{label}</span>}
  </button>
  );
  const ActionButtons = ({ item, type }) => (
@@ -5987,52 +6035,74 @@ function App() {
   <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-slate-300 hover:text-white p-2 rounded-lg hover:bg-white/5"><Menu size={24}/></button>
   </div>
   {}
-  <aside className={`fixed inset-y-0 left-0 z-40 w-80 bg-[#0F172A] flex flex-col transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 shadow-2xl overflow-hidden`}>
+  <aside className={`fixed inset-y-0 left-0 z-40 bg-[#0F172A] flex flex-col transition-all duration-300 ${isSidebarOpen ? 'translate-x-0 w-80' : `-translate-x-full ${rail ? 'md:w-24' : 'md:w-80'}`} md:translate-x-0 shadow-2xl`}>
   {}
   <div className="absolute top-0 right-0 w-64 h-64 bg-violet-600/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
-  <div className="p-8 pb-4 relative z-10">
-   <Logo white={true} className="mb-8" companyName={companyProfile?.name} tagline={companyProfile?.tagline} />
-   <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 pl-4">Main Menu</div>
+  <div className={`relative z-10 ${rail ? 'px-3 pt-6 pb-3' : 'p-8 pb-4'}`}>
+   {rail ? (
+    <img src="./logo.png" alt={companyProfile?.name || 'Company'} className="h-9 w-full object-contain mb-4"
+     onError={(e)=>{e.currentTarget.style.display='none';}} />
+   ) : (
+    <>
+     <Logo white={true} className="mb-8" companyName={companyProfile?.name} tagline={companyProfile?.tagline} />
+     <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 pl-4">Main Menu</div>
+    </>
+   )}
+   {}
+   <button
+    onClick={toggleSidebarCollapsed}
+    title={rail ? 'Expand menu' : 'Collapse menu'}
+    aria-label={rail ? 'Expand menu' : 'Collapse menu'}
+    aria-expanded={!rail}
+    className={`hidden md:flex items-center justify-center gap-2 rounded-xl bg-slate-800/60 text-slate-400 hover:bg-slate-700 hover:text-white transition-all ${rail ? 'w-full py-2.5' : 'w-full py-2 text-xs font-bold uppercase tracking-widest'}`}>
+    <ChevronRight size={16} className={`transition-transform duration-300 ${rail ? '' : 'rotate-180'}`} />
+    {!rail && <span>Collapse</span>}
+   </button>
   </div>
-  <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto relative z-10 py-2">
+  <nav className="flex-1 space-y-0.5 overflow-y-auto relative z-10 py-2 px-3">
    <NavButton id="dashboard" icon={LayoutDashboard} label="Dashboard" />
-   <div className="pt-5 pb-1.5 px-4 text-[10px] font-extrabold text-slate-600 uppercase tracking-widest">Sales</div>
+   <SectionLabel>Sales</SectionLabel>
    <NavButton id="quotations" icon={FileCheck} label="Quotations" />
    <NavButton id="invoices" icon={FileText} label="Invoices" />
    <NavButton id="clients" icon={Briefcase} label="Clients" />
-   <div className="pt-5 pb-1.5 px-4 text-[10px] font-extrabold text-slate-600 uppercase tracking-widest">Expenses</div>
+   <SectionLabel>Expenses</SectionLabel>
    <NavButton id="expenses" icon={Receipt} label="Expenses" />
    <NavButton id="petty-cash" icon={Wallet} label="Petty Cash" />
    <NavButton id="vendors" icon={Truck} label="Vendors" />
    <NavButton id="vendor-bills" icon={FileText} label="Vendor Bills" />
-   <div className="pt-5 pb-1.5 px-4 text-[10px] font-extrabold text-slate-600 uppercase tracking-widest">Finance</div>
+   <SectionLabel>Finance</SectionLabel>
    <NavButton id="employees" icon={Briefcase} label="Employees" />
    <NavButton id="salaries" icon={Users} label="Team Salaries" />
    <NavButton id="bank" icon={Building2} label="Bank Accounts" />
    <NavButton id="receivables-payables" icon={CreditCard} label="Receivables & Payables" />
-   <div className="pt-5 pb-1.5 px-4 text-[10px] font-extrabold text-slate-600 uppercase tracking-widest">Reports</div>
+   <SectionLabel>Reports</SectionLabel>
    <NavButton id="reports" icon={FileText} label="P&L Analytics" />
    <NavButton id="tax-report" icon={Landmark} label="Tax Liability" />
    <NavButton id="statements" icon={BookOpen} label="Client Statements" />
    {currentUser.role === 'Admin' && (
     <>
-    <div className="pt-5 pb-1.5 px-4 text-[10px] font-extrabold text-slate-600 uppercase tracking-widest">Admin</div>
+    <SectionLabel>Admin</SectionLabel>
     <NavButton id="manage-users" icon={UserPlus} label="User Management" />
     <NavButton id="settings" icon={Settings} label="Configuration" />
-    <button onClick={handleMasterExport} className="w-full flex items-center gap-4 px-5 py-3 rounded-2xl text-emerald-400 hover:bg-emerald-500/10 transition-all font-bold text-sm tracking-wide group">
-     <Database size={18} className="group-hover:scale-110 transition-transform flex-shrink-0"/> Backup Data
+    <button onClick={handleMasterExport} title={rail ? 'Backup Data' : undefined} aria-label="Backup Data"
+     className={`w-full flex items-center ${rail ? 'justify-center px-0' : 'gap-4 px-5'} py-3 rounded-2xl text-emerald-400 hover:bg-emerald-500/10 transition-all font-bold text-sm tracking-wide group relative`}>
+     <Database size={18} className="group-hover:scale-110 transition-transform flex-shrink-0"/>
+     {!rail && 'Backup Data'}
     </button>
     </>
    )}
   </nav>
-  <div className="p-6 border-t border-slate-800 bg-[#0F172A] relative z-20">
-   <button onClick={handleLogout} className="w-full flex items-center justify-center gap-3 p-3.5 rounded-xl bg-slate-800/50 text-slate-300 hover:bg-rose-600 hover:text-white transition-all font-bold text-sm shadow-lg"><Lock size={16}/> Sign Out</button>
+  <div className={`border-t border-slate-800 bg-[#0F172A] relative z-20 ${rail ? 'p-3' : 'p-6'}`}>
+   <button onClick={handleLogout} title={rail ? 'Sign Out' : undefined} aria-label="Sign Out"
+    className="w-full flex items-center justify-center gap-3 p-3.5 rounded-xl bg-slate-800/50 text-slate-300 hover:bg-rose-600 hover:text-white transition-all font-bold text-sm shadow-lg">
+    <Lock size={16}/>{!rail && 'Sign Out'}
+   </button>
   </div>
   </aside>
   {}
   {isSidebarOpen && <div className="fixed inset-0 bg-slate-900/80 z-30 md:hidden backdrop-blur-sm transition-opacity" onClick={() => setIsSidebarOpen(false)}></div>}
   {}
-  <main className="md:ml-80 min-h-screen pt-24 md:pt-10 p-6 md:p-10 transition-all duration-300">
+  <main className={`min-h-screen pt-24 md:pt-10 p-6 md:p-10 transition-all duration-300 ${rail ? 'md:ml-24' : 'md:ml-80'}`}>
   <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-10 gap-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
    <div>
     <h2 className="text-4xl font-extrabold text-slate-900 capitalize tracking-tight mb-1">
@@ -6482,8 +6552,8 @@ function App() {
    onRevise={handleSalaryRevision}
   />}
   {view === 'salaries' && <SalariesPage salaries={salaries} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} companyProfile={companyProfile} onNewSalary={() => { if(currentUser?.role !== 'Admin') return toast('Payroll is restricted to Admin users.', 'error'); const d = new Date().toISOString().split('T')[0]; setFormData({ date: d, payPeriod: d.slice(0,7), status: 'Unpaid', paymentMode: 'Bank Transfer' }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(s) => { if(currentUser?.role !== 'Admin') return toast('Payroll is restricted to Admin users.', 'error'); setFormData({...s}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = salaries.find(x=>x.id===id); handleDelete(id, 'salary', r?.employeeName||''); }} onViewSlip={(s) => { if (s) setSlipData(s); }} onRunPayroll={currentUser?.role === 'Admin' ? () => setShowPayrollRun(true) : null} />}
-  {view === 'quotations' && <QuotationGenerator clients={clients} onSave={(q) => saveToFirebase('quotations', q, q.id)} savedQuotations={quotations} onDeleteQuotation={(id) => { const r = quotations.find(x=>x.id===id); handleDelete(id, 'quotation', r?.client||''); }} onConvertToInvoice={handleConvertToInvoice} companyProfile={companyProfile} appSettings={appSettings} onUpdateSettings={setAppSettings} canWrite={canWrite} />}
-  {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveToFirebase('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => { const r = invoices.find(x=>x.id===id); handleDelete(id, 'invoice', r?.client ? `Invoice #${r.invoiceNumber} — ${r.client}` : ''); }} onGenerateRecurring={handleGenerateRecurring} onReceivePayment={(inv, amt) => initiatePayment(inv, 'invoice', amt)} companyProfile={companyProfile} appSettings={appSettings} onUpdateSettings={setAppSettings} canWrite={canWrite} pendingClient={newInvoiceForClient} onClearPendingClient={() => setNewInvoiceForClient(null)} />}
+  {view === 'quotations' && <QuotationGenerator clients={clients} onSave={(q) => saveRecord('quotations', q, q.id)} savedQuotations={quotations} onDeleteQuotation={(id) => { const r = quotations.find(x=>x.id===id); handleDelete(id, 'quotation', r?.client||''); }} onConvertToInvoice={handleConvertToInvoice} companyProfile={companyProfile} appSettings={appSettings} onUpdateSettings={setAppSettings} canWrite={canWrite} />}
+  {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveRecord('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => { const r = invoices.find(x=>x.id===id); handleDelete(id, 'invoice', r?.client ? `Invoice #${r.invoiceNumber} — ${r.client}` : ''); }} onGenerateRecurring={handleGenerateRecurring} onReceivePayment={(inv, amt) => initiatePayment(inv, 'invoice', amt)} companyProfile={companyProfile} appSettings={appSettings} onUpdateSettings={setAppSettings} canWrite={canWrite} pendingClient={newInvoiceForClient} onClearPendingClient={() => setNewInvoiceForClient(null)} />}
   {view === 'vendors' && <VendorsPage vendors={vendors} vendorBills={vendorBills} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewVendor={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(v) => { if(!canWrite) return; setFormData({...v}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendors.find(x=>x.id===id); handleDelete(id, 'vendor', r?.name||''); }} onViewProfile={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
   {view === 'vendor-bills' && <VendorBillsPage vendorBills={vendorBills} vendors={vendors} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewBill={() => { if(!canWrite) return; const prefix = appSettings.billPrefix||'BILL'; const num = `${prefix}-${String(Number(appSettings.billCounter||1)).padStart(3,'0')}`; setFormData({ date: new Date().toISOString().split('T')[0], billNumber: num }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(b) => { if(!canWrite) return; setFormData({...b}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendorBills.find(x=>x.id===id); handleDelete(id, 'bill', r?.vendor ? `${r.vendor} — ${r.billNumber||r.description||''}` : ''); }} onPayBill={(b, amt) => initiatePayment(b, 'bill', amt)} />}
   {view === 'manage-users' && <ManageUsersPage
@@ -6724,7 +6794,7 @@ function App() {
      <div className="space-y-5">
       <div>
        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">ImgBB API Key (Receipt Uploads)</label>
-       <div className="flex gap-3"><input type="password" className="flex-1 bg-slate-50 border border-slate-200 p-3.5 rounded-xl text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none" value={imgbbKey} onChange={e => setImgbbKey(e.target.value)} placeholder="Enter API key..." /><a href="https://api.imgbb.com/" target="_blank" rel="noopener noreferrer" className="bg-slate-100 text-slate-600 px-5 py-3.5 rounded-xl text-sm font-bold hover:bg-slate-200 transition-colors">Get Key</a></div>
+       <div className="flex gap-3"><input type="password" className="flex-1 bg-slate-50 border border-slate-200 p-3.5 rounded-xl text-sm font-medium focus:ring-2 focus:ring-violet-500 outline-none" value={appSettings.imgbbKey || ''} onChange={e => setAppSettings(p => ({...p, imgbbKey: e.target.value}))} placeholder="Enter API key..." /><a href="https://api.imgbb.com/" target="_blank" rel="noopener noreferrer" className="bg-slate-100 text-slate-600 px-5 py-3.5 rounded-xl text-sm font-bold hover:bg-slate-200 transition-colors">Get Key</a></div>
       </div>
       <div className="grid grid-cols-2 gap-4">
        <button onClick={handleMasterExport} className="bg-violet-50 text-violet-700 py-4 rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-violet-100 transition-colors"><Download size={20} /> Backup Data</button>
