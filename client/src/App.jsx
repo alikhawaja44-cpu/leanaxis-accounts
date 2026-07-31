@@ -30,6 +30,7 @@ import PaymentStatement, { buildStatementRows } from './components/PaymentStatem
 import EmployeesPage from './components/EmployeesPage';
 import PayrollRun from './components/PayrollRun';
 import SuggestInput, { collectSuggestions } from './components/SuggestInput';
+import EmployeeImport from './components/EmployeeImport';
 import { draftSalaryFor, structureFor, validateEmployee, periodLabelOf, STRUCTURE_FIELDS, EMPLOYEE_STATUSES } from './utils/employees';
 
 // ── Helpers replicated inline for components ──────────────────────────────────
@@ -5472,6 +5473,7 @@ function App() {
  const [partialAmount, setPartialAmount] = useState('');
  const [slipData, setSlipData] = useState(null);
  const [showPayrollRun, setShowPayrollRun] = useState(false);
+ const [showEmployeeImport, setShowEmployeeImport] = useState(false);
  const [selectedClientProfile, setSelectedClientProfile] = useState(null);
  const [selectedVendorProfile, setSelectedVendorProfile] = useState(null);
  const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -5636,6 +5638,28 @@ function App() {
    toast('Salary revision saved.', 'success');
   } catch (e) {
    toast(e.response?.data?.error || 'Could not save the revision.', 'error');
+  }
+ };
+
+ // Creates employee master records reconstructed from existing payslips.
+ const handleEmployeeImport = async (drafts) => {
+  if (currentUser?.role !== 'Admin') return toast('Employee records are restricted to Admin users.', 'error');
+  const created = [];
+  const failed = [];
+  for (const d of drafts) {
+   try {
+    const res = await employeesAPI.create(d);
+    created.push(res.data);
+   } catch (e) {
+    failed.push(d.name || 'Unknown');
+   }
+  }
+  if (created.length) setEmployees(prev => [...created, ...prev]);
+  setShowEmployeeImport(false);
+  if (failed.length) {
+   toast(`Created ${created.length}. Failed for: ${failed.join(', ')}.`, 'warning');
+  } else {
+   toast(`Created ${created.length} employee record${created.length !== 1 ? 's' : ''} from your payslips.`, 'success');
   }
  };
 
@@ -6572,6 +6596,7 @@ function App() {
   {view === 'petty-cash' && <PettyCashPage pettyCash={pettyCash} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} appSettings={appSettings} onNewEntry={(type) => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0], _entryType: type || 'out' }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { if(!canWrite) return; setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = pettyCash.find(x=>x.id===id); handleDelete(id, 'petty', r?.description||''); }} />}
   {view === 'employees' && <EmployeesPage
    employees={employees} salaries={salaries} canWrite={currentUser?.role === 'Admin'} toast={toast}
+   onImport={currentUser?.role === 'Admin' ? () => setShowEmployeeImport(true) : null}
    onNew={() => { if(currentUser?.role !== 'Admin') return toast('Employee records are restricted to Admin users.', 'error'); setFormData({ status: 'Active', paymentMode: 'Bank Transfer', joiningDate: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }}
    onEdit={(e) => { if(currentUser?.role !== 'Admin') return toast('Employee records are restricted to Admin users.', 'error'); setFormData({ ...e }); setIsEditingRecord(true); setShowForm(true); }}
    onDelete={(e) => handleDelete(e.id, 'employee', e.name || '')}
@@ -7722,6 +7747,13 @@ function App() {
    </div>
   )}
   {}
+  {showEmployeeImport && (
+   <EmployeeImport
+    salaries={salaries} employees={employees} toast={toast}
+    onClose={() => setShowEmployeeImport(false)}
+    onImport={handleEmployeeImport}
+   />
+  )}
   {showPayrollRun && (
    <PayrollRun
     employees={employees} salaries={salaries} companyProfile={companyProfile} toast={toast}

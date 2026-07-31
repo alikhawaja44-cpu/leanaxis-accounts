@@ -5,7 +5,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Users, Plus, Search, Edit, Trash2, X, TrendingUp, TrendingDown,
-  Calendar, CreditCard, Briefcase, ChevronRight, Wallet, CheckCircle, Clock,
+  Calendar, Briefcase, ChevronRight, Wallet, CheckCircle, Download,
 } from 'lucide-react';
 import { formatCurrency } from '../utils/helpers';
 import {
@@ -342,7 +342,7 @@ const EmployeeProfile = ({ employee, salaries, onBack, onEdit, onRevise, canWrit
 // ── Main page ───────────────────────────────────────────────────────────────
 const EmployeesPage = ({
   employees = [], salaries = [], canWrite,
-  onNew, onEdit, onDelete, onRevise, toast = () => {},
+  onNew, onEdit, onDelete, onRevise, onImport, toast = () => {},
 }) => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('Active');
@@ -436,10 +436,18 @@ const EmployeesPage = ({
           </div>
         </div>
         {canWrite && (
-          <button onClick={onNew}
-            className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-200 hover:scale-105 active:scale-95 transition-all">
-            <Plus size={16} /> New Employee
-          </button>
+          <div className="flex gap-2 flex-wrap">
+            {onImport && salaries.length > 0 && (
+              <button onClick={onImport}
+                className="bg-white border border-slate-300 text-slate-700 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 shadow-sm">
+                <Download size={15} /> Import from Payslips
+              </button>
+            )}
+            <button onClick={onNew}
+              className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-200 hover:scale-105 active:scale-95 transition-all">
+              <Plus size={16} /> New Employee
+            </button>
+          </div>
         )}
       </div>
 
@@ -451,15 +459,28 @@ const EmployeesPage = ({
           <h3 className="text-lg font-bold text-slate-700 mb-2">
             {employees.length === 0 ? 'No employees yet' : 'No employees match your filters'}
           </h3>
-          <p className="text-sm text-slate-400 mb-6">
+          <p className="text-sm text-slate-400 mb-6 max-w-md mx-auto">
             {employees.length === 0
-              ? 'Add your team once, then generate payslips without retyping their details each month.'
+              ? (salaries.length > 0
+                  ? 'You already have payslips on file — their names, salaries and bank details can be turned into employee profiles automatically.'
+                  : 'Add your team once, then generate payslips without retyping their details each month.')
               : 'Try a different search or status filter.'}
           </p>
           {employees.length === 0 && canWrite && (
-            <button onClick={onNew} className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-indigo-700">
-              + Add First Employee
-            </button>
+            <div className="flex gap-3 justify-center flex-wrap">
+              {onImport && salaries.length > 0 && (
+                <button onClick={onImport}
+                  className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 flex items-center gap-2">
+                  <Download size={16} /> Import from Payslips
+                </button>
+              )}
+              <button onClick={onNew}
+                className={`px-6 py-3 rounded-xl font-bold text-sm ${onImport && salaries.length > 0
+                  ? 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                  : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
+                + Add Manually
+              </button>
+            </div>
           )}
         </div>
       ) : (

@@ -6,7 +6,7 @@
 // the most recent entry effective on or before that period. This means a payslip
 // re-opened months later still shows the figures that were correct at the time.
 
-import { EARNING_FIELDS, DEDUCTION_FIELDS } from './payroll';
+import { EARNING_FIELDS, DEDUCTION_FIELDS, payPeriodKey } from './payroll';
 
 const num = (v) => {
   const n = Number(v);
@@ -165,3 +165,142 @@ export function activeForPeriod(employees, periodKey) {
 }
 
 export { EARNING_FIELDS, DEDUCTION_FIELDS };
+
+// ── Deriving employee records from existing payslips ────────────────────────
+
+/** Most recent non-empty value for a field, scanning newest payslip first. */
+function latestValue(slipsNewestFirst, field) {
+  for (const s of slipsNewestFirst) {
+    const v = s && s[field];
+    if (v !== null && v !== undefined && String(v).trim() !== '') return String(v).trim();
+  }
+  return '';
+}
+
+/** True when two salary structures are materially the same. */
+function sameStructure(a, b) {
+  if (!a || !b) return false;
+  return STRUCTURE_FIELDS.every((k) => num(a[k]) === num(b[k]));
+}
+
+/**
+ * Builds employee master records out of payslips that already exist.
+ *
+ * Everything an employee record needs — name, ID, designation, CNIC, bank
+ * details, salary structure — has already been typed onto payslips. Rather than
+ * re-entering it all by hand, this reconstructs the profiles from that history.
+ *
+ * The salary history is rebuilt too: walking the payslips oldest to newest, a
+ * revision entry is created every time the structure actually changes, dated to
+ * the first day of that pay period. So an employee paid 100k for six months and
+ * 150k after gets two history entries, not eight.
+ *
+ * @param {Array} salaries       existing salary records
+ * @param {Array} existing       employees already on file (these are skipped)
+ * @returns {Array} draft employee records, ready to create
+ */
+export function deriveEmployeesFromSalaries(salaries, existing) {
+  const slips = (Array.isArray(salaries) ? salaries : []).filter(Boolean);
+  const already = (Array.isArray(existing) ? existing : []).filter(Boolean);
+
+  const takenIds = new Set(
+    already.map((e) => String(e.employeeId || '').trim().toLowerCase()).filter(Boolean)
+  );
+  const takenNames = new Set(
+    already.map((e) => String(e.name || '').trim().toLowerCase()).filter(Boolean)
+  );
+
+  // Group payslips per person. Prefer an explicit link, fall back to the name.
+  const groups = new Map();
+  for (const s of slips) {
+    const name = String(s.employeeName || '').trim();
+    if (!name) continue;
+    const key = s.employeeRef ? `ref:${s.employeeRef}` : `name:${name.toLowerCase()}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(s);
+  }
+
+  const drafts = [];
+  let generatedSeq = 1;
+
+  for (const [, list] of groups) {
+    const oldestFirst = [...list].sort((a, b) =>
+      String(payPeriodKey(a)).localeCompare(String(payPeriodKey(b)))
+    );
+    const newestFirst = [...oldestFirst].reverse();
+
+    const name = latestValue(newestFirst, 'employeeName');
+    if (!name || takenNames.has(name.toLowerCase())) continue;
+
+    // Keep the employee's own ID if it was ever recorded; otherwise mint one
+    // that does not clash with anything already taken.
+    let employeeId = latestValue(newestFirst, 'employeeId');
+    if (!employeeId || takenIds.has(employeeId.toLowerCase())) {
+      do {
+        employeeId = `EMP-${String(generatedSeq).padStart(3, '0')}`;
+        generatedSeq += 1;
+      } while (takenIds.has(employeeId.toLowerCase()));
+    }
+    takenIds.add(employeeId.toLowerCase());
+    takenNames.add(name.toLowerCase());
+
+    // Rebuild the revision history: one entry per genuine change.
+    const salaryHistory = [];
+    let previous = null;
+    for (const slip of oldestFirst) {
+      const st = pickStructure(slip);
+      if (structureGross(st) <= 0) continue;
+      if (sameStructure(st, previous)) continue;
+      const key = payPeriodKey(slip);
+      salaryHistory.push({
+        ...st,
+        effectiveFrom: key ? `${key}-01` : (slip.date || ''),
+        reason: previous ? 'Rate change (from payslip history)' : 'Initial salary (from payslip)',
+        revisedBy: 'Imported',
+      });
+      previous = st;
+    }
+
+    const current = salaryHistory.length
+      ? pickStructure(salaryHistory[salaryHistory.length - 1])
+      : pickStructure({});
+
+    drafts.push({
+      name,
+      employeeId,
+      designation: latestValue(newestFirst, 'role'),
+      department: latestValue(newestFirst, 'department'),
+      cnic: latestValue(newestFirst, 'cnic'),
+      joiningDate: latestValue(newestFirst, 'joiningDate'),
+      phone: latestValue(newestFirst, 'phone'),
+      email: latestValue(newestFirst, 'email'),
+      status: 'Active',
+      paymentMode: latestValue(newestFirst, 'paymentMode') || 'Bank Transfer',
+      bankName: latestValue(newestFirst, 'bankName'),
+      accountNumber: latestValue(newestFirst, 'accountNumber'),
+      notes: 'Profile created from existing payslips.',
+      ...current,
+      salaryHistory,
+      // Not persisted — used by the review screen only.
+      _payslipCount: oldestFirst.length,
+      _firstPeriod: payPeriodKey(oldestFirst[0]),
+      _lastPeriod: payPeriodKey(newestFirst[0]),
+      _missing: [
+        !latestValue(newestFirst, 'cnic') && 'CNIC',
+        !latestValue(newestFirst, 'joiningDate') && 'Date of joining',
+        !latestValue(newestFirst, 'phone') && 'Phone',
+        !latestValue(newestFirst, 'accountNumber') && 'Account / IBAN',
+        !latestValue(newestFirst, 'department') && 'Department',
+      ].filter(Boolean),
+    });
+  }
+
+  return drafts.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Strips the review-only fields before saving. */
+export function stripDraftMeta(draft) {
+  const clean = { ...(draft || {}) };
+  Object.keys(clean).forEach((k) => { if (k.startsWith('_')) delete clean[k]; });
+  return clean;
+}
