@@ -62,6 +62,7 @@ export const STATEMENT_CSS = `
 .st-sign-line{border-top:1px solid #0f172a;margin-bottom:5px;}
 .st-sign-l{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:1.2px;color:#0f172a;}
 .st-sign-s{font-size:8.5px;font-weight:600;color:#64748b;margin-top:2px;}
+.st-sign-co{font-size:8px;color:#94a3b8;margin-top:1px;}
 .st-foot{margin-top:16px;padding-top:8px;border-top:1px solid #e2e8f0;display:flex;
   justify-content:space-between;font-size:8.5px;color:#94a3b8;}
 @media print{
@@ -138,7 +139,8 @@ export const PaymentStatementDocument = ({
           <p className="st-co">{companyProfile.name || 'Company Name'}</p>
           {companyProfile.address && <p className="st-co-line">{companyProfile.address}</p>}
           <p className="st-co-line">
-            {[companyProfile.phone, companyProfile.email].filter(Boolean).join('  ·  ')}
+            {[companyProfile.phone, companyProfile.email, companyProfile.website]
+              .filter(Boolean).join('  ·  ')}
           </p>
           {companyProfile.ntn && <p className="st-co-line">NTN: {companyProfile.ntn}</p>}
         </div>
@@ -239,7 +241,16 @@ export const PaymentStatementDocument = ({
         <div className="st-sign">
           <div className="st-sign-line" />
           <p className="st-sign-l">Authorised Signatory</p>
-          <p className="st-sign-s">HR &amp; Accounts Department</p>
+          {companyProfile.signatoryName ? (
+            <>
+              <p className="st-sign-s">{companyProfile.signatoryName}</p>
+              <p className="st-sign-co">
+                {[companyProfile.signatoryTitle, companyProfile.name].filter(Boolean).join(' · ')}
+              </p>
+            </>
+          ) : (
+            <p className="st-sign-s">HR &amp; Accounts Department</p>
+          )}
         </div>
       </div>
 

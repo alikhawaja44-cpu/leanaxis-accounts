@@ -26,10 +26,10 @@ export const PAYSLIP_CSS = `
   -webkit-print-color-adjust:exact;print-color-adjust:exact;}
 .ps-doc *{box-sizing:border-box;}
 .ps-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;}
-.ps-brand{display:flex;gap:12px;align-items:flex-start;max-width:58%;}
+.ps-brand{display:flex;gap:12px;align-items:flex-start;max-width:64%;}
 .ps-logo{height:46px;width:auto;max-width:150px;object-fit:contain;}
 .ps-co-name{font-size:17px;font-weight:800;letter-spacing:-.2px;color:#0f172a;margin:0;}
-.ps-co-tag{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;color:#64748b;margin:2px 0 6px;}
+.ps-co-tag{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#64748b;margin:2px 0 6px;white-space:nowrap;}
 .ps-co-line{font-size:9.5px;color:#475569;margin:1px 0;}
 .ps-title-box{text-align:right;flex-shrink:0;}
 .ps-title{font-size:19px;font-weight:800;letter-spacing:3px;text-transform:uppercase;color:#0f172a;margin:0;}
@@ -86,7 +86,7 @@ export const PAYSLIP_CSS = `
 .ps-notes b{display:block;font-size:8.5px;letter-spacing:1.2px;text-transform:uppercase;
   color:#64748b;margin-bottom:2px;}
 .ps-spacer{flex:1;min-height:14px;}
-.ps-signs{display:flex;justify-content:center;margin-top:26px;}
+.ps-signs{display:flex;justify-content:center;margin-top:22px;}
 .ps-sign{width:260px;text-align:center;}
 .ps-sign-line{border-top:1px solid #0f172a;margin-bottom:5px;}
 .ps-sign-l{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:1.2px;color:#0f172a;}
@@ -340,8 +340,20 @@ export const PayslipDocument = ({ data = {}, companyProfile = {}, appSettings = 
         <div className="ps-sign">
           <div className="ps-sign-line" />
           <p className="ps-sign-l">Authorised Signatory</p>
-          <p className="ps-sign-s">HR &amp; Accounts Department</p>
-          {companyProfile.name && <p className="ps-sign-co">{companyProfile.name}</p>}
+          {/* A named signatory supersedes the generic department line. */}
+          {companyProfile.signatoryName ? (
+            <>
+              <p className="ps-sign-s">{companyProfile.signatoryName}</p>
+              <p className="ps-sign-co">
+                {[companyProfile.signatoryTitle, companyProfile.name].filter(Boolean).join(' · ')}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="ps-sign-s">HR &amp; Accounts Department</p>
+              {companyProfile.name && <p className="ps-sign-co">{companyProfile.name}</p>}
+            </>
+          )}
         </div>
       </div>
 

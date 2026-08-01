@@ -34,6 +34,25 @@ import EmployeeImport from './components/EmployeeImport';
 import { draftSalaryFor, structureFor, validateEmployee, periodLabelOf, STRUCTURE_FIELDS, EMPLOYEE_STATUSES } from './utils/employees';
 
 // ── Helpers replicated inline for components ──────────────────────────────────
+/**
+ * Company details used across every document — payslips, invoices, quotations,
+ * statements. Anything left blank in Settings falls back to these, so the
+ * paperwork is never missing the company's own address or signatory.
+ * Settings always wins where a value has actually been entered.
+ */
+export const DEFAULT_COMPANY_PROFILE = {
+  name: 'LeanAxis',
+  tagline: 'Creative Agency & Solutions',
+  address: '19 CCA, DHA Phase V, Lahore, Pakistan',
+  phone: '0323 0431373',
+  email: '',
+  website: '',
+  ntn: '',
+  strn: '',
+  signatoryName: 'Bilal Ahmed Khattak',
+  signatoryTitle: 'CEO',
+};
+
 const Logo = ({ className, white = false, companyName, tagline }) => (
  <div className={`flex items-center gap-3 ${className}`}>
   <img src="./logo.png" alt={companyName || 'Company'} className="h-10 object-contain" onError={(e) => {
@@ -239,9 +258,24 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
    {}
    <div className="mb-6"><textarea rows={2} placeholder="Notes or terms for this quotation (optional)" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm font-medium outline-none focus:ring-2 focus:ring-amber-400 resize-none" value={quoteData.notes||''} onChange={e=>setQuoteData({...quoteData,notes:e.target.value})}/></div>
    {}
-   <div className="pt-4 border-t border-slate-100 flex justify-between items-end text-xs text-slate-400">
-    <p className="italic">This is an estimate. Prices subject to change.</p>
-    <p className="font-bold">{companyProfile.name || ''}</p>
+   <div className="pt-4 border-t border-slate-100 flex justify-between items-end text-xs text-slate-400 gap-6">
+    <div>
+     <p className="italic">This is an estimate. Prices subject to change.</p>
+     {companyProfile.signatoryName && (
+      <div className="mt-8 w-48">
+       <div className="border-t border-slate-400"/>
+       <p className="text-xs font-bold text-slate-700 mt-1">{companyProfile.signatoryName}</p>
+       <p className="text-xs text-slate-400">
+        {[companyProfile.signatoryTitle, 'Authorised Signatory'].filter(Boolean).join(' · ')}
+       </p>
+      </div>
+     )}
+    </div>
+    <div className="text-right">
+     <p className="font-bold text-slate-700">{companyProfile.name || ''}</p>
+     {companyProfile.address && <p className="text-slate-400">{companyProfile.address}</p>}
+     {companyProfile.phone && <p className="text-slate-400">{companyProfile.phone}</p>}
+    </div>
    </div>
    </div>{}
    <div className="flex flex-col md:flex-row gap-4 mt-6">
@@ -1045,7 +1079,18 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
         )}
         {}
         <div className="mt-6 pt-4 border-t border-slate-100 flex justify-between items-end">
-         <p className="text-xs text-slate-400 italic">Computer-generated invoice. Thank you for your business.</p>
+         <div>
+          <p className="text-xs text-slate-400 italic">Computer-generated invoice. Thank you for your business.</p>
+          {companyProfile.signatoryName && (
+           <div className="mt-8 w-48">
+            <div className="border-t border-slate-400"/>
+            <p className="text-xs font-bold text-slate-700 mt-1">{companyProfile.signatoryName}</p>
+            <p className="text-xs text-slate-400">
+             {[companyProfile.signatoryTitle, 'Authorised Signatory'].filter(Boolean).join(' · ')}
+            </p>
+           </div>
+          )}
+         </div>
          <div className="text-right">
           <p className="text-xs font-bold text-slate-700">{companyProfile.name || ''}</p>
           {companyProfile.phone && <p className="text-xs text-slate-400">{companyProfile.phone}</p>}
@@ -2309,7 +2354,7 @@ const PettyCashPage = ({ pettyCash, currentUser, canWrite, canDelete, onNewEntry
   </div>
  );
 };
-const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
+const ClientStatement = ({ clients, invoices, bankRecords, pettyCash, companyProfile = {} }) => {
  const [selectedClient, setSelectedClient] = useState('');
  const [statementData, setStatementData] = useState([]);
  useEffect(() => {
@@ -2371,8 +2416,14 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash }) => {
   <div className="bg-white p-8 md:p-12 rounded-3xl shadow-xl border border-slate-100 max-w-5xl mx-auto animate-in fade-in zoom-in-95 duration-300">
    <div className="flex flex-col md:flex-row justify-between items-start mb-10 border-b border-slate-100 pb-8 gap-6">
     <div>
-     <h2 className="text-3xl font-bold text-slate-900 mb-2">Account Statement</h2>
-     <p className="text-slate-500 font-medium">Client Ledger & History</p>
+     <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mb-2">Account Statement</h2>
+     <p className="text-slate-500 font-medium">Client Ledger &amp; History</p>
+     <div className="mt-3 text-xs text-slate-400 leading-relaxed">
+      <p className="font-bold text-slate-600 text-sm">{companyProfile.name || ''}</p>
+      {companyProfile.address && <p>{companyProfile.address}</p>}
+      <p>{[companyProfile.phone, companyProfile.email].filter(Boolean).join('  ·  ')}</p>
+      {companyProfile.ntn && <p>NTN: {companyProfile.ntn}</p>}
+     </div>
     </div>
     <div className="w-full md:w-64">
      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Select Client</label>
@@ -5480,7 +5531,15 @@ function App() {
  const [showCommandPalette, setShowCommandPalette] = useState(false);
  const [newInvoiceForClient, setNewInvoiceForClient] = useState(null);
  // Derive companyProfile from appSettings
- const companyProfile = appSettings.companyProfile || {};
+ // Blank fields fall back to the defaults above; anything set in Settings wins.
+ const companyProfile = useMemo(() => {
+  const stored = appSettings.companyProfile || {};
+  const merged = { ...DEFAULT_COMPANY_PROFILE };
+  Object.entries(stored).forEach(([k, v]) => {
+   if (v !== undefined && v !== null && String(v).trim() !== '') merged[k] = v;
+  });
+  return merged;
+ }, [appSettings.companyProfile]);
  const setCompanyProfile = (updater) => {
   const newProfile = typeof updater === 'function' ? updater(companyProfile) : updater;
   setAppSettings(prev => ({ ...prev, companyProfile: newProfile }));
@@ -6587,7 +6646,7 @@ function App() {
     </div>
    );
   })()}
-  {view === 'statements' && <ClientStatement clients={clients} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} />}
+  {view === 'statements' && <ClientStatement clients={clients} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} companyProfile={companyProfile} />}
   {view === 'receivables-payables' && <ReceivablesPayables clients={clients} invoices={invoices} vendors={vendors} vendorBills={vendorBills} bankRecords={bankRecords} pettyCash={pettyCash} onViewClient={(c) => { setSelectedClientProfile(c); setView('client-profile'); }} onViewVendor={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
   {view === 'clients' && <ClientsPage clients={clients} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onViewProfile={(c) => { setSelectedClientProfile(c); setView('client-profile'); }} onEdit={(c) => { if(!canWrite) return; setFormData({...c}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = clients.find(x=>x.id===id); handleDelete(id, 'client', r?.name||''); }} onNewClient={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} />}
   {view === 'client-profile' && selectedClientProfile && <ClientProfile client={selectedClientProfile} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('clients')} onCreateInvoice={(client) => { setNewInvoiceForClient(client); setView('invoices'); }} onRecordPayment={(inv) => initiatePayment(inv, 'invoice', invoiceTotals(inv).balance)} />}
@@ -6656,6 +6715,16 @@ function App() {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
        <div>
+        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Authorised Signatory</label>
+        <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={companyProfile.signatoryName||''} onChange={e=>setCompanyProfile(p=>({...p,signatoryName:e.target.value}))} placeholder="e.g. Bilal Ahmed Khattak" />
+       </div>
+       <div>
+        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Signatory Title</label>
+        <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={companyProfile.signatoryTitle||''} onChange={e=>setCompanyProfile(p=>({...p,signatoryTitle:e.target.value}))} placeholder="e.g. CEO" />
+       </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+       <div>
         <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">NTN</label>
         <input className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500" value={companyProfile.ntn||''} onChange={e=>setCompanyProfile(p=>({...p,ntn:e.target.value}))} placeholder="0000000-0" />
        </div>
@@ -6665,7 +6734,7 @@ function App() {
        </div>
       </div>
       <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-xs font-medium text-emerald-700 flex items-center gap-2">
-       <CheckCircle size={14}/> Company name, tagline, address and NTN appear on all invoices, quotations, and salary slips.
+       <CheckCircle size={14}/> These details appear on every invoice, quotation, payslip and statement. The signatory name is printed above the signature line.
       </div>
      </div>
     </div>
