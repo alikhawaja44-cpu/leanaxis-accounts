@@ -115,6 +115,45 @@ export function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * Parses a stored date as a LOCAL calendar date.
+ *
+ * `new Date('2026-07-31')` is defined by the spec to mean UTC midnight, but
+ * "today" is computed as *local* midnight. In Pakistan (UTC+5) local midnight is
+ * 19:00 UTC the previous day, so comparing the two lost a day: an invoice due
+ * 31 July still read as "0 days overdue" on 1 August. Every overdue flag, aging
+ * bucket and days-overdue count in the app was short by one.
+ *
+ * Date-only strings are therefore built explicitly in local time. Full
+ * timestamps (which carry their own zone) are left alone.
+ */
+export function parseLocalDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  const str = String(value).trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/** Local midnight today — the reference point for all age calculations. */
+export function startOfDay(value) {
+  const d = value ? parseLocalDate(value) : new Date();
+  if (!d) return null;
+  const out = new Date(d);
+  out.setHours(0, 0, 0, 0);
+  return out;
+}
+
+/** Whole days between two dates (b - a), calendar-accurate in local time. */
+export function daysBetween(later, earlier) {
+  const a = startOfDay(later);
+  const b = startOfDay(earlier);
+  if (!a || !b) return 0;
+  return Math.round((a - b) / 86400000);
+}
+
 /** Convenience: just the invoice total. */
 export const invoiceTotal = (inv) => invoiceTotals(inv).total;
 /** Convenience: what is still owed on an invoice. */

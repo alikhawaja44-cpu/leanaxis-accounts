@@ -20,7 +20,7 @@ import {
 } from './utils/api';
 
 // Utilities
-import { formatCurrency, calculateTax, calcInvoiceTotal, invoiceTotals, invoiceTotal, descriptionMatchesParty, escapeHtml, printDocument, downloadElementAsPDF, today, exportToCSV, updateCurrencyFormatter } from './utils/helpers';
+import { formatCurrency, calculateTax, calcInvoiceTotal, invoiceTotals, invoiceTotal, descriptionMatchesParty, escapeHtml, parseLocalDate, daysBetween, printDocument, downloadElementAsPDF, today, exportToCSV, updateCurrencyFormatter } from './utils/helpers';
 import {
   computePayroll, withTotals, payPeriodLabel, payPeriodKey,
   EARNING_FIELDS, DEDUCTION_FIELDS, PAYMENT_MODES, netOf, grossOf,
@@ -31,6 +31,8 @@ import EmployeesPage from './components/EmployeesPage';
 import PayrollRun from './components/PayrollRun';
 import SuggestInput, { collectSuggestions } from './components/SuggestInput';
 import EmployeeImport from './components/EmployeeImport';
+import CashFlow from './components/CashFlow';
+import Collections from './components/Collections';
 import { draftSalaryFor, structureFor, validateEmployee, periodLabelOf, STRUCTURE_FIELDS, EMPLOYEE_STATUSES } from './utils/employees';
 
 // ── Helpers replicated inline for components ──────────────────────────────────
@@ -407,7 +409,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
   let totalRevenue=0, collected=0, outstanding=0, overdueAmt=0, overdueCount=0, draftCount=0, sentCount=0, partialCount=0;
   savedInvoices.forEach(inv => {
    const { total: t, settled, balance } = invoiceTotals(inv);
-   const isOverdue = inv.status !== 'Paid' && inv.dueDate && new Date(inv.dueDate) < today;
+   const isOverdue = inv.status !== 'Paid' && inv.dueDate && parseLocalDate(inv.dueDate) < today;
    totalRevenue += t;
    if (inv.status === 'Paid') collected += t;
    else {
@@ -435,7 +437,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
   const today = new Date(); today.setHours(0,0,0,0);
   const buckets = { 'Not yet due': 0, '0–30 days': 0, '31–60 days': 0, '61–90 days': 0, '90+ days': 0 };
   savedInvoices.filter(inv => inv.status !== 'Paid' && inv.dueDate).forEach(inv => {
-   const days = Math.floor((today - new Date(inv.dueDate)) / 86400000);
+   const days = daysBetween(today, inv.dueDate);
    const bal = invoiceTotals(inv).balance;
    // Invoices that have not reached their due date are not aged debt.
    if (days <= 0) buckets['Not yet due'] += bal;
@@ -451,10 +453,10 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
   const today = new Date(); today.setHours(0,0,0,0);
   let res = savedInvoices.map(inv => {
    const { total, received, settled, balance } = invoiceTotals(inv);
-   const isOverdue = inv.status !== 'Paid' && inv.dueDate && new Date(inv.dueDate) < today;
+   const isOverdue = inv.status !== 'Paid' && inv.dueDate && parseLocalDate(inv.dueDate) < today;
    const isPaid = inv.status === 'Paid';
    const isPartial = !isPaid && settled > 0;
-   const daysOverdue = isOverdue ? Math.floor((today - new Date(inv.dueDate)) / 86400000) : 0;
+   const daysOverdue = isOverdue ? daysBetween(today, inv.dueDate) : 0;
    const statusLabel = isPaid ? 'Paid' : isOverdue ? 'Overdue' : isPartial ? 'Partial' : (inv.status||'Draft');
    return {...inv, _total: total, _received: received, _balance: balance, _isPaid: isPaid, _isOverdue: isOverdue, _isPartial: isPartial, _daysOverdue: daysOverdue, _statusLabel: statusLabel };
   });
@@ -2514,7 +2516,7 @@ const ClientsPage = ({
    return a + (r > 0 ? r : t);
   }, 0) + (Number(client.advanceReceived)||0);
   const outstanding = Math.max(0, totalBilled - totalReceived);
-  const overdueInvs = clientInvs.filter(i => i.status !== 'Paid' && i.dueDate && new Date(i.dueDate) < today);
+  const overdueInvs = clientInvs.filter(i => i.status !== 'Paid' && i.dueDate && parseLocalDate(i.dueDate) < today);
   const unpaidInvs = clientInvs.filter(i => i.status !== 'Paid');
   const paidCount = clientInvs.filter(i => i.status === 'Paid').length;
   const collectionRate = totalBilled > 0 ? Math.round((totalReceived / totalBilled) * 100) : 0;
@@ -2933,7 +2935,7 @@ const ClientProfile = ({ client, invoices, bankRecords, pettyCash, onBack, onCre
  }, [bankRecords, pettyCash, client]);
  const invoiceSummary = useMemo(() => clientInvoices.map(inv => {
   const { total, received, settled, balance } = invoiceTotals(inv);
-  const isOverdue = inv.status !== 'Paid' && inv.dueDate && new Date(inv.dueDate) < today;
+  const isOverdue = inv.status !== 'Paid' && inv.dueDate && parseLocalDate(inv.dueDate) < today;
   const outstanding = inv.status === 'Paid' ? 0 : balance;
   const statusLabel = inv.status === 'Paid' ? 'Paid' : isOverdue ? 'Overdue' : settled > 0 ? 'Partial' : (inv.status || 'Unpaid');
   return { ...inv, total, received, outstanding, isOverdue, statusLabel };
@@ -3276,7 +3278,7 @@ const ClientProfile = ({ client, invoices, bankRecords, pettyCash, onBack, onCre
     const todayMs = today.getTime();
     invoiceSummary.filter(i => i.outstanding > 0).forEach(inv => {
      if (!inv.dueDate) { aging.current += inv.outstanding; return; }
-     const days = Math.floor((todayMs - new Date(inv.dueDate).getTime()) / 86400000);
+     const days = daysBetween(new Date(todayMs), inv.dueDate);
      if (days <= 0)       aging.current  += inv.outstanding;
      else if (days <= 30) aging.d1_30    += inv.outstanding;
      else if (days <= 60) aging.d31_60   += inv.outstanding;
@@ -3918,9 +3920,9 @@ const VendorBillsPage = ({ vendorBills, vendors, currentUser, onNewBill, onEdit,
   const paid    = Number(b.paidAmount) || 0;
   const due     = Math.max(0, net - paid);
   const isPaid  = b.status === 'Paid' || due <= 0;
-  const dueDate = b.dueDate ? new Date(b.dueDate) : null;
+  const dueDate = b.dueDate ? parseLocalDate(b.dueDate) : null;
   const isOverdue = !isPaid && dueDate && dueDate < today;
-  const daysOverdue = isOverdue ? Math.floor((today - dueDate) / 86400000) : 0;
+  const daysOverdue = isOverdue ? daysBetween(today, dueDate) : 0;
   const monthNum  = b.date ? b.date.slice(0,7) : '';
   const monthName = (() => { try { return new Date(b.date).toLocaleString('default', { month: 'long', year: 'numeric' }); } catch { return b.date; } })();
   const payPct    = net > 0 ? Math.min(100, (paid / net) * 100) : 0;
@@ -5063,13 +5065,13 @@ const ReceivablesPayables = ({ clients, invoices, vendors, vendorBills, bankReco
    (a, inv) => a + (inv.status === 'Paid' ? 0 : invoiceTotals(inv).balance), 0
   ) - (Number(client.advanceReceived)||0));
   const today = new Date(); today.setHours(0,0,0,0);
-  const overdueInvs = clientInvoices.filter(i => i.status!=='Paid' && i.dueDate && new Date(i.dueDate) < today);
+  const overdueInvs = clientInvoices.filter(i => i.status!=='Paid' && i.dueDate && parseLocalDate(i.dueDate) < today);
   const aging = { current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0 };
   clientInvoices.filter(i => i.status !== 'Paid').forEach(inv => {
    const invTotal = invoiceTotal(inv);
    const bal = invoiceTotals(inv).balance;
    if (!inv.dueDate) { aging.current += bal; return; }
-   const days = Math.floor((today - new Date(inv.dueDate)) / 86400000);
+   const days = daysBetween(today, inv.dueDate);
    if (days <= 0) aging.current += bal;
    else if (days <= 30) aging.d30 += bal;
    else if (days <= 60) aging.d60 += bal;
@@ -5700,6 +5702,27 @@ function App() {
   }
  };
 
+ // Records that a payment reminder was sent, so the chase list can reorder.
+ const handleRecordReminder = async (row) => {
+  if (!canWrite) return;
+  const today = new Date().toISOString().split('T')[0];
+  const inv = invoices.find(i => i.id === row.id);
+  if (!inv) return;
+  const payload = {
+   ...inv,
+   lastRemindedAt: today,
+   remindersSent: (Number(inv.remindersSent) || 0) + 1,
+  };
+  try {
+   const res = await invoicesAPI.update(inv.id, payload);
+   setInvoices(prev => prev.map(i => i.id === inv.id ? res.data : i));
+  } catch (e) {
+   // The message has already gone out; a failed bookkeeping write must not
+   // look like the reminder itself failed.
+   toast('Reminder sent, but recording it failed. It may show as unchased.', 'warning');
+  }
+ };
+
  // Creates employee master records reconstructed from existing payslips.
  const handleEmployeeImport = async (drafts) => {
   if (currentUser?.role !== 'Admin') return toast('Employee records are restricted to Admin users.', 'error');
@@ -6010,7 +6033,7 @@ function App() {
   .reduce((a, inv) => a + invoiceTotals(inv).balance, 0);
  const today = new Date(); today.setHours(0, 0, 0, 0);
  const overdueCount = invoices.filter(inv =>
-  inv.status !== 'Paid' && inv.dueDate && new Date(inv.dueDate) < today
+  inv.status !== 'Paid' && inv.dueDate && parseLocalDate(inv.dueDate) < today
  ).length;
  const invoiceRevenueBreakdown = invoiceRevenue;
  const pettyCashInBreakdown = manualPettyCashIn;
@@ -6173,6 +6196,7 @@ function App() {
    <SectionLabel>Sales</SectionLabel>
    <NavButton id="quotations" icon={FileCheck} label="Quotations" />
    <NavButton id="invoices" icon={FileText} label="Invoices" />
+   <NavButton id="collections" icon={Bell} label="Collections" />
    <NavButton id="clients" icon={Briefcase} label="Clients" />
    <SectionLabel>Expenses</SectionLabel>
    <NavButton id="expenses" icon={Receipt} label="Expenses" />
@@ -6185,6 +6209,7 @@ function App() {
    <NavButton id="bank" icon={Building2} label="Bank Accounts" />
    <NavButton id="receivables-payables" icon={CreditCard} label="Receivables & Payables" />
    <SectionLabel>Reports</SectionLabel>
+   <NavButton id="cashflow" icon={TrendingUp} label="Cash Flow" />
    <NavButton id="reports" icon={FileText} label="P&L Analytics" />
    <NavButton id="tax-report" icon={Landmark} label="Tax Liability" />
    <NavButton id="statements" icon={BookOpen} label="Client Statements" />
@@ -6219,6 +6244,8 @@ function App() {
      view === 'vendor-profile' && selectedVendorProfile ? selectedVendorProfile.name :
      view === 'receivables-payables' ? 'Receivables & Payables' :
      view === 'tax-report' ? 'Tax Liability' :
+     view === 'collections' ? 'Collections' :
+     view === 'cashflow' ? 'Cash Flow Forecast' :
      view === 'employees' ? 'Employees' :
      view === 'salaries' ? 'Team Salaries' :
      view === 'expenses' ? 'Expenses' :
@@ -6229,10 +6256,10 @@ function App() {
      view === 'petty-cash' ? 'Petty Cash' :
      view.replace(/-/g, ' ')}
     </h2>
-    <p className="text-slate-500 font-medium">{view === 'employees' ? 'Staff records, salary structures & increment history' : view === 'salaries' ? 'Payroll, payslips & employee analytics' : view === 'expenses' ? 'Business expenses, categories & tax credits' : view === 'petty-cash' ? 'Cash float, ledger & expense tracking' : view === 'vendors' ? 'Suppliers, service vendors & payables' : view === 'vendor-bills' ? 'Bills, WHT tracking & payment status' : view === 'manage-users' ? 'Team accounts, roles & access control' : view === 'bank' ? 'Transactions, cash flow & account ledger' : 'Overview & Management'}</p>
+    <p className="text-slate-500 font-medium">{view === 'collections' ? 'Who to chase today, and for how much' : view === 'cashflow' ? 'Money due in and out over the coming months' : view === 'employees' ? 'Staff records, salary structures & increment history' : view === 'salaries' ? 'Payroll, payslips & employee analytics' : view === 'expenses' ? 'Business expenses, categories & tax credits' : view === 'petty-cash' ? 'Cash float, ledger & expense tracking' : view === 'vendors' ? 'Suppliers, service vendors & payables' : view === 'vendor-bills' ? 'Bills, WHT tracking & payment status' : view === 'manage-users' ? 'Team accounts, roles & access control' : view === 'bank' ? 'Transactions, cash flow & account ledger' : 'Overview & Management'}</p>
    </div>
    <div className="flex flex-col sm:flex-row gap-4 w-full xl:w-auto">
-    {!['dashboard','receivables-payables','client-profile','vendor-profile','tax-report','reports','statements','clients','employees','salaries','petty-cash','expenses','vendors','vendor-bills','manage-users','bank'].includes(view) && <div className="relative flex-1 sm:w-72 group"><Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/><input className="w-full pl-12 pr-4 py-3 rounded-2xl border-none bg-white shadow-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-violet-500 outline-none transition-all font-medium text-slate-600" placeholder="Search records..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
+    {!['dashboard','receivables-payables','client-profile','vendor-profile','tax-report','reports','statements','clients','employees','salaries','collections','cashflow','petty-cash','expenses','vendors','vendor-bills','manage-users','bank'].includes(view) && <div className="relative flex-1 sm:w-72 group"><Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/><input className="w-full pl-12 pr-4 py-3 rounded-2xl border-none bg-white shadow-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-violet-500 outline-none transition-all font-medium text-slate-600" placeholder="Search records..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>}
     {['clients'].includes(view) && (
      <div className="flex gap-3">
       <label className="bg-white px-4 py-3 rounded-2xl font-bold text-sm text-slate-600 shadow-sm ring-1 ring-slate-200 hover:ring-violet-300 hover:text-violet-600 transition-all cursor-pointer flex items-center gap-2">
@@ -6243,7 +6270,7 @@ function App() {
       </button>
      </div>
     )}
-    {canWrite && !['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report','clients','employees','salaries','petty-cash','expenses','vendors','vendor-bills','manage-users','bank'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
+    {canWrite && !['dashboard','reports','invoices','settings','statements','quotations','receivables-payables','client-profile','vendor-profile','tax-report','clients','employees','salaries','collections','cashflow','petty-cash','expenses','vendors','vendor-bills','manage-users','bank'].includes(view) && <button onClick={()=>{setShowForm(true);setFormData({});setIsEditingUser(false);setIsEditingRecord(false);}} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105 active:scale-95 transition-all"><Plus size={20}/> New Entry</button>}
    </div>
   </header>
   {view === 'dashboard' && (
@@ -6653,6 +6680,17 @@ function App() {
   {view === 'vendor-profile' && selectedVendorProfile && <VendorProfile vendor={selectedVendorProfile} vendorBills={vendorBills} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('vendors')} />}
   {view === 'expenses' && <ExpensesPage expenses={expenses} expenseCategories={expenseCategories} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onGenerateRecurring={handleGenerateRecurringExpenses} onApproveExpense={async (id) => { try { const res = await expensesAPI.update(id, { approvalStatus: 'Approved' }); setExpenses(prev => prev.map(e => e.id === id ? {...e, approvalStatus: 'Approved'} : e)); toast('Expense approved!', 'success'); } catch(e) { toast('Failed to approve.', 'error'); } }} onImportExpenses={(e) => handleGenericImport(e, 'expenses')} onNewExpense={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { if(!canWrite) return; setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = expenses.find(x=>x.id===id); handleDelete(id, 'expense', r?.description||''); }} />}
   {view === 'petty-cash' && <PettyCashPage pettyCash={pettyCash} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} appSettings={appSettings} onNewEntry={(type) => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0], _entryType: type || 'out' }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { if(!canWrite) return; setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = pettyCash.find(x=>x.id===id); handleDelete(id, 'petty', r?.description||''); }} />}
+  {view === 'collections' && <Collections
+   invoices={invoices} clients={clients} companyProfile={companyProfile}
+   canWrite={canWrite} toast={toast}
+   onRecordReminder={handleRecordReminder}
+   onOpenInvoice={() => setView('invoices')}
+  />}
+  {view === 'cashflow' && <CashFlow
+   invoices={invoices} vendorBills={vendorBills} salaries={salaries} expenses={expenses}
+   bankRecords={bankRecords} pettyCash={pettyCash} appSettings={appSettings}
+   companyProfile={companyProfile} toast={toast}
+  />}
   {view === 'employees' && <EmployeesPage
    employees={employees} salaries={salaries} canWrite={currentUser?.role === 'Admin'} toast={toast}
    onImport={currentUser?.role === 'Admin' ? () => setShowEmployeeImport(true) : null}
