@@ -137,6 +137,25 @@ export function parseLocalDate(value) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+/**
+ * Today's date as YYYY-MM-DD, in the user's own calendar.
+ *
+ * `new Date().toISOString().split('T')[0]` was used everywhere for this, but
+ * toISOString converts to UTC first. In Pakistan (UTC+5) that means between
+ * midnight and 5am it returns *yesterday* — so a payslip entered at 2am was
+ * dated a day early, and one entered in the small hours of the 1st fell into
+ * the previous month's pay period.
+ */
+export function todayISO(date) {
+  const d = date instanceof Date ? date : new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** The current month as YYYY-MM, in the user's own calendar. */
+export function currentMonthISO(date) {
+  return todayISO(date).slice(0, 7);
+}
+
 /** Local midnight today — the reference point for all age calculations. */
 export function startOfDay(value) {
   const d = value ? parseLocalDate(value) : new Date();
@@ -255,7 +274,7 @@ export async function downloadElementAsPDF(elementId, filename) {
 
 // Date helpers
 export function today() {
-  return new Date().toISOString().split('T')[0];
+  return todayISO();
 }
 
 export function formatDate(dateStr) {

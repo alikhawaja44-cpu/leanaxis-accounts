@@ -7,6 +7,8 @@
 // payment details. `computePayroll()` is the single source of truth for
 // gross / total deductions / net across the whole application.
 
+import { parseLocalDate } from './helpers';
+
 const num = (v) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -104,8 +106,10 @@ export function payPeriodLabel(input) {
   const s = input || {};
   const src = s.payPeriod ? `${s.payPeriod}-01` : s.date;
   if (!src) return '—';
-  const d = new Date(src);
-  if (isNaN(d.getTime())) return String(src);
+  // Parsed as a local calendar date; a raw `new Date('2026-07-01')` is UTC
+  // midnight and renders as June in any timezone behind UTC.
+  const d = parseLocalDate(src);
+  if (!d) return String(src);
   return d.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
 }
 
@@ -114,8 +118,8 @@ export function payPeriodKey(input) {
   const s = input || {};
   if (s.payPeriod) return String(s.payPeriod).slice(0, 7);
   if (!s.date) return '';
-  const d = new Date(s.date);
-  if (isNaN(d.getTime())) return String(s.date).slice(0, 7);
+  const d = parseLocalDate(s.date);
+  if (!d) return String(s.date).slice(0, 7);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 

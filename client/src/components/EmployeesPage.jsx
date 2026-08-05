@@ -7,7 +7,7 @@ import {
   Users, Plus, Search, Edit, Trash2, X, TrendingUp, TrendingDown,
   Calendar, Briefcase, ChevronRight, Wallet, CheckCircle, Download,
 } from 'lucide-react';
-import { formatCurrency } from '../utils/helpers';
+import { formatCurrency, todayISO, currentMonthISO, parseLocalDate } from '../utils/helpers';
 import {
   STRUCTURE_EARNINGS, STRUCTURE_DEDUCTIONS, EMPLOYEE_STATUSES,
   pickStructure, structureGross, structureFor, currentStructure,
@@ -34,10 +34,10 @@ const STATUS_STYLES = {
 
 const fmtDate = (d) => {
   if (!d) return '—';
-  const x = new Date(d);
-  return isNaN(x.getTime())
-    ? String(d)
-    : x.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const x = parseLocalDate(d);
+  return x
+    ? x.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    : String(d);
 };
 
 const initials = (n) =>
@@ -48,7 +48,7 @@ const RevisionModal = ({ employee, onClose, onSave, toast }) => {
   const latest = currentStructure(employee) || pickStructure({});
   const [form, setForm] = useState({
     ...latest,
-    effectiveFrom: new Date().toISOString().split('T')[0],
+    effectiveFrom: todayISO(),
     reason: '',
   });
 

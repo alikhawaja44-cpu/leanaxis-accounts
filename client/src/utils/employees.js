@@ -7,6 +7,7 @@
 // re-opened months later still shows the figures that were correct at the time.
 
 import { EARNING_FIELDS, DEDUCTION_FIELDS, payPeriodKey } from './payroll';
+import { todayISO, currentMonthISO } from './helpers';
 
 const num = (v) => {
   const n = Number(v);
@@ -54,7 +55,7 @@ export function sortedHistory(employee) {
  */
 export function structureFor(employee, periodKey) {
   const e = employee || {};
-  const key = periodKey || new Date().toISOString().slice(0, 7);
+  const key = periodKey || currentMonthISO();
   // Compare against the last day of the pay month so a revision effective
   // mid-month still applies to that month's payslip.
   const cutoff = `${key}-31`;
@@ -102,9 +103,9 @@ export function draftSalaryFor(employeeInput, periodKey, paymentDate) {
 
 /** Last calendar day of a "YYYY-MM" period, as an ISO date string. */
 export function lastDayOf(periodKey) {
-  const key = periodKey || new Date().toISOString().slice(0, 7);
+  const key = periodKey || currentMonthISO();
   const [y, m] = key.split('-').map(Number);
-  if (!y || !m) return new Date().toISOString().split('T')[0];
+  if (!y || !m) return todayISO();
   return new Date(Date.UTC(y, m, 0)).toISOString().split('T')[0];
 }
 

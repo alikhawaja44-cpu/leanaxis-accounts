@@ -8,7 +8,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { X, Printer, Download, Share2, Loader2 } from 'lucide-react';
-import { formatCurrency } from '../utils/helpers';
+import { formatCurrency, parseLocalDate } from '../utils/helpers';
 import FitToWidth from './FitToWidth';
 import {
   computePayroll,
@@ -132,15 +132,18 @@ export const PayslipDocument = ({ data = {}, companyProfile = {}, appSettings = 
 
   const fmtDate = (d) => {
     if (!d) return '—';
-    const x = new Date(d);
-    return isNaN(x.getTime())
-      ? String(d)
-      : x.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    const x = parseLocalDate(d);
+    return x
+      ? x.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+      : String(d);
   };
 
   const paymentMode =
     data.paymentMode || (data.chequeNumber ? 'Cheque' : data.bankName ? 'Bank Transfer' : 'Cash');
   const isCheque = paymentMode === 'Cheque';
+  // One resolution used by both the detail table and the verification line, so
+  // the two can never print different dates for the same cheque.
+  const effectiveChequeDate = isCheque ? (data.chequeDate || data.date || '') : '';
 
   return (
     <div className="ps-doc" id="salary-slip-printable">
@@ -303,7 +306,7 @@ export const PayslipDocument = ({ data = {}, companyProfile = {}, appSettings = 
           {isCheque && (
             <tr>
               <td className="k">Cheque Date</td>
-              <td className="v">{data.chequeDate ? fmtDate(data.chequeDate) : fmtDate(data.date)}</td>
+              <td className="v">{effectiveChequeDate ? fmtDate(effectiveChequeDate) : '—'}</td>
               <td className="k">Payment Status</td>
               <td className="v">{data.status || 'Unpaid'}</td>
             </tr>
@@ -318,7 +321,7 @@ export const PayslipDocument = ({ data = {}, companyProfile = {}, appSettings = 
           <b>Payment Verification</b>
           <span>
             Paid by Cheque No. <span className="cno">{data.chequeNumber || '—'}</span>
-            {data.chequeDate || data.date ? ` dated ${fmtDate(data.chequeDate || data.date)}` : ''}
+            {effectiveChequeDate ? ` dated ${fmtDate(effectiveChequeDate)}` : ''}
             {data.bankName ? `, drawn on ${data.bankName}` : ''}
             {data.accountNumber ? `, credited to A/C ${data.accountNumber}` : ''}
             {' '}for {formatCurrency(pay.net)}.

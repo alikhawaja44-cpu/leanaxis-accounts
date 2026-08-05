@@ -8,7 +8,7 @@
 //
 // Everything is derived from dates already recorded — nothing new to enter.
 
-import { invoiceTotals, parseLocalDate, startOfDay, daysBetween } from './helpers';
+import { invoiceTotals, parseLocalDate, startOfDay, daysBetween, todayISO } from './helpers';
 import { computePayroll, payPeriodKey } from './payroll';
 
 const num = (v) => {
@@ -26,7 +26,7 @@ export const startOfToday = (now) => startOfDay(now ? new Date(now) : undefined)
 export const parseDate = parseLocalDate;
 
 const dayDiff = (a, b) => daysBetween(a, b);
-const iso = (d) => d.toISOString().split('T')[0];
+const iso = (d) => todayISO(d);
 
 /**
  * Money currently held: bank ledger balance plus the petty cash float.

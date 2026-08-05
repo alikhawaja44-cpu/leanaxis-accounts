@@ -4,7 +4,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { X, Users, Loader2, CheckCircle, AlertTriangle, Wallet, Calendar } from 'lucide-react';
-import { formatCurrency } from '../utils/helpers';
+import { formatCurrency, todayISO, currentMonthISO } from '../utils/helpers';
 import { computePayroll, withTotals } from '../utils/payroll';
 import {
   activeForPeriod, draftSalaryFor, lastDayOf, periodLabelOf, structureFor,
@@ -14,7 +14,7 @@ const PayrollRun = ({
   employees = [], salaries = [], companyProfile = {},
   onClose, onGenerate, toast = () => {},
 }) => {
-  const thisMonth = new Date().toISOString().slice(0, 7);
+  const thisMonth = currentMonthISO();
   const [period, setPeriod] = useState(thisMonth);
   const [paymentDate, setPaymentDate] = useState(lastDayOf(thisMonth));
   const [excluded, setExcluded] = useState({});

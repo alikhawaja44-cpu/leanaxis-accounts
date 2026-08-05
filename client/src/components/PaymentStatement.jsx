@@ -8,7 +8,7 @@
 
 import React, { useMemo } from 'react';
 import { Printer, CreditCard } from 'lucide-react';
-import { formatCurrency } from '../utils/helpers';
+import { formatCurrency, parseLocalDate } from '../utils/helpers';
 import { computePayroll, payPeriodLabel, payPeriodKey } from '../utils/payroll';
 import FitToWidth from './FitToWidth';
 
@@ -77,10 +77,10 @@ export const STATEMENT_CSS = `
 
 const fmtDate = (d) => {
   if (!d) return '—';
-  const x = new Date(d);
-  return isNaN(x.getTime())
-    ? String(d)
-    : x.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const x = parseLocalDate(d);
+  return x
+    ? x.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    : String(d);
 };
 
 /** Adds payment metadata and duplicate-cheque flags to a list of salary records. */
@@ -101,6 +101,9 @@ export function buildStatementRows(salariesInput) {
         ...s,
         mode,
         isCheque: mode === 'Cheque',
+        // Resolved identically to the payslip: an explicit cheque date if one was
+        // recorded, otherwise the payment date.
+        effectiveChequeDate: mode === 'Cheque' ? (s.chequeDate || s.date || '') : '',
         net: p.net,
         period: payPeriodLabel(s),
         periodKey: payPeriodKey(s),
@@ -199,7 +202,7 @@ export const PaymentStatementDocument = ({
               <td>{r.bankName || '—'}</td>
               <td className={r.chequeNumber ? 'mono' : undefined}>
                 {r.chequeNumber || (r.isCheque ? '— missing —' : '—')}
-                {r.chequeDate && <span className="sub">{fmtDate(r.chequeDate)}</span>}
+                {r.effectiveChequeDate && <span className="sub">{fmtDate(r.effectiveChequeDate)}</span>}
                 {r.duplicateCheque && <span className="st-pill dup">Duplicate</span>}
               </td>
               <td className={r.accountNumber ? 'mono' : undefined} style={{ fontSize: '8.5px' }}>

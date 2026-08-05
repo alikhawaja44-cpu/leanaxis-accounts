@@ -20,7 +20,7 @@ import {
 } from './utils/api';
 
 // Utilities
-import { formatCurrency, calculateTax, calcInvoiceTotal, invoiceTotals, invoiceTotal, descriptionMatchesParty, escapeHtml, parseLocalDate, daysBetween, printDocument, downloadElementAsPDF, today, exportToCSV, updateCurrencyFormatter } from './utils/helpers';
+import { formatCurrency, calculateTax, calcInvoiceTotal, invoiceTotals, invoiceTotal, descriptionMatchesParty, escapeHtml, parseLocalDate, daysBetween, todayISO, currentMonthISO, printDocument, downloadElementAsPDF, today, exportToCSV, updateCurrencyFormatter } from './utils/helpers';
 import {
   computePayroll, withTotals, payPeriodLabel, payPeriodKey,
   EARNING_FIELDS, DEDUCTION_FIELDS, PAYMENT_MODES, netOf, grossOf,
@@ -127,7 +127,7 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
   return `${prefix}-${String(counter).padStart(3, '0')}`;
  };
  const [quoteNumber, setQuoteNumber] = useState(() => nextQuoteNumber());
- const [quoteData, setQuoteData] = useState({ client: '', date: new Date().toISOString().split('T')[0], validUntil: '', items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0, notes: '', status: 'Pending' });
+ const [quoteData, setQuoteData] = useState({ client: '', date: todayISO(), validUntil: '', items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0, notes: '', status: 'Pending' });
  const addItem = () => setQuoteData({...quoteData, items: [...quoteData.items, { desc: '', qty: 1, rate: 0 }]});
  const updateItem = (index, field, val) => { const newItems = [...quoteData.items]; newItems[index][field] = val; setQuoteData({...quoteData, items: newItems}); };
  const removeItem = (index) => { if(quoteData.items.length > 1) setQuoteData({...quoteData, items: quoteData.items.filter((_, i) => i !== index)}); };
@@ -148,7 +148,7 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
      <div className="flex gap-2 w-full sm:w-auto">
       {canWrite && <button onClick={() => {
        setQuoteNumber(nextQuoteNumber());
-       setQuoteData({ client: '', date: new Date().toISOString().split('T')[0], validUntil: '', items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0, notes: '', status: 'Pending' });
+       setQuoteData({ client: '', date: todayISO(), validUntil: '', items: [{ desc: '', qty: 1, rate: 0 }], taxRate: 0, notes: '', status: 'Pending' });
        setViewMode('create');
       }} className="flex-1 sm:flex-none bg-amber-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-amber-600 shadow-lg shadow-amber-200 transition-all hover:scale-105 active:scale-95"><Plus size={18}/> New Quote</button>}
       <button onClick={() => exportToCSV(savedQuotations, 'Quotations_Export')} className="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 shadow-sm"><Download size={15}/> Export</button>
@@ -183,7 +183,7 @@ const QuotationGenerator = ({ clients, onSave, savedQuotations, onDeleteQuotatio
            <td className="p-5 text-center">
             <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
              {q.status !== 'Converted' && canWrite && <button onClick={() => onConvertToInvoice(q)} className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors" title="Convert to Invoice"><CheckCircle size={16} /></button>}
-             {canWrite && <button onClick={() => { const newNum = nextQuoteNumber(); setQuoteData({...q, id: undefined, status: 'Pending', date: new Date().toISOString().split('T')[0]}); setQuoteNumber(newNum); if(onUpdateSettings) onUpdateSettings(prev=>({...prev,quoteCounter:(Number(prev.quoteCounter)||1)+1})); setViewMode('create'); }} className="p-2 text-amber-400 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors" title="Duplicate Quote"><Copy size={16}/></button>}
+             {canWrite && <button onClick={() => { const newNum = nextQuoteNumber(); setQuoteData({...q, id: undefined, status: 'Pending', date: todayISO()}); setQuoteNumber(newNum); if(onUpdateSettings) onUpdateSettings(prev=>({...prev,quoteCounter:(Number(prev.quoteCounter)||1)+1})); setViewMode('create'); }} className="p-2 text-amber-400 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors" title="Duplicate Quote"><Copy size={16}/></button>}
              {canWrite && <button onClick={() => { setQuoteData(q); setQuoteNumber(q.quoteNumber || ''); setViewMode('create'); }} className="p-2 text-amber-500 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors"><Edit size={16} /></button>}
              {canWrite && <button onClick={() => onDeleteQuotation(q.id)} className="p-2 text-rose-400 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"><Trash2 size={16} /></button>}
             </div>
@@ -300,7 +300,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
  const toast = useToast();
  const [viewMode, setViewMode] = useState('list'); // 'list' | 'create' | 'preview'
  const [invoiceData, setInvoiceData] = useState({
-  client: '', date: new Date().toISOString().split('T')[0],
+  client: '', date: todayISO(),
   dueDate: '', items: [{ desc: '', qty: 1, rate: 0 }],
   taxRate: appSettings.defaultTaxRate || 0, discount: 0, notes: '', terms: appSettings.defaultPaymentTerms || '', status: 'Draft'
  });
@@ -323,7 +323,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
     : [{ desc: '', qty: 1, rate: 0 }];
    setInvoiceData({
     client: pendingClient.name || '',
-    date: new Date().toISOString().split('T')[0],
+    date: todayISO(),
     dueDate: '',
     items,
     taxRate: appSettings.defaultTaxRate || 0,
@@ -366,9 +366,9 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
   }
  }, [invoiceData.client, clients, viewMode]);
  const setDueDays = (days) => {
-  const d = new Date(invoiceData.date || new Date());
+  const d = parseLocalDate(invoiceData.date) || new Date();
   d.setDate(d.getDate() + days);
-  setInvoiceData(prev => ({...prev, dueDate: d.toISOString().split('T')[0]}));
+  setInvoiceData(prev => ({...prev, dueDate: todayISO(d)}));
  };
  const handleShareWhatsApp = (inv) => {
   const data   = inv || invoiceData;
@@ -591,7 +591,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
      <button onClick={() => exportToCSV(savedInvoices,'Invoices_Export')} className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-slate-50 transition-all shadow-sm"><Download size={14}/> Export</button>
      <button onClick={onGenerateRecurring} className="bg-white border border-violet-200 text-violet-600 px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-violet-50 transition-all shadow-sm"><RefreshCw size={14}/> Retainers</button>
      <button onClick={() => {
-      setInvoiceData({ client:'', date: new Date().toISOString().split('T')[0], dueDate:'', items:[{desc:'',qty:1,rate:0}], taxRate: appSettings.defaultTaxRate||0, discount:0, notes:'', terms: appSettings.defaultPaymentTerms||'', status:'Draft' });
+      setInvoiceData({ client:'', date: todayISO(), dueDate:'', items:[{desc:'',qty:1,rate:0}], taxRate: appSettings.defaultTaxRate||0, discount:0, notes:'', terms: appSettings.defaultPaymentTerms||'', status:'Draft' });
       setInvoiceNumber(nextInvNumber());
       setViewMode('create');
      }} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:shadow-lg hover:shadow-violet-200 transition-all hover:scale-105 active:scale-95 shadow-sm">
@@ -612,7 +612,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
      <div className="bg-violet-50 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-5"><FileText className="text-violet-300" size={40}/></div>
      <h3 className="text-lg font-bold text-slate-800 mb-2">{savedInvoices.length===0?'No invoices yet':'No invoices match your filters'}</h3>
      <p className="text-slate-400 text-sm mb-6">{savedInvoices.length===0?'Create your first invoice to start billing clients.':'Try clearing your filters.'}</p>
-     {savedInvoices.length===0 && <button onClick={()=>{ setInvoiceData({client:'',date:new Date().toISOString().split('T')[0],dueDate:'',items:[{desc:'',qty:1,rate:0}],taxRate:appSettings.defaultTaxRate||0,discount:0,notes:'',terms:appSettings.defaultPaymentTerms||'',status:'Draft'}); setInvoiceNumber(nextInvNumber()); setViewMode('create'); }} className="bg-violet-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-violet-700 transition-colors">+ Create First Invoice</button>}
+     {savedInvoices.length===0 && <button onClick={()=>{ setInvoiceData({client:'',date:todayISO(),dueDate:'',items:[{desc:'',qty:1,rate:0}],taxRate:appSettings.defaultTaxRate||0,discount:0,notes:'',terms:appSettings.defaultPaymentTerms||'',status:'Draft'}); setInvoiceNumber(nextInvNumber()); setViewMode('create'); }} className="bg-violet-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-violet-700 transition-colors">+ Create First Invoice</button>}
     </div>
    )}
    {}
@@ -705,7 +705,7 @@ const InvoiceGenerator = ({ clients, onSave, savedInvoices, onDeleteInvoice, onG
             <button onClick={() => {
              // Duplicate: copy invoice with new number and today's date
              const newNum = nextInvNumber();
-             setInvoiceData({...inv, id: undefined, status: 'Draft', date: new Date().toISOString().split('T')[0], amountReceived: 0, paidDate: ''});
+             setInvoiceData({...inv, id: undefined, status: 'Draft', date: todayISO(), amountReceived: 0, paidDate: ''});
              setInvoiceNumber(newNum);
              setViewMode('create');
              if (onUpdateSettings) onUpdateSettings(prev => ({...prev, invoiceCounter: (Number(prev.invoiceCounter)||1) + 1}));
@@ -2369,7 +2369,7 @@ const ClientStatement = ({ clients, invoices, bankRecords, pettyCash, companyPro
   const clientRecord = clients.find(c => c.name === selectedClient);
   const manualAdvance = clientRecord && Number(clientRecord.advanceReceived) > 0 ? [{
    id: 'manual-adv',
-   date: clientRecord.date || new Date().toISOString().split('T')[0],
+   date: clientRecord.date || todayISO(),
    description: 'Opening Advance (from Client Record)',
    type: 'Opening Credit',
    debit: 0,
@@ -5705,7 +5705,7 @@ function App() {
  // Records that a payment reminder was sent, so the chase list can reorder.
  const handleRecordReminder = async (row) => {
   if (!canWrite) return;
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayISO();
   const inv = invoices.find(i => i.id === row.id);
   if (!inv) return;
   const payload = {
@@ -5769,7 +5769,7 @@ function App() {
  };
 
  const handleEdit = (item) => { if (currentUser.role !== 'Admin') return toast('Access denied. Admin role required.', 'error'); setFormData({ ...item }); setIsEditingRecord(true); setShowForm(true); };
- const handleDuplicate = (item) => { const { id, createdAt, lastEditedAt, ...dataToCopy } = item; setFormData({ ...dataToCopy, date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); };
+ const handleDuplicate = (item) => { const { id, createdAt, lastEditedAt, ...dataToCopy } = item; setFormData({ ...dataToCopy, date: todayISO() }); setIsEditingRecord(false); setShowForm(true); };
  const handleMasterExport = async () => {
   try {
    const res = await settingsAPI.exportData();
@@ -5778,7 +5778,7 @@ function App() {
    const url = URL.createObjectURL(blob);
    const link = document.createElement('a');
    link.href = url;
-   link.download = `LeanAxis_Backup_${new Date().toISOString().split('T')[0]}.json`;
+   link.download = `LeanAxis_Backup_${todayISO()}.json`;
    document.body.appendChild(link); link.click(); document.body.removeChild(link);
    URL.revokeObjectURL(url);
    toast('Backup downloaded!', 'success');
@@ -5846,12 +5846,12 @@ function App() {
   if (!entry) return;
   setIsSubmitting(true);
   try {
-   let data = { ...formData, date: formData.date || new Date().toISOString().split('T')[0] };
+   let data = { ...formData, date: formData.date || todayISO() };
    if (view === 'employees' && !isEditingRecord) {
     // First structure becomes the opening entry of the revision history.
     data.salaryHistory = [{
      ...STRUCTURE_FIELDS.reduce((a, k) => ({ ...a, [k]: Number(data[k]) || 0 }), {}),
-     effectiveFrom: data.joiningDate || new Date().toISOString().split('T')[0],
+     effectiveFrom: data.joiningDate || todayISO(),
      reason: 'Initial salary',
      revisedBy: currentUser.username,
     }];
@@ -5860,6 +5860,16 @@ function App() {
     // Persist gross / total deductions / net alongside the components so that
     // reports and exports never have to recompute from partial data.
     data = withTotals({ ...data, payPeriod: data.payPeriod || data.date.slice(0, 7) });
+    if (data.paymentMode === 'Cheque') {
+     // Store the cheque date explicitly. It used to be shown in the form and on
+     // the payslip via fallbacks but never saved, so the payment statement —
+     // which has no fallback — showed a cheque with no date against it.
+     data.chequeDate = data.chequeDate || data.date;
+    } else {
+     // Switching away from cheque should not leave stale cheque details behind.
+     delete data.chequeDate;
+     delete data.chequeNumber;
+    }
    }
    // Handle file upload if any
    if (fileToUpload && appSettings.imgbbKey) {
@@ -6152,10 +6162,10 @@ function App() {
    setView(targetView);
    if (targetView === 'petty-cash') {
    const prefix = appSettings.billPrefix||'BILL';
-   setFormData({ date: new Date().toISOString().split('T')[0], _entryType: type || 'out' });
+   setFormData({ date: todayISO(), _entryType: type || 'out' });
    } else if (targetView === 'invoices') {
    } else {
-   setFormData({ date: new Date().toISOString().split('T')[0] });
+   setFormData({ date: todayISO() });
    setIsEditingRecord(false);
    setShowForm(true);
    }
@@ -6278,13 +6288,13 @@ function App() {
     {}
     {(() => {
      const today = new Date(); today.setHours(0,0,0,0);
-     const todayStr = today.toISOString().split('T')[0];
+     const todayStr = todayISO(today);
      const dueToday = invoices.filter(i => i.status !== 'Paid' && i.dueDate === todayStr).length;
      const billsDueToday = vendorBills.filter(b => b.status !== 'Paid' && b.dueDate === todayStr).length;
      const bankTotal = bankRecords.reduce((a,r) => a + (Number(r.amount)||0) * (r.type === 'credit' || Number(r.amount) > 0 ? 1 : -1), 0);
      const cashFloat = (appSettings.pettyCashOpeningBalance||0) + pettyCash.reduce((a,r) => a + (Number(r.cashIn)||0) - (Number(r.cashOut)||0), 0);
      const thisMonthExp = expenses.filter(e => e.date && e.date.startsWith(todayStr.slice(0,7))).reduce((a,e)=>a+(Number(e.amount)||0), 0);
-     const lastMonthStart = new Date(today.getFullYear(), today.getMonth()-1, 1).toISOString().slice(0,7);
+     const lastMonthStart = currentMonthISO(new Date(today.getFullYear(), today.getMonth()-1, 1));
      const lastMonthRev = invoices.filter(i => i.status === 'Paid' && i.paidDate && i.paidDate.startsWith(lastMonthStart)).reduce((a,i)=>a+invoiceTotal(i),0);
      const thisMonthRev = invoices.filter(i => i.status === 'Paid' && i.paidDate && i.paidDate.startsWith(todayStr.slice(0,7))).reduce((a,i)=>a+invoiceTotal(i),0);
      const netProfit = thisMonthRev - thisMonthExp;
@@ -6675,11 +6685,11 @@ function App() {
   })()}
   {view === 'statements' && <ClientStatement clients={clients} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} companyProfile={companyProfile} />}
   {view === 'receivables-payables' && <ReceivablesPayables clients={clients} invoices={invoices} vendors={vendors} vendorBills={vendorBills} bankRecords={bankRecords} pettyCash={pettyCash} onViewClient={(c) => { setSelectedClientProfile(c); setView('client-profile'); }} onViewVendor={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
-  {view === 'clients' && <ClientsPage clients={clients} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onViewProfile={(c) => { setSelectedClientProfile(c); setView('client-profile'); }} onEdit={(c) => { if(!canWrite) return; setFormData({...c}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = clients.find(x=>x.id===id); handleDelete(id, 'client', r?.name||''); }} onNewClient={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} />}
+  {view === 'clients' && <ClientsPage clients={clients} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onViewProfile={(c) => { setSelectedClientProfile(c); setView('client-profile'); }} onEdit={(c) => { if(!canWrite) return; setFormData({...c}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = clients.find(x=>x.id===id); handleDelete(id, 'client', r?.name||''); }} onNewClient={() => { if(!canWrite) return; setFormData({ date: todayISO() }); setIsEditingRecord(false); setShowForm(true); }} />}
   {view === 'client-profile' && selectedClientProfile && <ClientProfile client={selectedClientProfile} invoices={invoices} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('clients')} onCreateInvoice={(client) => { setNewInvoiceForClient(client); setView('invoices'); }} onRecordPayment={(inv) => initiatePayment(inv, 'invoice', invoiceTotals(inv).balance)} />}
   {view === 'vendor-profile' && selectedVendorProfile && <VendorProfile vendor={selectedVendorProfile} vendorBills={vendorBills} bankRecords={bankRecords} pettyCash={pettyCash} onBack={() => setView('vendors')} />}
-  {view === 'expenses' && <ExpensesPage expenses={expenses} expenseCategories={expenseCategories} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onGenerateRecurring={handleGenerateRecurringExpenses} onApproveExpense={async (id) => { try { const res = await expensesAPI.update(id, { approvalStatus: 'Approved' }); setExpenses(prev => prev.map(e => e.id === id ? {...e, approvalStatus: 'Approved'} : e)); toast('Expense approved!', 'success'); } catch(e) { toast('Failed to approve.', 'error'); } }} onImportExpenses={(e) => handleGenericImport(e, 'expenses')} onNewExpense={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { if(!canWrite) return; setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = expenses.find(x=>x.id===id); handleDelete(id, 'expense', r?.description||''); }} />}
-  {view === 'petty-cash' && <PettyCashPage pettyCash={pettyCash} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} appSettings={appSettings} onNewEntry={(type) => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0], _entryType: type || 'out' }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { if(!canWrite) return; setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = pettyCash.find(x=>x.id===id); handleDelete(id, 'petty', r?.description||''); }} />}
+  {view === 'expenses' && <ExpensesPage expenses={expenses} expenseCategories={expenseCategories} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onGenerateRecurring={handleGenerateRecurringExpenses} onApproveExpense={async (id) => { try { const res = await expensesAPI.update(id, { approvalStatus: 'Approved' }); setExpenses(prev => prev.map(e => e.id === id ? {...e, approvalStatus: 'Approved'} : e)); toast('Expense approved!', 'success'); } catch(e) { toast('Failed to approve.', 'error'); } }} onImportExpenses={(e) => handleGenericImport(e, 'expenses')} onNewExpense={() => { if(!canWrite) return; setFormData({ date: todayISO() }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { if(!canWrite) return; setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = expenses.find(x=>x.id===id); handleDelete(id, 'expense', r?.description||''); }} />}
+  {view === 'petty-cash' && <PettyCashPage pettyCash={pettyCash} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} appSettings={appSettings} onNewEntry={(type) => { if(!canWrite) return; setFormData({ date: todayISO(), _entryType: type || 'out' }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(r) => { if(!canWrite) return; setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = pettyCash.find(x=>x.id===id); handleDelete(id, 'petty', r?.description||''); }} />}
   {view === 'collections' && <Collections
    invoices={invoices} clients={clients} companyProfile={companyProfile}
    canWrite={canWrite} toast={toast}
@@ -6694,16 +6704,16 @@ function App() {
   {view === 'employees' && <EmployeesPage
    employees={employees} salaries={salaries} canWrite={currentUser?.role === 'Admin'} toast={toast}
    onImport={currentUser?.role === 'Admin' ? () => setShowEmployeeImport(true) : null}
-   onNew={() => { if(currentUser?.role !== 'Admin') return toast('Employee records are restricted to Admin users.', 'error'); setFormData({ status: 'Active', paymentMode: 'Bank Transfer', joiningDate: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }}
+   onNew={() => { if(currentUser?.role !== 'Admin') return toast('Employee records are restricted to Admin users.', 'error'); setFormData({ status: 'Active', paymentMode: 'Bank Transfer', joiningDate: todayISO() }); setIsEditingRecord(false); setShowForm(true); }}
    onEdit={(e) => { if(currentUser?.role !== 'Admin') return toast('Employee records are restricted to Admin users.', 'error'); setFormData({ ...e }); setIsEditingRecord(true); setShowForm(true); }}
    onDelete={(e) => handleDelete(e.id, 'employee', e.name || '')}
    onRevise={handleSalaryRevision}
   />}
-  {view === 'salaries' && <SalariesPage salaries={salaries} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} companyProfile={companyProfile} onNewSalary={() => { if(currentUser?.role !== 'Admin') return toast('Payroll is restricted to Admin users.', 'error'); const d = new Date().toISOString().split('T')[0]; setFormData({ date: d, payPeriod: d.slice(0,7), status: 'Unpaid', paymentMode: 'Bank Transfer' }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(s) => { if(currentUser?.role !== 'Admin') return toast('Payroll is restricted to Admin users.', 'error'); setFormData({...s}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = salaries.find(x=>x.id===id); handleDelete(id, 'salary', r?.employeeName||''); }} onViewSlip={(s) => { if (s) setSlipData(s); }} onRunPayroll={currentUser?.role === 'Admin' ? () => setShowPayrollRun(true) : null} />}
+  {view === 'salaries' && <SalariesPage salaries={salaries} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} companyProfile={companyProfile} onNewSalary={() => { if(currentUser?.role !== 'Admin') return toast('Payroll is restricted to Admin users.', 'error'); const d = todayISO(); setFormData({ date: d, payPeriod: d.slice(0,7), status: 'Unpaid', paymentMode: 'Bank Transfer' }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(s) => { if(currentUser?.role !== 'Admin') return toast('Payroll is restricted to Admin users.', 'error'); setFormData({...s}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = salaries.find(x=>x.id===id); handleDelete(id, 'salary', r?.employeeName||''); }} onViewSlip={(s) => { if (s) setSlipData(s); }} onRunPayroll={currentUser?.role === 'Admin' ? () => setShowPayrollRun(true) : null} />}
   {view === 'quotations' && <QuotationGenerator clients={clients} onSave={(q) => saveRecord('quotations', q, q.id)} savedQuotations={quotations} onDeleteQuotation={(id) => { const r = quotations.find(x=>x.id===id); handleDelete(id, 'quotation', r?.client||''); }} onConvertToInvoice={handleConvertToInvoice} companyProfile={companyProfile} appSettings={appSettings} onUpdateSettings={setAppSettings} canWrite={canWrite} />}
   {view === 'invoices' && <InvoiceGenerator clients={clients} onSave={(inv) => saveRecord('invoices', inv, inv.id)} savedInvoices={invoices} onDeleteInvoice={(id) => { const r = invoices.find(x=>x.id===id); handleDelete(id, 'invoice', r?.client ? `Invoice #${r.invoiceNumber} — ${r.client}` : ''); }} onGenerateRecurring={handleGenerateRecurring} onReceivePayment={(inv, amt) => initiatePayment(inv, 'invoice', amt)} companyProfile={companyProfile} appSettings={appSettings} onUpdateSettings={setAppSettings} canWrite={canWrite} pendingClient={newInvoiceForClient} onClearPendingClient={() => setNewInvoiceForClient(null)} />}
-  {view === 'vendors' && <VendorsPage vendors={vendors} vendorBills={vendorBills} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewVendor={() => { if(!canWrite) return; setFormData({ date: new Date().toISOString().split('T')[0] }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(v) => { if(!canWrite) return; setFormData({...v}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendors.find(x=>x.id===id); handleDelete(id, 'vendor', r?.name||''); }} onViewProfile={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
-  {view === 'vendor-bills' && <VendorBillsPage vendorBills={vendorBills} vendors={vendors} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewBill={() => { if(!canWrite) return; const prefix = appSettings.billPrefix||'BILL'; const num = `${prefix}-${String(Number(appSettings.billCounter||1)).padStart(3,'0')}`; setFormData({ date: new Date().toISOString().split('T')[0], billNumber: num }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(b) => { if(!canWrite) return; setFormData({...b}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendorBills.find(x=>x.id===id); handleDelete(id, 'bill', r?.vendor ? `${r.vendor} — ${r.billNumber||r.description||''}` : ''); }} onPayBill={(b, amt) => initiatePayment(b, 'bill', amt)} />}
+  {view === 'vendors' && <VendorsPage vendors={vendors} vendorBills={vendorBills} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewVendor={() => { if(!canWrite) return; setFormData({ date: todayISO() }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(v) => { if(!canWrite) return; setFormData({...v}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendors.find(x=>x.id===id); handleDelete(id, 'vendor', r?.name||''); }} onViewProfile={(v) => { setSelectedVendorProfile(v); setView('vendor-profile'); }} />}
+  {view === 'vendor-bills' && <VendorBillsPage vendorBills={vendorBills} vendors={vendors} currentUser={currentUser} canWrite={canWrite} canDelete={canDelete} onNewBill={() => { if(!canWrite) return; const prefix = appSettings.billPrefix||'BILL'; const num = `${prefix}-${String(Number(appSettings.billCounter||1)).padStart(3,'0')}`; setFormData({ date: todayISO(), billNumber: num }); setIsEditingRecord(false); setShowForm(true); }} onEdit={(b) => { if(!canWrite) return; setFormData({...b}); setIsEditingRecord(true); setShowForm(true); }} onDelete={(id) => { const r = vendorBills.find(x=>x.id===id); handleDelete(id, 'bill', r?.vendor ? `${r.vendor} — ${r.billNumber||r.description||''}` : ''); }} onPayBill={(b, amt) => initiatePayment(b, 'bill', amt)} />}
   {view === 'manage-users' && <ManageUsersPage
    users={users}
    currentUser={currentUser}
@@ -6714,7 +6724,7 @@ function App() {
   {view === 'bank' && <BankAccountsPage
    bankRecords={bankRecords}
    currentUser={currentUser}
-   onNewEntry={() => { setFormData({ date: new Date().toISOString().split('T')[0], status: 'Cleared' }); setIsEditingRecord(false); setShowForm(true); }}
+   onNewEntry={() => { setFormData({ date: todayISO(), status: 'Cleared' }); setIsEditingRecord(false); setShowForm(true); }}
    onEdit={(r) => { setFormData({...r}); setIsEditingRecord(true); setShowForm(true); }}
    onDelete={(id) => { const r = bankRecords.find(x=>x.id===id); handleDelete(id, 'bank', r?.description||r?.bank||''); }}
   />}
@@ -7434,7 +7444,7 @@ function App() {
            onChange={e => {
             const emp = employees.find(x => x.id === e.target.value);
             if (!emp) return setF({ employeeRef: '' });
-            const period = formData.payPeriod || (formData.date||'').slice(0,7) || new Date().toISOString().slice(0,7);
+            const period = formData.payPeriod || (formData.date||'').slice(0,7) || currentMonthISO();
             if (!structureFor(emp, period)) {
              toast(`${emp.name} has no salary structure effective for ${periodLabelOf(period)}.`, 'warning');
             }
@@ -7505,7 +7515,14 @@ function App() {
          </div>
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Payment Date *</label>
-          <input type="date" required className="form-input" value={formData.date||''} onChange={e=>setF({date:e.target.value})} />
+          <input type="date" required className="form-input" value={formData.date||''}
+           onChange={e=>{
+            const next = e.target.value;
+            // The cheque date follows the payment date while it matches it;
+            // once deliberately set to something else it is left alone.
+            const tracking = !formData.chequeDate || formData.chequeDate === formData.date;
+            setF(tracking ? { date: next, chequeDate: next } : { date: next });
+           }} />
          </div>
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Status</label>
@@ -7602,7 +7619,13 @@ function App() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <div>
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Payment Mode</label>
-          <select className="form-select" value={formData.paymentMode || 'Bank Transfer'} onChange={e=>setF({paymentMode:e.target.value})}>
+          <select className="form-select" value={formData.paymentMode || 'Bank Transfer'}
+           onChange={e=>{
+            const mode = e.target.value;
+            setF(mode === 'Cheque' && !formData.chequeDate
+             ? { paymentMode: mode, chequeDate: formData.date || '' }
+             : { paymentMode: mode });
+           }}>
            {PAYMENT_MODES.map(m => <option key={m}>{m}</option>)}
           </select>
          </div>
@@ -7636,9 +7659,19 @@ function App() {
            </div>
            <div>
             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Cheque Date</label>
-            <input type="date" className="form-input bg-white" value={formData.chequeDate || formData.date || ''} onChange={e=>setF({chequeDate:e.target.value})} />
+            <input type="date" className="form-input bg-white"
+             value={formData.chequeDate || formData.date || ''}
+             onChange={e=>setF({chequeDate:e.target.value})} />
            </div>
           </div>
+          {formData.chequeDate && formData.date && formData.chequeDate !== formData.date && (
+           <p className="text-xs font-bold text-slate-600 bg-slate-100 border border-slate-300 rounded-xl px-3 py-2">
+            Cheque is dated {formData.chequeDate} but the payment is recorded on {formData.date}.
+            Both dates will print on the payslip and the statement.
+            {' '}<button type="button" className="underline font-extrabold text-indigo-700"
+             onClick={()=>setF({chequeDate:formData.date})}>Make them the same</button>
+           </p>
+          )}
           {chequeClash && (
            <p className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2">
             Cheque #{formData.chequeNumber} is already recorded for {chequeClash.employeeName} on {chequeClash.date}. Please confirm this is not a duplicate entry.
